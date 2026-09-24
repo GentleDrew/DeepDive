@@ -1,0 +1,407 @@
+-- Unit tests for the pure modules. Run with:  lune run tests/run.luau
+local fs = require("@lune/fs")
+local process = require("@lune/process")
+
+local Config = require("../src/shared/Config")
+local Economy = require("../src/shared/Economy")
+local Format = require("../src/shared/Format")
+local Profile = require("../src/shared/Profile")
+local Strings = require("../src/shared/Strings")
+local Worlds = require("../src/shared/Data/Worlds")
+
+local passed, failed = 0, 0
+local function check(condition: any, message: string)
+	if condition then
+		passed += 1
+	else
+		failed += 1
+		print("  FAIL: " .. message)
+	end
+end
+local function section(name: string)
+	print("- " .. name)
+end
+
+local function definedShapes(path: string): { [string]: boolean }
+	local source = fs.readFile(path)
+	local shapes = {}
+	for name in string.gmatch(source, "SHAPES%.(%w+)%s*=%s*function") do
+		shapes[name] = true
+	end
+	return shapes
+end
+
+local TERRAIN_MATERIALS = {
+	Grass = true,
+	LeafyGrass = true,
+	Sand = true,
+	Rock = true,
+	Slate = true,
+	Basalt = true,
+	Ground = true,
+	Mud = true,
+	Snow = true,
+	Glacier = true,
+	Ice = true,
+	CrackedLava = true,
+	Limestone = true,
+	Sandstone = true,
+	Salt = true,
+	Pavement = true,
+	Asphalt = true,
+	Cobblestone = true,
+	Concrete = true,
+	Brick = true,
+	WoodPlanks = true,
+}
+local HAZARDS = { jelly = true, urchin = true, puffer = true, eel = true, shard = true, lava = true, orb = true }
+local STYLES = { neon = true, glass = true, ghost = true, gold = true, rainbow = true, cosmic = true }
+
+local function isHex(value: any): boolean
+	return type(value) == "string" and string.match(value, "^#%x%x%x%x%x%x$") ~= nil
+end
+
+section("World data")
+do
+	local petShapes = definedShapes("src/shared/Models/PetModels.luau")
+	local relicShapes = definedShapes("src/shared/Models/RelicModels.luau")
+	local decor = fs.readFile("src/server/World/Decor.luau")
+	check(#Worlds.list == Config.WorldCount, "there are exactly " .. Config.WorldCount .. " worlds")
+	local seenKeys = {}
+	for index, world in Worlds.list do
+		local label = "world " .. index
+		check(world.index == index, label .. " index")
+		check(world.name.en ~= "" and world.name.ko ~= "", label .. " has English and Korean names")
+		check(not seenKeys[world.key], label .. " key unique")
+		seenKeys[world.key] = true
+		check(#world.relics == 5, label .. " has 5 relics")
+		check(#world.pets == 5, label .. " has 5 pets")
+		check(isHex(world.water), label .. " water colour")
+		check(isHex(world.accent[1]) and isHex(world.accent[2]), label .. " accent colours")
+		check(#world.fish >= 3, label .. " fish colours")
+		for _, hex in world.fish do
+			check(isHex(hex), label .. " fish colour " .. tostring(hex))
+		end
+		for _, key in { "land", "beach", "rock", "floor", "deep" } do
+			check(TERRAIN_MATERIALS[world.terrain[key]] == true, label .. " terrain material " .. key .. " = " .. tostring(world.terrain[key]))
+			check(isHex(world.terrain[key .. "Color"]), label .. " terrain colour " .. key)
+		end
+		for _, key in { "ambient", "outdoor", "atmo", "decay", "cloudColor" } do
+			check(isHex((world.sky :: any)[key]), label .. " sky colour " .. key)
+		end
+		check(isHex(world.under.tint), label .. " underwater tint")
+		check(string.find(decor, "\t" .. world.kit .. " = {", 1, true) ~= nil, label .. " decor kit '" .. world.kit .. "' exists")
+		for rarity, relic in world.relics do
+			check(relic.rarity == rarity, label .. " relic rarity order")
+			check(relicShapes[relic.shape] == true, label .. " relic shape '" .. relic.shape .. "' exists")
+			check(isHex(relic.color) and isHex(relic.accent), label .. " relic colours")
+			check(relic.style == nil or STYLES[relic.style], label .. " relic style")
+			check(relic.name.en ~= "" and relic.name.ko ~= "", label .. " relic names")
+		end
+		for rarity, pet in world.pets do
+			check(pet.rarity == rarity, label .. " pet rarity order")
+			check(petShapes[pet.shape] == true, label .. " pet shape '" .. pet.shape .. "' exists")
+			check(isHex(pet.color) and isHex(pet.accent), label .. " pet colours")
+			check(pet.style == nil or STYLES[pet.style], label .. " pet style")
+		end
+		if world.secret then
+			check(petShapes[world.secret.shape] == true, label .. " secret shape exists")
+			check(world.secret.rarity == 6, label .. " secret rarity")
+		end
+		for _, hazard in world.hazards do
+			check(HAZARDS[hazard.kind] == true, label .. " hazard kind " .. hazard.kind)
+		end
+	end
+	local secrets = 0
+	for _, pet in Worlds.pets do
+		if pet.secret then
+			secrets += 1
+		end
+	end
+	check(secrets == 5, "five secret pets (every fourth world)")
+end
+
+section("Economy curves")
+do
+	for world = 1, Config.WorldCount do
+		if world > 1 then
+			check(Economy.goal(world) > Economy.goal(world - 1), "goal grows at world " .. world)
+			check(Economy.eggCost(world) > Economy.eggCost(world - 1), "egg cost grows at world " .. world)
+			check(Economy.depthStuds(world) > Economy.depthStuds(world - 1), "depth grows at world " .. world)
+			check(Economy.relicValue(world, 1) > Economy.relicValue(world - 1, 1), "relic value grows at world " .. world)
+			check(Economy.pressure(world) > Economy.pressure(world - 1), "pressure grows at world " .. world)
+		end
+		for rarity = 2, 5 do
+			check(Economy.relicValue(world, rarity) > Economy.relicValue(world, rarity - 1), "rarity raises value")
+		end
+		local total = 0
+		for _, entry in Economy.eggChances(world, false) do
+			total += entry.chance
+			check(Worlds.pets[entry.key] ~= nil, "egg chance key valid")
+		end
+		check(math.abs(total - 1) < 1e-9, "egg chances sum to 1 in world " .. world)
+		local luckyTotal = 0
+		for _, entry in Economy.eggChances(world, true) do
+			luckyTotal += entry.chance
+		end
+		check(math.abs(luckyTotal - 1) < 1e-9, "lucky egg chances sum to 1 in world " .. world)
+		for _, roll in { 0, 0.0001, 0.3, 0.6, 0.9, 0.99, 0.999999 } do
+			local key = Economy.rollPet(world, false, roll)
+			check(Worlds.pets[key] ~= nil and Worlds.pets[key].world == world, "rollPet returns a pet of world " .. world)
+		end
+	end
+	check(Economy.rollPet(4, false, 0) == "s4", "roll 0 in a secret egg gives the secret pet")
+	check(Economy.rollPet(1, false, 0) == "p1.1", "roll 0 in a normal egg gives the common pet")
+	for _, def in Config.Upgrades do
+		for level = 1, def.max - 1 do
+			check(Economy.upgradeValue(def.id, level + 1) > Economy.upgradeValue(def.id, level), def.id .. " value grows at " .. level)
+			local cost = Economy.upgradeCost(def.id, level)
+			check(cost ~= nil and cost > 0, def.id .. " has a price at " .. level)
+			if level > 1 then
+				check((Economy.upgradeCost(def.id, level) :: number) > (Economy.upgradeCost(def.id, level - 1) :: number), def.id .. " price grows")
+			end
+		end
+		check(Economy.upgradeCost(def.id, def.max) == nil, def.id .. " has no price at max")
+	end
+	check(Economy.oxygenDrain(1, 0) == 1, "no pressure at the surface")
+	check(Economy.oxygenDrain(20, Economy.depthStuds(20)) > Economy.oxygenDrain(1, Economy.depthStuds(1)), "deep worlds drain faster")
+	local counts = { 0, 0, 0, 0, 0 }
+	for i = 0, 9999 do
+		local r = Economy.rollRarity(0.9, (i + 0.5) / 10000)
+		counts[r] += 1
+	end
+	check(counts[1] > counts[5] and counts[5] > 0, "deep relic rolls include legendaries")
+	check(Economy.nice(12345) == 12000 and Economy.nice(987) == 990 and Economy.nice(42) == 42, "nice rounding")
+end
+
+section("Formatting")
+do
+	check(Format.short(999) == "999", "short 999")
+	check(Format.short(1000) == "1K", "short 1K -> " .. Format.short(1000))
+	check(Format.short(12345) == "12.3K", "short 12.3K -> " .. Format.short(12345))
+	check(Format.short(1500000) == "1.5M", "short 1.5M -> " .. Format.short(1500000))
+	check(Format.short(2.5e12) == "2.5T", "short 2.5T -> " .. Format.short(2.5e12))
+	check(Format.commas(1234567) == "1,234,567", "commas -> " .. Format.commas(1234567))
+	check(Format.commas(12) == "12", "commas small")
+	check(Format.seconds(42.4) == "42s" and Format.seconds(75) == "1:15", "seconds")
+	check(Format.multiplier(1.25) == "x1.25" and Format.multiplier(340) == "x340", "multiplier -> " .. Format.multiplier(340))
+	check(
+		Format.percent(0.6) == "60%" and Format.percent(0.005) == "0.5%" and Format.percent(0.0005) == "0.05%",
+		"percent -> " .. Format.percent(0.0005)
+	)
+	check(Format.fill("World {n}", { n = 3 }) == "World 3", "fill")
+end
+
+section("Strings")
+do
+	local missing = Strings.missingKorean()
+	check(#missing == 0, "every English string has Korean: " .. table.concat(missing, ", "))
+	-- Every literal Strings.get("key") in the code base must exist.
+	local function scan(dir: string)
+		for _, name in fs.readDir(dir) do
+			local path = dir .. "/" .. name
+			if fs.isDir(path) then
+				scan(path)
+			elseif string.sub(name, -5) == ".luau" then
+				local source = fs.readFile(path)
+				for key in string.gmatch(source, 'Strings%.get%("([%w%.]+)"') do
+					-- Keys ending in "." are prefixes completed at runtime (checked separately below).
+					if string.sub(key, -1) ~= "." then
+						check(Strings.hasKey(key), "string key '" .. key .. "' used in " .. path)
+					end
+				end
+				-- Keys the server sends for the client to translate: handler errors and toasts.
+				for key in string.gmatch(source, 'return false, "([%w%.]+)"') do
+					check(Strings.hasKey(key), "error key '" .. key .. "' returned in " .. path)
+				end
+				for key in string.gmatch(source, '"(err%.[%w]+)"') do
+					check(Strings.hasKey(key), "error key '" .. key .. "' used in " .. path)
+				end
+				for key in string.gmatch(source, 'toast", { key = "([%w%.]+)"') do
+					check(Strings.hasKey(key), "toast key '" .. key .. "' pushed in " .. path)
+				end
+			end
+		end
+	end
+	scan("src")
+	for _, def in Config.Upgrades do
+		for _, suffix in { "", ".desc", ".value" } do
+			check(Strings.hasKey("upgrade." .. def.id .. suffix), "upgrade string " .. def.id .. suffix)
+		end
+	end
+	for _, pass in Config.Passes do
+		check(Strings.hasKey("pass." .. pass.key) and Strings.hasKey("pass." .. pass.key .. ".desc"), "pass strings " .. pass.key)
+	end
+	for _, product in Config.Products do
+		check(Strings.hasKey("product." .. product.key), "product string " .. product.key)
+	end
+	for _, rarity in Config.Rarities do
+		check(Strings.hasKey("rarity." .. rarity), "rarity string " .. rarity)
+	end
+	for _, key in { "worlds", "upgrades", "pets", "shop", "settings" } do
+		check(Strings.hasKey("menu." .. key), "menu string " .. key)
+	end
+	Strings.setLanguage("ko")
+	check(Strings.get("world", { n = 2 }) == "월드 2", "Korean fill")
+	Strings.setLanguage("en")
+end
+
+section("Profile repair")
+do
+	local fresh = Profile.reconcile(nil, 100)
+	check(fresh.world == 1 and fresh.unlocked == 1 and fresh.coins == 0, "fresh defaults")
+	local repaired = Profile.reconcile({
+		coins = -50,
+		unlocked = 99,
+		world = 7,
+		upgrades = { tank = 999, pack = "x" },
+		pets = { P1 = { s = "p3.2" }, P2 = { s = "nope" }, P3 = 5 },
+		equipped = { "P1", "P1", "P2" },
+		settings = { lang = "fr", sfx = false },
+		worlds = { ["3"] = { sold = 12, cleared = true, best = 40 }, ["99"] = { sold = 1 } },
+	}, 100)
+	check(repaired.coins == 0, "negative coins clamp to 0")
+	check(repaired.unlocked == Config.WorldCount, "unlocked clamps to world count")
+	check(repaired.world == 7, "world kept when unlocked")
+	check(repaired.upgrades.tank == 30 and repaired.upgrades.pack == 1, "upgrade levels clamp")
+	check(repaired.pets.P1 ~= nil and repaired.pets.P2 == nil and repaired.pets.P3 == nil, "invalid pets dropped")
+	check(#repaired.equipped == 1, "equipped deduplicated and filtered")
+	check(repaired.settings.lang == Config.DefaultLanguage and repaired.settings.sfx == false, "settings repaired")
+	check(repaired.worlds["3"].cleared == true and repaired.worlds["99"] == nil, "world progress filtered")
+	check(repaired.index["p3.2"] == true, "owned pets are in the index")
+	local garbage = Profile.reconcile({ coins = 0 / 0, stats = { dives = math.huge } }, 5)
+	check(garbage.coins == 0 and garbage.stats.dives == 0, "NaN and inf are rejected")
+end
+
+section("Pacing simulation (efficient player)")
+do
+	-- Mirrors the tuning model: pick the best depth/haul per dive, buy the cheapest upgrade,
+	-- hatch a few eggs per world, clear when the goal is met and the chest depth is reachable.
+	local ODDS = Config.EggOdds
+	local seed = 7
+	local rng = {
+		NextNumber = function(_self): number
+			seed = (seed * 1103515245 + 12345) % 2147483648
+			return seed / 2147483648
+		end,
+	}
+	local coins, eggBank = 0, 0
+	local levels = { tank = 1, pack = 1, fins = 1, magnet = 1 }
+	local boosts = {}
+	local t = 0
+	local function bestBoost(): number
+		table.sort(boosts, function(a, b)
+			return a > b
+		end)
+		local sum = 0
+		for i = 1, math.min(3, #boosts) do
+			sum += boosts[i]
+		end
+		return sum
+	end
+	local function dive(world: number)
+		local depth = Economy.depthStuds(world)
+		local oxygen = Economy.upgradeValue("tank", levels.tank)
+		local capacity = Economy.upgradeValue("pack", levels.pack)
+		local speed = Economy.upgradeValue("fins", levels.fins)
+		local magnet = Economy.upgradeValue("magnet", levels.magnet)
+		local best = nil
+		for step = 1, 20 do
+			local r = step / 20
+			local perItem = 34 / speed + 1.4 - magnet * 0.03
+			local descent = 2 * r * depth / (speed * 0.8)
+			for k = 1, math.min(capacity, Config.Dive.ActiveRelics) do
+				local duration = descent + k * perItem
+				local drain = 1 + r * depth * Economy.pressure(world) * 0.75
+				if duration * drain > oxygen * 0.88 then
+					break
+				end
+				local weights = Economy.rarityWeights(r * 0.92)
+				local wsum, vsum = 0, 0
+				for i, w in weights do
+					wsum += w
+					vsum += w * Economy.relicValue(world, i)
+				end
+				local value = k * (vsum / wsum) * (1 + bestBoost())
+				local rate = value / (duration + 7)
+				if not best or rate > best.rate then
+					best = { rate = rate, value = value, time = duration + 7, count = k }
+				end
+			end
+		end
+		return best
+	end
+	local rows = {}
+	for world = 1, Config.WorldCount do
+		local sold, started, eggs = 0, t, 0
+		while true do
+			local result = dive(world) or dive(math.max(1, world - 1))
+			assert(result, "no viable dive")
+			t += result.time
+			sold += result.count
+			coins += result.value * 0.65
+			eggBank += result.value * 0.35
+			while true do
+				local cheapest, cheapestTrack = math.huge, nil
+				for _, def in Config.Upgrades do
+					local cost = Economy.upgradeCost(def.id, levels[def.id])
+					if cost and cost < cheapest then
+						cheapest, cheapestTrack = cost, def.id
+					end
+				end
+				if not cheapestTrack or cheapest > coins then
+					break
+				end
+				coins -= cheapest
+				levels[cheapestTrack] += 1
+			end
+			while eggBank >= Economy.eggCost(world) and eggs < 8 do
+				eggBank -= Economy.eggCost(world)
+				eggs += 1
+				local roll, acc, rarity = rng:NextNumber() * 100, 0, 1
+				for i, odds in ODDS do
+					acc += odds
+					if roll <= acc then
+						rarity = i
+						break
+					end
+				end
+				table.insert(boosts, Economy.petBoost(Worlds.get(world).pets[rarity].key))
+			end
+			if eggs >= 8 then
+				coins += eggBank
+				eggBank = 0
+			end
+			local depth = Economy.depthStuds(world)
+			local chestTime = 2 * depth / (Economy.upgradeValue("fins", levels.fins) * 0.8) + 3
+			local chestDrain = 1 + depth * Economy.pressure(world) * 0.7
+			if sold >= Economy.goal(world) and chestTime * chestDrain < Economy.upgradeValue("tank", levels.tank) * 0.9 then
+				break
+			end
+			if t - started > 5 * 3600 then
+				break
+			end
+		end
+		table.insert(
+			rows,
+			string.format(
+				"  world %2d: %5.1f min (total %6.1f)  tank %2d pack %2d fins %2d magnet %2d  boost x%s",
+				world,
+				(t - started) / 60,
+				t / 60,
+				levels.tank,
+				levels.pack,
+				levels.fins,
+				levels.magnet,
+				Format.short(1 + bestBoost())
+			)
+		)
+	end
+	print(table.concat(rows, "\n"))
+	check(t / 60 > 90 and t / 60 < 240, "efficient full clear takes 1.5-4 hours (" .. math.floor(t / 60) .. " min)")
+end
+
+print(string.format("\n%d passed, %d failed", passed, failed))
+if failed > 0 then
+	process.exit(1)
+end

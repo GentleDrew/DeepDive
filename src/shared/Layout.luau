@@ -73,6 +73,8 @@ function Layout.dock(world: number)
 		portal = Vector3.new(0, info.landY, r + 50),
 		pierStart = Vector3.new(38, info.landY, r + 14),
 		pierEnd = Vector3.new(38, info.landY, r - 26),
+		sell = Vector3.new(-46, info.landY, r + 34),
+		board = Vector3.new(48, info.landY, r + 46),
 		beachHalfWidth = 20,
 	}
 end

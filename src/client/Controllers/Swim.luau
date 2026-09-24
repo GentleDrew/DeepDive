@@ -173,6 +173,7 @@ function Swim.init(app: any)
 		emitter.Rate = 0
 		emitter.Parent = part
 		emitter:Emit(if big then 40 else 18)
+		app.WorldFx.ring(Vector3.new(position.X, Config.SurfaceY + 0.15, position.Z), Color3.fromRGB(230, 250, 255), if big then 8 else 4.5, 0.7)
 		task.delay(1.5, function()
 			part:Destroy()
 		end)

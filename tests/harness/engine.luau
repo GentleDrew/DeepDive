@@ -2475,6 +2475,62 @@ method("DataStoreService", "GetDataStore", function(_, name, scope)
 	end
 	return fakeStore(name .. (if scope then "/" .. scope else ""))
 end)
+Engine.orderedStores = {}
+method("DataStoreService", "GetOrderedDataStore", function(_, name)
+	checkType(name, "string", "GetOrderedDataStore", "name")
+	if Engine.options.studio then
+		error("Studio access to API services is not enabled (simulated)", 2)
+	end
+	local store = Engine.orderedStores[name]
+	if store then
+		return store
+	end
+	store = { name = name, data = {} }
+	function store:SetAsync(key, value)
+		if type(key) ~= "string" or #key == 0 or #key > 50 then
+			error("OrderedDataStore key must be a 1-50 character string", 2)
+		end
+		if type(value) ~= "number" or value ~= math.floor(value) then
+			error("OrderedDataStore values must be integers (got " .. tostring(value) .. ")", 2)
+		end
+		lunetask.wait(0.01)
+		store.data[key] = value
+	end
+	function store:GetSortedAsync(ascending, pageSize)
+		if type(ascending) ~= "boolean" or type(pageSize) ~= "number" or pageSize < 1 or pageSize > 100 then
+			error("GetSortedAsync(ascending: boolean, pageSize: 1-100)", 2)
+		end
+		lunetask.wait(0.01)
+		local list = {}
+		for key, value in store.data do
+			table.insert(list, { key = key, value = value })
+		end
+		table.sort(list, function(a, b)
+			if ascending then
+				return a.value < b.value
+			end
+			return a.value > b.value
+		end)
+		local page = {}
+		for i = 1, math.min(pageSize, #list) do
+			page[i] = list[i]
+		end
+		return {
+			IsFinished = #list <= pageSize,
+			GetCurrentPage = function()
+				return page
+			end,
+			AdvanceToNextPageAsync = function() end,
+		}
+	end
+	Engine.orderedStores[name] = store
+	return store
+end)
+method("Players", "GetNameFromUserIdAsync", function(_, userId)
+	checkType(userId, "number", "GetNameFromUserIdAsync", "userId")
+	return "User" .. tostring(userId)
+end)
+
 method("DataStoreService", "GetRequestBudgetForRequestType", function(_, requestType)
 	if typeof(requestType) ~= "EnumItem" or requestType.EnumType ~= Enum.DataStoreRequestType then
 		error("GetRequestBudgetForRequestType expects a DataStoreRequestType", 2)

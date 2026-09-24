@@ -8,6 +8,7 @@ Remotes.Invoke = "Invoke" -- RemoteFunction: (action, payload) -> { ok, err?, da
 Remotes.Collect = "Collect" -- RemoteEvent client -> server: (layoutId, point)
 Remotes.Hazard = "Hazard" -- RemoteEvent client -> server: (hazardIndex)
 Remotes.Push = "Push" -- RemoteEvent server -> client: (kind, payload)
+Remotes.Board = "LeaderboardData" -- StringValue: JSON top divers for the global board
 
 Remotes.Actions = {
 	Teleport = true,
@@ -21,6 +22,7 @@ Remotes.Actions = {
 	Setting = true,
 	Tutorial = true,
 	Ready = true,
+	Sell = true,
 }
 
 return Remotes

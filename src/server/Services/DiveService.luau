@@ -85,7 +85,7 @@ local function startDive(session: Session)
 	session.mode = "Diving"
 	session.oxygenMax = Economy.upgradeValue("tank", profile.upgrades.tank)
 	session.oxygen = session.oxygenMax
-	session.cargo = {}
+	session.diveStart = #profile.backpack
 	session.surfacedFor = 0
 	session.syncTimer = 0
 	session.maxDepth = 0
@@ -114,6 +114,8 @@ local function clearWorld(session: Session): { [string]: any }
 	return { world = world, reward = reward, nextWorld = nextWorld, all = world == Config.WorldCount }
 end
 
+-- Ends a dive. Treasure stays in the backpack until sold at the sell stand; a rescue (blackout,
+-- death, leaving mid-dive) drops half of what was gathered on this dive.
 -- reason: "surface" | "blackout" | "died" | "leave"
 local function endDive(session: Session, reason: string)
 	if session.mode ~= "Diving" and session.mode ~= "Rescue" then
@@ -121,29 +123,17 @@ local function endDive(session: Session, reason: string)
 	end
 	local profile = session.profile
 	local world = session.world
-	local cargo = session.cargo
-	local rescued = reason == "blackout" or reason == "died"
-	-- Leaving mid-dive settles like a rescue so quitting is never better than surfacing.
-	local penalised = rescued or reason == "leave"
-	local keep = if penalised then Config.Dive.BlackoutKeep else 1
-	local total = 0
-	local discovered = {}
-	for _, key in cargo do
-		total += Economy.relicValueByKey(key)
-		if (profile.relics[key] or 0) == 0 and not table.find(discovered, key) then
-			table.insert(discovered, key)
+	local backpack = profile.backpack
+	local rescued = reason ~= "surface"
+	local gathered = math.max(0, #backpack - session.diveStart)
+	local lost = 0
+	if rescued and gathered > 0 then
+		lost = gathered - math.floor(gathered * Config.Dive.BlackoutKeep)
+		for _ = 1, lost do
+			table.remove(backpack)
 		end
-		profile.relics[key] = (profile.relics[key] or 0) + 1
 	end
-	local payout = math.floor(total * Sessions.multiplier(session) * keep)
-	local counted = if penalised then math.floor(#cargo * keep) else #cargo
-	profile.coins += payout
-	profile.lifetime += payout
-	profile.stats.relics += #cargo
 	local progress = Profile.progress(profile, world)
-	local goal = Economy.goal(world)
-	local wasReady = progress.sold >= goal
-	progress.sold += counted
 	local meters = Economy.displayMeters(world, session.maxDepth)
 	local record = nil
 	if meters > progress.best then
@@ -157,39 +147,97 @@ local function endDive(session: Session, reason: string)
 	if carried and not rescued and not progress.cleared then
 		cleared = clearWorld(session)
 	end
-	if rescued then
+	if rescued and reason ~= "leave" then
 		profile.stats.blackouts += 1
 	end
-	if profile.tutorial == 2 and #cargo > 0 then
+	if profile.tutorial == 2 and #backpack > 0 then
 		profile.tutorial = 3
-	end
-	if profile.tutorial == 3 and not rescued and #cargo > 0 then
-		profile.tutorial = 4
 	end
 
 	session.mode = "Dock"
 	session.oxygen = session.oxygenMax
-	session.cargo = {}
 	session.chestCarried = false
 
-	Net.push(session.player, "sold", {
-		payout = payout,
-		count = #cargo,
-		keys = cargo,
+	Net.push(session.player, "surfaced", {
+		gathered = gathered,
+		lost = lost,
+		cargo = #backpack,
 		rescued = rescued,
 		chest = carried and not rescued,
 		chestLost = carried and rescued,
 		record = record,
-		discovered = discovered,
-		progress = progress.sold,
-		goal = goal,
-		chestReady = not wasReady and progress.sold >= goal and not progress.cleared,
 	})
 	if cleared then
 		Net.push(session.player, "cleared", cleared)
 	end
 	Sync.profile(session)
 	DiveService.rollLayout(session)
+end
+
+-- Sells the whole backpack. Only on the dock, standing at this world's sell stand.
+function DiveService.sell(session: Session, fromPrompt: boolean?): (boolean, string?)
+	local profile = session.profile
+	local backpack = profile.backpack
+	if session.mode ~= "Dock" then
+		return false, "err.diving"
+	end
+	if #backpack == 0 then
+		return false, "nothingToSell"
+	end
+	local root = rootOf(session.player)
+	if not root or not aliveHumanoid(session.player) then
+		return false, "err.generic"
+	end
+	local spot = Layout.origin(session.world) + Layout.dock(session.world).sell
+	local offset = root.Position - spot
+	local reach = Config.SellRadius + (if fromPrompt then 8 else 0)
+	if Vector3.new(offset.X, 0, offset.Z).Magnitude > reach or math.abs(offset.Y) > 10 then
+		return false, "sellFar"
+	end
+	local now = os.clock()
+	if now - session.lastSell < 0.8 then
+		return false, "err.busy"
+	end
+	session.lastSell = now
+	local total = 0
+	local perWorld: { [number]: number } = {}
+	for _, key in backpack do
+		total += Economy.relicValueByKey(key)
+		local relic = Worlds.relics[key]
+		if relic then
+			perWorld[relic.world] = (perWorld[relic.world] or 0) + 1
+		end
+	end
+	local count = #backpack
+	local payout = math.floor(total * Sessions.multiplier(session))
+	profile.coins += payout
+	profile.lifetime += payout
+	table.clear(backpack)
+	session.diveStart = 0
+	local world = session.world
+	local goal = Economy.goal(world)
+	local current = Profile.progress(profile, world)
+	local wasReady = current.sold >= goal
+	for relicWorld, n in perWorld do
+		local progress = Profile.progress(profile, relicWorld)
+		progress.sold += n
+	end
+	local chestReady = not wasReady and current.sold >= goal and not current.cleared
+	if profile.tutorial == 2 or profile.tutorial == 3 then
+		profile.tutorial = 4
+	end
+	Net.push(session.player, "sold", {
+		payout = payout,
+		count = count,
+		progress = current.sold,
+		goal = goal,
+		chestReady = chestReady,
+	})
+	Sync.profile(session)
+	if chestReady then
+		DiveService.rollLayout(session)
+	end
+	return true, nil
 end
 
 local function blackout(session: Session)
@@ -223,6 +271,13 @@ local function tick(session: Session, dt: number)
 	if session.mode == "Dock" then
 		if depth >= Config.Dive.SubmergeDepth and Layout.overLagoon(session.world, position) then
 			startDive(session)
+		elseif #session.profile.backpack > 0 then
+			-- Stepping onto the sell pad sells everything.
+			local spot = Layout.origin(session.world) + Layout.dock(session.world).sell
+			local offset = position - spot
+			if Vector3.new(offset.X, 0, offset.Z).Magnitude <= Config.SellRadius and math.abs(offset.Y) < 8 then
+				DiveService.sell(session)
+			end
 		end
 		return
 	end
@@ -296,7 +351,7 @@ local function onCollect(player: Player, layoutId: any, point: any)
 			reject(session, point, "gone")
 			return
 		end
-		if #session.cargo >= capacity(session) then
+		if #session.profile.backpack >= capacity(session) then
 			reject(session, point, "full")
 			return
 		end
@@ -309,15 +364,27 @@ local function onCollect(player: Player, layoutId: any, point: any)
 		end
 		startDive(session)
 	end
+	local profile = session.profile
 	if point == 0 then
 		session.chestCarried = true
-		Net.push(player, "collected", { point = 0, chest = true, cargo = #session.cargo })
+		Net.push(player, "collected", { point = 0, chest = true, cargo = #profile.backpack })
 		return
 	end
 	local key = session.relics[point]
 	session.relics[point] = nil
-	table.insert(session.cargo, key)
-	Net.push(player, "collected", { point = point, key = key, cargo = #session.cargo, capacity = capacity(session) })
+	table.insert(profile.backpack, key)
+	local discovered = (profile.relics[key] or 0) == 0
+	profile.relics[key] = (profile.relics[key] or 0) + 1
+	profile.stats.relics += 1
+	Sync.stats(session)
+	Net.push(player, "collected", {
+		point = point,
+		key = key,
+		cargo = #profile.backpack,
+		capacity = capacity(session),
+		discovered = discovered,
+		total = profile.relics[key],
+	})
 end
 
 local function onHazard(player: Player, index: any)
@@ -384,7 +451,7 @@ function DiveService.onDied(session: Session)
 end
 
 function DiveService.onLeave(session: Session)
-	if (session.mode == "Diving" or session.mode == "Rescue") and #session.cargo > 0 then
+	if session.mode == "Diving" or session.mode == "Rescue" then
 		endDive(session, if session.mode == "Rescue" then "blackout" else "leave")
 	end
 end

@@ -21,35 +21,44 @@ function Sync.view(session: Sessions.Session)
 	}
 end
 
-function Sync.leaderstats(session: Sessions.Session)
-	local stats: Instance? = session.player:FindFirstChild("leaderstats")
+-- Public stats as player attributes (nameplates, the Tab list and the global board read these)
+-- plus classic leaderstats for tools that expect them.
+function Sync.stats(session: Sessions.Session)
+	local player = session.player
+	local profile = session.profile
+	player:SetAttribute("Coins", profile.coins)
+	player:SetAttribute("Relics", profile.stats.relics)
+	player:SetAttribute("Lifetime", profile.lifetime)
+	local stats: Instance? = player:FindFirstChild("leaderstats")
 	if not stats then
 		local folder = Instance.new("Folder")
 		folder.Name = "leaderstats"
-		local world = Instance.new("IntValue")
-		world.Name = "World"
-		world.Parent = folder
 		local coins = Instance.new("StringValue")
 		coins.Name = "Coins"
 		coins.Parent = folder
-		folder.Parent = session.player
+		local relics = Instance.new("IntValue")
+		relics.Name = "Relics"
+		relics.Parent = folder
+		folder.Parent = player
 		stats = folder
 	end
 	assert(stats, "leaderstats")
-	local worldValue = stats:FindFirstChild("World") :: IntValue?
 	local coinsValue = stats:FindFirstChild("Coins") :: StringValue?
-	if worldValue then
-		worldValue.Value = session.profile.unlocked
-	end
+	local relicsValue = stats:FindFirstChild("Relics") :: IntValue?
 	if coinsValue then
-		coinsValue.Value = Format.short(session.profile.coins)
+		coinsValue.Value = Format.short(profile.coins)
+	end
+	if relicsValue then
+		relicsValue.Value = profile.stats.relics
 	end
 end
+
+Sync.leaderstats = Sync.stats
 
 -- Call after any profile change.
 function Sync.profile(session: Sessions.Session)
 	ProfileStore.markDirty(session.player)
-	Sync.leaderstats(session)
+	Sync.stats(session)
 	Net.push(session.player, "profile", Sync.view(session))
 end
 

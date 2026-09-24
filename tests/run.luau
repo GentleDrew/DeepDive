@@ -238,7 +238,7 @@ do
 	for _, rarity in Config.Rarities do
 		check(Strings.hasKey("rarity." .. rarity), "rarity string " .. rarity)
 	end
-	for _, key in { "worlds", "upgrades", "pets", "shop", "settings" } do
+	for _, key in { "worlds", "upgrades", "pets", "index", "shop", "settings" } do
 		check(Strings.hasKey("menu." .. key), "menu string " .. key)
 	end
 	Strings.setLanguage("ko")
@@ -271,6 +271,15 @@ do
 	check(repaired.index["p3.2"] == true, "owned pets are in the index")
 	local garbage = Profile.reconcile({ coins = 0 / 0, stats = { dives = math.huge } }, 5)
 	check(garbage.coins == 0 and garbage.stats.dives == 0, "NaN and inf are rejected")
+	local realKey = next(Worlds.relics) :: string
+	local bag = Profile.reconcile({ backpack = { realKey, "fake.relic", 42, realKey } }, 5)
+	check(#bag.backpack == 2 and bag.backpack[1] == realKey, "backpack keeps only real relic keys")
+	local huge = {}
+	for i = 1, Config.BackpackHardCap + 50 do
+		huge[i] = realKey
+	end
+	check(#Profile.reconcile({ backpack = huge }, 5).backpack == Config.BackpackHardCap, "backpack capped")
+	check(#Profile.new(5).backpack == 0, "new profiles start with an empty backpack")
 end
 
 section("Pacing simulation (efficient player)")

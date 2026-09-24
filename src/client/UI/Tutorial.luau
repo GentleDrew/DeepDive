@@ -99,7 +99,11 @@ function Tutorial.init(app: any)
 				text = Strings.get("tutorial.1")
 				target = Layout.at(world, 0, 3, info.radius - 4)
 			elseif step == 2 or step == 3 then
-				if app.State.dive.cargo > 0 then
+				if app.State.dive.cargo > 0 and not app.State.dive.active then
+					-- Treasure in the backpack: point at the gold sell pad.
+					text = Strings.get("tutorial.3")
+					target = Layout.at(world, dock.sell.X, dock.sell.Y + 4, dock.sell.Z)
+				elseif app.State.dive.cargo > 0 then
 					text = Strings.get("tutorial.3")
 				else
 					text = Strings.get("tutorial.2")
@@ -140,7 +144,7 @@ function Tutorial.init(app: any)
 			billboard.Enabled = false
 		end
 		-- Sits above the dive bar while in the water, near the bottom edge on land.
-		banner.Position = UDim2.new(0.5, 0, 1, if app.State.dive.inWater or app.State.dive.active then -112 else -24)
+		banner.Position = UDim2.new(0.5, 0, 1, if app.State.dive.inWater or app.State.dive.active then -112 else -70)
 	end)
 	local _ = arrow3d
 	local _c = C

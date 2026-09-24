@@ -7,6 +7,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Build = require(Shared.Models.Build)
 local Color = require(Shared.Color)
+local Config = require(Shared.Config)
 local Layout = require(Shared.Layout)
 local RelicModels = require(Shared.Models.RelicModels)
 local Worlds = require(Shared.Data.Worlds)
@@ -225,6 +226,58 @@ function Dock.build(world: number, parent: Instance): SpawnLocation
 	solid(sign)
 	local signTrim = Build.block(folder, V(8.4, 4, 0.3), signAt * cf(0, 5.2, 0.1), accent)
 	signTrim.Material = Enum.Material.Neon
+
+	-- Sell stand: a glowing gold pad (stepping on it sells the backpack) in front of a market
+	-- stall. The server sells by distance to dock.sell; the pad is the visual.
+	local sellPosition = o + V(dock.sell.X, landY, dock.sell.Z)
+	local sell = CFrame.lookAt(sellPosition, spawnFlat)
+	local GOLD = Color3.fromRGB(255, 208, 72)
+	local GOLD_DARK = Color3.fromRGB(196, 132, 28)
+	local sellRim = Build.column(folder, 0.34, Config.SellRadius * 2, sell * cf(0, 0.3, 0), GOLD_DARK)
+	solid(sellRim)
+	local sellPad = Build.column(folder, 0.36, Config.SellRadius * 2 - 1.6, sell * cf(0, 0.34, 0), GOLD)
+	sellPad.Name = "SellPad"
+	sellPad.Material = Enum.Material.Neon
+	sellPad.Transparency = 0.2
+	sellPad:SetAttribute("World", world)
+	Build.light(sellPad, GOLD, 16, 1.4)
+	local stall = sell * cf(0, 0, 7)
+	solid(Build.block(folder, V(12, 3.4, 3.6), stall * cf(0, 1.7, 0), Color3.fromRGB(250, 244, 230)))
+	Build.block(folder, V(12.4, 0.4, 4), stall * cf(0, 3.6, 0), GOLD_DARK)
+	for _, x in { -5.6, 5.6 } do
+		solid(Build.column(folder, 8, 0.6, stall * cf(x, 4, 1.2), Color3.fromRGB(245, 245, 250)))
+	end
+	for i = 0, 6 do
+		local stripeColor = if i % 2 == 0 then Color3.fromRGB(76, 200, 110) else Color3.fromRGB(255, 255, 255)
+		Build.wedge(folder, V(1.8, 1.4, 5), stall * cf(-5.4 + i * 1.8, 8.4, 0.2), stripeColor)
+	end
+	-- Coin piles and a treasure chest on the counter.
+	for i, offset in { V(-3.6, 3.95, 0), V(-2.4, 3.95, 0.6), V(3.2, 3.95, -0.3) } do
+		for layer = 0, 2 - (i - 1) % 2 do
+			local coin = Build.cylinder(folder, 0.3, 1.2, stall * cf(offset + V(0, layer * 0.3, 0)) * ang(0, 0, rad(90)), GOLD)
+			coin.Material = Enum.Material.Metal
+		end
+	end
+	local counterChest = RelicModels.buildChest(world, 2.2)
+	counterChest:PivotTo(stall * cf(0.6, 4.9, 0) * ang(0, math.pi, 0))
+	counterChest.Parent = folder
+	local sellSign = Build.block(folder, V(8, 2.4, 0.3), stall * cf(0, 10.3, 0.4), Color3.fromRGB(40, 44, 60))
+	sellSign.Name = "SellSign"
+	local sellAnchor = anchorPart(folder, "SellAnchor", sell * cf(0, 3, 0), V(6, 4, 6))
+	prompt(sellAnchor, "Sell", world, "Sell", "Treasure Shop", Config.SellRadius + 4)
+
+	-- Global leaderboard board (the client draws the rankings on BoardScreen).
+	local boardPosition = o + V(dock.board.X, landY, dock.board.Z)
+	local boardAt = CFrame.lookAt(boardPosition, spawnFlat)
+	for _, x in { -8.6, 8.6 } do
+		solid(Build.column(folder, 16, 1, boardAt * cf(x, 8, 0.6), WOOD_DARK))
+	end
+	local frame = Build.block(folder, V(18.4, 14.4, 0.8), boardAt * cf(0, 10, 0.4), accent2)
+	solid(frame)
+	local screen = Build.block(folder, V(17, 13, 0.3), boardAt * cf(0, 10, -0.1), Color3.fromRGB(18, 28, 52))
+	screen.Name = "BoardScreen"
+	local crown = Build.block(folder, V(6, 1.6, 0.9), boardAt * cf(0, 17.8, 0.4), GOLD)
+	crown.Material = Enum.Material.Neon
 
 	-- Invisible boundary around the island so divers stay home.
 	local walls = Instance.new("Folder")

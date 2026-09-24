@@ -149,7 +149,7 @@ session.profile.coins = 48250
 Sync.profile(session)
 Engine.wait(0.5)
 
-for index, name in { "worlds", "upgrades", "pets", "shop", "settings" } do
+for index, name in { "worlds", "upgrades", "pets", "shop", "settings", "index" } do
 	openMenu(name)
 	snap(string.format("%02d_panel_%s", 4 + index, name))
 	closePanels()

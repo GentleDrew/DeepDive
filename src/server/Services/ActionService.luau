@@ -100,6 +100,13 @@ local function ready(player: Player): (boolean, string?, any)
 end
 
 function ActionService.init()
+	Net.on("Sell", function(player: Player): (boolean, string?, any)
+		local session = Sessions.get(player)
+		if not session or not session.ready then
+			return false, "err.notReady"
+		end
+		return DiveService.sell(session, true)
+	end)
 	Net.on("BuyUpgrade", buyUpgrade)
 	Net.on("Teleport", teleport)
 	Net.on("Setting", setting)

@@ -15,6 +15,7 @@ local Sync = require(script.Parent.Sync)
 local WorldBuilder = require(script.Parent.World.WorldBuilder)
 local ActionService = require(script.Parent.Services.ActionService)
 local DiveService = require(script.Parent.Services.DiveService)
+local LeaderboardService = require(script.Parent.Services.LeaderboardService)
 local PetService = require(script.Parent.Services.PetService)
 local PurchaseService = require(script.Parent.Services.PurchaseService)
 
@@ -25,6 +26,7 @@ DiveService.init()
 PetService.init()
 ActionService.init()
 PurchaseService.init()
+LeaderboardService.init()
 
 local function spawnCharacter(player: Player)
 	if not player.Parent then
@@ -46,6 +48,8 @@ local function onCharacter(session: Sessions.Session, character: Model)
 	end
 	character:PivotTo(Layout.spawnCFrame(session.world))
 	humanoid.WalkSpeed = 20
+	-- Clients draw their own nameplates (name + coins) above every diver.
+	humanoid.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None
 	humanoid.Died:Connect(function()
 		DiveService.onDied(session)
 		task.delay(2.5, function()

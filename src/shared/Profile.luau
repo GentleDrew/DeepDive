@@ -21,6 +21,7 @@ export type Data = {
 	petSeq: number,
 	index: { [string]: boolean },
 	relics: { [string]: number },
+	backpack: { string },
 	tutorial: number,
 	settings: { music: boolean, sfx: boolean, lowFx: boolean, hidePets: boolean, lang: string },
 	stats: { dives: number, relics: number, blackouts: number, hatched: number, playtime: number },
@@ -47,6 +48,7 @@ function Profile.new(now: number): Data
 		petSeq = 0,
 		index = {},
 		relics = {},
+		backpack = {},
 		tutorial = 1,
 		settings = { music = true, sfx = true, lowFx = false, hidePets = false, lang = Config.DefaultLanguage },
 		stats = { dives = 0, relics = 0, blackouts = 0, hatched = 0, playtime = 0 },
@@ -143,6 +145,14 @@ function Profile.reconcile(raw: any, now: number): Data
 		for key, value in raw.relics do
 			if type(key) == "string" and Worlds.relics[key] then
 				data.relics[key] = math.floor(number(value, 0, 0))
+			end
+		end
+	end
+	-- Unsold treasure carried between dives (sold only at a world's sell stand).
+	if type(raw.backpack) == "table" then
+		for _, key in raw.backpack do
+			if type(key) == "string" and Worlds.relics[key] and #data.backpack < Config.BackpackHardCap then
+				table.insert(data.backpack, key)
 			end
 		end
 	end

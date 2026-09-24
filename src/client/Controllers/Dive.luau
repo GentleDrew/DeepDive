@@ -9,6 +9,7 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Config = require(Shared.Config)
 local Economy = require(Shared.Economy)
 local Format = require(Shared.Format)
+local Layout = require(Shared.Layout)
 local Strings = require(Shared.Strings)
 local Worlds = require(Shared.Data.Worlds)
 
@@ -41,7 +42,6 @@ function Dive.init(app: any)
 			dive.blackout = false
 			dive.oxygen = payload.oxygen
 			dive.max = payload.max
-			dive.cargo = 0
 			dive.chestCarried = false
 			State.diveChanged:Fire()
 		elseif payload.state == "blackout" then
@@ -80,6 +80,11 @@ function Dive.init(app: any)
 		dive.cargo = payload.cargo
 		app.Relics.confirm(payload.point)
 		app.Hud.bumpCargo()
+		local relic = Worlds.relics[payload.key]
+		if payload.discovered and relic then
+			app.Sfx.play("Discover")
+			app.Toasts.show(Strings.get("newRelic") .. "  " .. Strings.name(relic.name), "rare", utf8.char(0x2728))
+		end
 		if payload.capacity and payload.cargo >= payload.capacity then
 			app.Toasts.show(Strings.get("backpackFull"), "blue", utf8.char(0x1F392))
 		end
@@ -92,46 +97,49 @@ function Dive.init(app: any)
 		end
 	end)
 
-	Net.on("sold", function(payload: any)
+	-- Dive over: treasure stays in the backpack until it is sold at the sell stand.
+	Net.on("surfaced", function(payload: any)
 		dive.active = false
-		dive.cargo = 0
 		dive.chestCarried = false
-		local wasBlackout = dive.blackout
+		dive.cargo = payload.cargo or dive.cargo
 		dive.blackout = false
 		State.diveChanged:Fire()
 		if payload.rescued then
-			app.Screens.rescued(Strings.get("rescued") .. (if payload.payout > 0 then "  +" .. Format.short(payload.payout) else ""))
-		end
-		if payload.payout > 0 then
-			task.delay(if wasBlackout then 2 else 0, function()
-				app.Sfx.play("Sell")
-				app.Effects.floatText("+" .. Format.commas(payload.payout), Color3.fromRGB(255, 226, 90), UDim2.fromScale(0.5, 0.62), 46)
-				local coins = math.clamp(math.floor(payload.count * 1.5) + 4, 6, 24)
-				app.Effects.coinBurst(coins, Vector2.new(0.5, 0.66), app.Hud.coinTarget, function()
-					app.Sfx.play("Coin", 0.9 + math.random() * 0.3)
-				end)
-				if not payload.rescued then
-					app.Toasts.show(Strings.get("sold", { n = payload.count }), "gold", utf8.char(0x1F4B0))
-				end
-			end)
-		end
-		for _, key in payload.discovered or {} do
-			local relic = Worlds.relics[key]
-			if relic and relic.rarity >= 3 then
-				app.Toasts.show(Strings.get("newRelic") .. "  " .. Strings.name(relic.name), "rare", utf8.char(0x2728))
+			local text = Strings.get("rescued")
+			if (payload.lost or 0) > 0 then
+				text ..= "  (" .. Strings.get("lostTreasure", { n = payload.lost }) .. ")"
 			end
+			app.Screens.rescued(text)
+		elseif (payload.cargo or 0) > 0 and not payload.chest then
+			app.Toasts.show(Strings.get("carrying", { n = payload.cargo }), "gold", utf8.char(0x1F392))
 		end
 		if payload.record then
 			app.Toasts.show(Strings.get("depthRecord", { n = payload.record }), "blue", utf8.char(0x1F3C6))
 		end
+		if payload.chestLost then
+			app.Toasts.show(Strings.get("chestLost"), "bad")
+		end
+	end)
+
+	Net.on("sold", function(payload: any)
+		dive.cargo = 0
+		app.Hud.bumpCargo()
+		local world = State.world
+		local spot = Layout.origin(world) + Layout.dock(world).sell
+		app.WorldFx.coinFountain(spot + Vector3.new(0, 0.5, 0), math.clamp(payload.count + 6, 8, 22))
+		app.Sfx.play(if payload.count >= 10 then "SellBig" else "Sell")
+		app.Effects.flash(Color3.fromRGB(255, 226, 120), 0.35, 0.35)
+		app.Effects.floatText("+" .. Format.commas(payload.payout), Color3.fromRGB(255, 226, 90), UDim2.fromScale(0.5, 0.58), 48)
+		local coins = math.clamp(math.floor(payload.count * 1.5) + 6, 8, 26)
+		app.Effects.coinBurst(coins, Vector2.new(0.5, 0.62), app.Hud.coinTarget, function()
+			app.Sfx.play("Coin", 0.9 + math.random() * 0.3)
+		end)
+		app.Toasts.show(Strings.get("sold", { n = payload.count }), "gold", utf8.char(0x1F4B0))
 		if payload.chestReady then
 			task.delay(1.2, function()
 				app.Sfx.play("Unlock")
 				app.Toasts.show(Strings.get("chestReady"), "gold", utf8.char(0x1F451))
 			end)
-		end
-		if payload.chestLost then
-			app.Toasts.show(Strings.get("chestLost"), "bad")
 		end
 	end)
 

@@ -89,6 +89,11 @@ function WorldProps.init(app: any)
 					descendant,
 					{ { text = utf8.char(0x1F93F) .. " " .. Strings.get("menu.upgrades"), size = 52, color = Color3.fromRGB(255, 226, 120) } }
 				)
+			elseif descendant.Name == "SellSign" and descendant:IsA("BasePart") then
+				signGui(
+					descendant,
+					{ { text = utf8.char(0x1F4B0) .. " " .. Strings.get("sellShop"), size = 50, color = Color3.fromRGB(255, 222, 92) } }
+				)
 			elseif descendant.Name == "EggAnchor" and descendant:IsA("BasePart") then
 				local billboard = Instance.new("BillboardGui")
 				billboard.Size = UDim2.fromOffset(300, 96)

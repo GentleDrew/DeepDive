@@ -37,6 +37,7 @@ export type Actions = {
 	openPets: () -> (),
 	openShop: () -> (),
 	openSettings: () -> (),
+	openIndex: () -> (),
 	swimInput: (string, boolean) -> (),
 }
 
@@ -158,17 +159,37 @@ end
 
 -- Menu rail --------------------------------------------------------------------------------------
 
-local MENU_BUTTON = 64
+local MENU_BUTTON = 76
 local MENU_GAP = 10
+local MENU_COUNT = 6
 local menu = Kit.new("Frame", {
 	Name = "Menu",
 	BackgroundTransparency = 1,
-	Size = UDim2.fromOffset(MENU_BUTTON + 4, 5 * MENU_BUTTON + 4 * MENU_GAP),
-	Position = UDim2.new(0, MARGIN, 0.5, if TOUCH_SCALE > 1 then 42 else 30),
+	Size = UDim2.fromOffset(MENU_BUTTON + 4, MENU_COUNT * MENU_BUTTON + (MENU_COUNT - 1) * MENU_GAP),
+	Position = UDim2.new(0, MARGIN, 0.5, if TOUCH_SCALE > 1 then 42 else 34),
 	AnchorPoint = Vector2.new(0, 0.5),
 	Parent = root,
 })
-Kit.list(menu, Enum.FillDirection.Vertical, MENU_GAP, Enum.HorizontalAlignment.Left, Enum.VerticalAlignment.Center)
+-- One column on roomy screens; two columns of three when the canvas is short (and on phones).
+local menuGrid = Kit.new("UIGridLayout", {
+	CellSize = UDim2.fromOffset(MENU_BUTTON, MENU_BUTTON),
+	CellPadding = UDim2.fromOffset(MENU_GAP, MENU_GAP),
+	FillDirection = Enum.FillDirection.Vertical,
+	FillDirectionMaxCells = MENU_COUNT,
+	HorizontalAlignment = Enum.HorizontalAlignment.Left,
+	VerticalAlignment = Enum.VerticalAlignment.Center,
+	SortOrder = Enum.SortOrder.LayoutOrder,
+	Parent = menu,
+}) :: UIGridLayout
+local function layoutMenu(canvas: Vector2)
+	local compact = TOUCH_SCALE > 1 or canvas.Y < 660
+	local perColumn = if compact then 3 else MENU_COUNT
+	local columns = math.ceil(MENU_COUNT / perColumn)
+	menuGrid.FillDirectionMaxCells = perColumn
+	menu.Size = UDim2.fromOffset(columns * MENU_BUTTON + (columns - 1) * MENU_GAP + 4, perColumn * MENU_BUTTON + (perColumn - 1) * MENU_GAP)
+end
+layoutMenu(Gui.canvasSize)
+Gui.resized:Connect(layoutMenu)
 local badges: { [string]: Frame } = {}
 local menuLabels: { [string]: TextLabel } = {}
 
@@ -176,10 +197,10 @@ local function menuButton(key: string, emoji: string, palette: string, order: nu
 	local api = Kit.button({
 		Name = key,
 		Icon = emoji,
-		IconSize = 28,
+		IconSize = 34,
 		Palette = palette,
 		Size = UDim2.fromOffset(MENU_BUTTON, MENU_BUTTON),
-		Radius = 16,
+		Radius = 18,
 		Stroke = 2.5,
 		LayoutOrder = order,
 		Parent = menu,
@@ -187,13 +208,13 @@ local function menuButton(key: string, emoji: string, palette: string, order: nu
 	})
 	local content = api.button:FindFirstChild("Content") :: Frame?
 	if content then
-		content.Position = UDim2.fromOffset(0, -8)
+		content.Position = UDim2.fromOffset(0, -9)
 	end
 	local label = Kit.text({
 		Text = "",
-		TextSize = 13,
-		Size = UDim2.new(1, 0, 0, 16),
-		Position = UDim2.new(0, 0, 1, -18),
+		TextSize = 15,
+		Size = UDim2.new(1, 0, 0, 18),
+		Position = UDim2.new(0, 0, 1, -21),
 		ZIndex = 4,
 		Stroke = 2,
 		StrokeColor = (Theme.Buttons[palette] or Theme.Buttons.Blue)[3],
@@ -239,29 +260,33 @@ local dive = Kit.new("Frame", {
 	AnchorPoint = Vector2.new(0.5, 1),
 	Parent = root,
 })
+-- Bottom row: [bubble + oxygen] [depth, in water only] [backpack], centred as a group.
+local diveRow = Kit.new("Frame", {
+	BackgroundTransparency = 1,
+	Size = UDim2.new(1, 0, 0, 40),
+	Position = UDim2.new(0, 0, 1, 0),
+	AnchorPoint = Vector2.new(0, 1),
+	Parent = dive,
+})
+Kit.list(diveRow, Enum.FillDirection.Horizontal, 10, Enum.HorizontalAlignment.Center, Enum.VerticalAlignment.Center)
+local oxygenGroup = Kit.new("Frame", { BackgroundTransparency = 1, Size = UDim2.fromOffset(284, 40), LayoutOrder = 1, Parent = diveRow })
 local oxygenBar = Kit.progress({
 	Size = UDim2.fromOffset(250, 28),
-	Position = UDim2.new(0, 34, 1, -4),
-	AnchorPoint = Vector2.new(0, 1),
+	Position = UDim2.new(0, 34, 0.5, 0),
+	AnchorPoint = Vector2.new(0, 0.5),
 	Colors = { C.Oxygen, C.OxygenDeep },
 	TextSize = 18,
 	Outline = 2.5,
 	LabelStroke = 2,
-	Parent = dive,
+	Parent = oxygenGroup,
 })
-local bubble = Kit.Icons.bubble(42, dive)
-bubble.Position = UDim2.new(0, 4, 1, 3)
-bubble.AnchorPoint = Vector2.new(0, 1)
+local bubble = Kit.Icons.bubble(42, oxygenGroup)
+bubble.Position = UDim2.new(0, 4, 0.5, 0)
+bubble.AnchorPoint = Vector2.new(0, 0.5)
 bubble.ZIndex = 3
 
-local depthChip = Kit.pill({
-	Name = "Depth",
-	Size = UDim2.fromOffset(136, 36),
-	Position = UDim2.new(0, 296, 1, 0),
-	AnchorPoint = Vector2.new(0, 1),
-	Outline = 2.5,
-	Parent = dive,
-})
+local depthChip = Kit.pill({ Name = "Depth", Size = UDim2.fromOffset(136, 36), Outline = 2.5, Parent = diveRow })
+depthChip.LayoutOrder = 2
 local depthRow = Kit.new("Frame", { BackgroundTransparency = 1, Size = UDim2.fromScale(1, 1), Parent = depthChip })
 Kit.list(depthRow, Enum.FillDirection.Horizontal, 4, Enum.HorizontalAlignment.Center, Enum.VerticalAlignment.Center)
 Kit.text({ Text = utf8.char(0x1F30A), TextSize = 17, Size = UDim2.fromOffset(22, 22), Stroke = 0, LayoutOrder = 1, Parent = depthRow })
@@ -278,14 +303,8 @@ local depthMax = Kit.text({
 	Parent = depthRow,
 })
 
-local cargoChip = Kit.pill({
-	Name = "Cargo",
-	Size = UDim2.fromOffset(118, 36),
-	Position = UDim2.new(0, 442, 1, 0),
-	AnchorPoint = Vector2.new(0, 1),
-	Outline = 2.5,
-	Parent = dive,
-})
+local cargoChip = Kit.pill({ Name = "Cargo", Size = UDim2.fromOffset(118, 36), Outline = 2.5, Parent = diveRow })
+cargoChip.LayoutOrder = 3
 local bag = Kit.Icons.bag(32, cargoChip)
 bag.Position = UDim2.new(0, 6, 0.5, 0)
 bag.AnchorPoint = Vector2.new(0, 0.5)
@@ -363,8 +382,9 @@ function Hud.init(actions: Actions)
 	Hud.menuButtons.worlds = menuButton("worlds", utf8.char(0x1F30D), "Blue", 1, actions.openWorlds)
 	Hud.menuButtons.upgrades = menuButton("upgrades", utf8.char(0x1F93F), "Orange", 2, actions.openUpgrades)
 	Hud.menuButtons.pets = menuButton("pets", utf8.char(0x1F43E), "Pink", 3, actions.openPets)
-	Hud.menuButtons.shop = menuButton("shop", utf8.char(0x1F6D2), "Green", 4, actions.openShop)
-	Hud.menuButtons.settings = menuButton("settings", utf8.char(0x2699) .. utf8.char(0xFE0F), "Gray", 5, actions.openSettings)
+	Hud.menuButtons.index = menuButton("index", utf8.char(0x1F4D6), "Purple", 4, actions.openIndex)
+	Hud.menuButtons.shop = menuButton("shop", utf8.char(0x1F6D2), "Green", 5, actions.openShop)
+	Hud.menuButtons.settings = menuButton("settings", utf8.char(0x2699) .. utf8.char(0xFE0F), "Gray", 6, actions.openSettings)
 	boostChip.Activated:Connect(actions.openPets)
 	addCoins.button.Activated:Connect(actions.openShop)
 
@@ -447,8 +467,9 @@ RunService.RenderStepped:Connect(function(dt: number)
 	local world = State.world
 	local showDive = d.inWater or d.active
 	diveAlpha += ((if showDive then 1 else 0) - diveAlpha) * math.clamp(dt * 6, 0, 1)
-	dive.Visible = diveAlpha > 0.02
-	dive.Position = UDim2.new(0.5, 0, 1, -14 + (1 - diveAlpha) * 120)
+	-- The oxygen/backpack bar is always on screen (how long you can dive, what you carry);
+	-- the depth readout joins it in the water.
+	depthChip.Visible = diveAlpha > 0.5
 	-- The world chip steps aside while diving so the view stays clear.
 	banner.Visible = diveAlpha < 0.5
 
@@ -456,7 +477,7 @@ RunService.RenderStepped:Connect(function(dt: number)
 	local ratio = math.clamp(d.oxygen / max, 0, 1)
 	oxygenBar.fill.Size = UDim2.fromScale(ratio, 1)
 	oxygenBar.fill.Visible = ratio > 0.01
-	oxygenBar.label.Text = if d.active then Format.seconds(d.oxygen) else Format.seconds(max)
+	oxygenBar.label.Text = if d.active then Format.seconds(d.oxygen) else Strings.get("diveTime", { t = Format.seconds(max) })
 	local drain = Economy.oxygenDrain(world, math.max(0, d.depth))
 	if d.active and drain >= 1.3 then
 		pressureChip.Visible = true

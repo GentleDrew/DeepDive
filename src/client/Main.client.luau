@@ -28,6 +28,8 @@ local Theme = require(UI.Theme)
 local Toasts = require(UI.Toasts)
 local Tutorial = require(UI.Tutorial)
 local EggPanel = require(UI.Panels.Egg)
+local IndexPanel = require(UI.Panels.Index)
+local PlayerList = require(UI.PlayerList)
 local PetsPanel = require(UI.Panels.Pets)
 local SettingsPanel = require(UI.Panels.Settings)
 local ShopPanel = require(UI.Panels.Shop)
@@ -37,11 +39,14 @@ local WorldsPanel = require(UI.Panels.Worlds)
 local ClientNet = require(script.Parent.ClientNet)
 local Sfx = require(script.Parent.Sfx)
 local State = require(script.Parent.State)
+local WorldFx = require(script.Parent.WorldFx)
 
 local Ambience = require(Controllers.Ambience)
+local Board = require(Controllers.Board)
 local Dive = require(Controllers.Dive)
 local Fish = require(Controllers.Fish)
 local Hazards = require(Controllers.Hazards)
+local Nameplates = require(Controllers.Nameplates)
 local Pets = require(Controllers.Pets)
 local Prompts = require(Controllers.Prompts)
 local Relics = require(Controllers.Relics)
@@ -94,6 +99,7 @@ local app: any = {
 	Clear = Clear,
 	Hatch = Hatch,
 	Relics = Relics,
+	WorldFx = WorldFx,
 }
 
 local panels: { [string]: any } = {}
@@ -152,6 +158,16 @@ end
 function app.openSettings()
 	panels.settings.open()
 end
+function app.openIndex()
+	panels.index.open()
+end
+function app.sell()
+	local result = ClientNet.invoke("Sell")
+	if not result.ok and result.err and result.err ~= "err.busy" then
+		Sfx.play("Error")
+		Toasts.show(Strings.get(result.err), "bad", utf8.char(0x1F392))
+	end
+end
 function app.openEgg(world: number)
 	if world ~= State.world then
 		return
@@ -165,6 +181,7 @@ Hud.init({
 	openPets = app.openPets,
 	openShop = app.openShop,
 	openSettings = app.openSettings,
+	openIndex = app.openIndex,
 	swimInput = Swim.setInput,
 })
 
@@ -174,6 +191,7 @@ panels.pets = PetsPanel.new(app)
 panels.shop = ShopPanel.new(app)
 panels.settings = SettingsPanel.new(app)
 panels.egg = EggPanel.new(app)
+panels.index = IndexPanel.new(app)
 for _, panel in panels do
 	local previous = panel.onClose
 	panel.onClose = function()
@@ -194,6 +212,9 @@ Pets.init(app)
 WorldProps.init(app)
 Prompts.init(app)
 Tutorial.init(app)
+Nameplates.init(app)
+Board.init(app)
+app.PlayerList = PlayerList.init()
 
 -- Handshake: wait until the server has loaded our profile and world.
 local view = nil

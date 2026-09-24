@@ -214,6 +214,10 @@ Config.Dive = {
 	ServerHz = 10,
 }
 
+-- Selling happens at each world's sell stand (not on surfacing).
+Config.SellRadius = 9 -- standing this close to the sell pad sells the backpack
+Config.BackpackHardCap = 400 -- sanity cap for stored treasure
+
 Config.Rarities = { "Common", "Uncommon", "Rare", "Epic", "Legendary", "Secret" }
 Config.RarityColors = {
 	Common = "#c9d6de",
@@ -303,14 +307,36 @@ Config.Products = {
 }
 Config.SwiftFinsBonus = 1.25
 
--- Built-in engine sounds only (no uploaded audio needed).
+-- Built-in engine sounds (no uploaded audio needed). Cues layer and re-pitch these.
 Config.Sounds = {
 	Ping = "rbxasset://sounds/electronicpingshort.wav",
 	Click = "rbxasset://sounds/clickfast.wav",
+	Button = "rbxasset://sounds/button.wav",
+	Swoosh = "rbxasset://sounds/swoosh.wav",
 	Splash = "rbxasset://sounds/impact_water.mp3",
 	Snap = "rbxasset://sounds/snap.wav",
+	Land = "rbxasset://sounds/action_jump_land.mp3",
 	Swim = "rbxasset://sounds/action_swim.mp3",
 	Jump = "rbxasset://sounds/action_jump.mp3",
+}
+-- Optional: paste Creator Store audio ids ("rbxassetid://123...") to replace any cue with a
+-- real recording. Empty = use the built-in layered version.
+Config.SoundIds = {
+	Collect = "",
+	CollectRare = "",
+	Discover = "",
+	Sell = "",
+	Coin = "",
+	Splash = "",
+	Upgrade = "",
+	Hatch = "",
+	Reveal = "",
+	Legendary = "",
+	Clear = "",
+	Click = "",
+	Open = "",
+	Error = "",
+	Blackout = "",
 }
 -- Optional background music (rbxassetid://...). Empty = silent.
 Config.Music = {
@@ -1909,6 +1935,8 @@ function Layout.dock(world: number)
 		portal = Vector3.new(0, info.landY, r + 50),
 		pierStart = Vector3.new(38, info.landY, r + 14),
 		pierEnd = Vector3.new(38, info.landY, r - 26),
+		sell = Vector3.new(-46, info.landY, r + 34),
+		board = Vector3.new(48, info.landY, r + 46),
 		beachHalfWidth = 20,
 	}
 end
@@ -3183,6 +3211,7 @@ export type Data = {
 	petSeq: number,
 	index: { [string]: boolean },
 	relics: { [string]: number },
+	backpack: { string },
 	tutorial: number,
 	settings: { music: boolean, sfx: boolean, lowFx: boolean, hidePets: boolean, lang: string },
 	stats: { dives: number, relics: number, blackouts: number, hatched: number, playtime: number },
@@ -3209,6 +3238,7 @@ function Profile.new(now: number): Data
 		petSeq = 0,
 		index = {},
 		relics = {},
+		backpack = {},
 		tutorial = 1,
 		settings = { music = true, sfx = true, lowFx = false, hidePets = false, lang = Config.DefaultLanguage },
 		stats = { dives = 0, relics = 0, blackouts = 0, hatched = 0, playtime = 0 },
@@ -3308,6 +3338,14 @@ function Profile.reconcile(raw: any, now: number): Data
 			end
 		end
 	end
+	-- Unsold treasure carried between dives (sold only at a world's sell stand).
+	if type(raw.backpack) == "table" then
+		for _, key in raw.backpack do
+			if type(key) == "string" and Worlds.relics[key] and #data.backpack < Config.BackpackHardCap then
+				table.insert(data.backpack, key)
+			end
+		end
+	end
 	data.tutorial = math.floor(number(raw.tutorial, 1, 0, 99))
 	if type(raw.settings) == "table" then
 		local s = raw.settings
@@ -3371,6 +3409,7 @@ Remotes.Invoke = "Invoke" -- RemoteFunction: (action, payload) -> { ok, err?, da
 Remotes.Collect = "Collect" -- RemoteEvent client -> server: (layoutId, point)
 Remotes.Hazard = "Hazard" -- RemoteEvent client -> server: (hazardIndex)
 Remotes.Push = "Push" -- RemoteEvent server -> client: (kind, payload)
+Remotes.Board = "LeaderboardData" -- StringValue: JSON top divers for the global board
 
 Remotes.Actions = {
 	Teleport = true,
@@ -3384,6 +3423,7 @@ Remotes.Actions = {
 	Setting = true,
 	Tutorial = true,
 	Ready = true,
+	Sell = true,
 }
 
 return Remotes
@@ -3491,7 +3531,7 @@ local EN: { [string]: string } = {
 	depth = "Depth",
 	pressure = "Pressure {x}",
 	full = "FULL",
-	backpackFull = "Backpack full! Swim up to sell.",
+	backpackFull = "Backpack full! Sell it at the Treasure Shop.",
 	lowOxygen = "Low oxygen! Swim up!",
 	hazardHit = "Ouch! -{n}s oxygen",
 	depthRecord = "New depth record: {n}m!",
@@ -3593,7 +3633,7 @@ local EN: { [string]: string } = {
 
 	sold = "Sold {n} treasures!",
 	blackout = "You blacked out!",
-	rescued = "The rescue team saved half your treasure",
+	rescued = "The rescue team saved half of this dive's treasure",
 	worldCleared = "WORLD CLEARED!",
 	unlockedNext = "World {n} unlocked!",
 	allCleared = "You conquered every world!",
@@ -3605,7 +3645,7 @@ local EN: { [string]: string } = {
 
 	["tutorial.1"] = "Jump into the water to start diving!",
 	["tutorial.2"] = "Swim to the glowing treasure!",
-	["tutorial.3"] = "Swim back up to sell your treasure!",
+	["tutorial.3"] = "Sell your treasure on the gold pad at the Treasure Shop!",
 	["tutorial.4"] = "Buy an upgrade!",
 	["tutorial.5"] = "Hatch a pet at the egg!",
 	["tutorial.6"] = "Fill the treasure bar to reveal the Ancient Chest!",
@@ -3622,6 +3662,29 @@ local EN: { [string]: string } = {
 	["err.locked"] = "That world is locked",
 	["err.generic"] = "Something went wrong",
 	["err.notReady"] = "Still loading...",
+	indexTitle = "Relic Index",
+	indexProgress = "Discovered {a}/{b}",
+	indexCount = "Collected x{n}",
+	indexLocked = "Unlock this world to explore it",
+	indexUndiscovered = "Not discovered yet",
+	indexComplete = "Complete!",
+	indexWorth = "Worth",
+	sellShop = "Treasure Shop",
+	sellAction = "Sell",
+	nothingToSell = "Your backpack is empty",
+	sellFar = "Stand on the gold pad to sell",
+	carrying = "{n} treasures in your backpack - sell them at the Treasure Shop!",
+	lostTreasure = "Lost {n} treasures",
+	diveTime = "Dive time {t}",
+	playersTitle = "Players",
+	colName = "Name",
+	colCoins = "Coins",
+	colRelics = "Relics",
+	boardTitle = "Top Divers",
+	boardGlobal = "All servers - lifetime coins",
+	boardLocal = "This server - lifetime coins",
+	boardEmpty = "No divers yet - be the first!",
+	you = "You",
 }
 
 local KO: { [string]: string } = {
@@ -3643,7 +3706,7 @@ local KO: { [string]: string } = {
 	depth = "수심",
 	pressure = "수압 {x}",
 	full = "가득",
-	backpackFull = "가방이 가득 찼어요! 위로 올라가서 팔아요.",
+	backpackFull = "가방이 가득 찼어요! 보물 상점에서 팔아요.",
 	lowOxygen = "산소 부족! 올라가세요!",
 	hazardHit = "아야! 산소 -{n}초",
 	depthRecord = "최고 수심 경신: {n}m!",
@@ -3745,7 +3808,7 @@ local KO: { [string]: string } = {
 
 	sold = "보물 {n}개 판매!",
 	blackout = "기절했어요!",
-	rescued = "구조대가 보물 절반을 챙겨줬어요",
+	rescued = "구조대가 이번 잠수 보물의 절반을 챙겨줬어요",
 	worldCleared = "월드 클리어!",
 	unlockedNext = "월드 {n} 해금!",
 	allCleared = "모든 월드를 정복했어요!",
@@ -3757,7 +3820,7 @@ local KO: { [string]: string } = {
 
 	["tutorial.1"] = "물속으로 뛰어들어 잠수를 시작하세요!",
 	["tutorial.2"] = "빛나는 보물로 헤엄쳐 가세요!",
-	["tutorial.3"] = "위로 올라가서 보물을 팔아요!",
+	["tutorial.3"] = "보물 상점의 금색 발판에서 보물을 팔아요!",
 	["tutorial.4"] = "업그레이드를 구매하세요!",
 	["tutorial.5"] = "알을 부화시켜 펫을 얻어요!",
 	["tutorial.6"] = "보물 게이지를 채우면 고대 보물상자가 나타나요!",
@@ -3774,6 +3837,29 @@ local KO: { [string]: string } = {
 	["err.locked"] = "잠긴 월드예요",
 	["err.generic"] = "문제가 발생했어요",
 	["err.notReady"] = "아직 불러오는 중이에요...",
+	indexTitle = "유물 도감",
+	indexProgress = "발견 {a}/{b}",
+	indexCount = "{n}개 수집",
+	indexLocked = "월드를 열면 탐험할 수 있어요",
+	indexUndiscovered = "아직 발견하지 못했어요",
+	indexComplete = "완성!",
+	indexWorth = "가치",
+	sellShop = "보물 상점",
+	sellAction = "판매",
+	nothingToSell = "가방이 비어 있어요",
+	sellFar = "금색 발판 위에서 팔 수 있어요",
+	carrying = "가방에 보물 {n}개! 보물 상점에서 팔아요",
+	lostTreasure = "보물 {n}개를 잃었어요",
+	diveTime = "잠수 시간 {t}",
+	playersTitle = "플레이어",
+	colName = "닉네임",
+	colCoins = "코인",
+	colRelics = "유물",
+	boardTitle = "최고의 다이버",
+	boardGlobal = "전체 서버 - 누적 코인",
+	boardLocal = "이 서버 - 누적 코인",
+	boardEmpty = "아직 기록이 없어요 - 첫 주인공이 되세요!",
+	you = "나",
 }
 
 local TABLES = { en = EN, ko = KO }
@@ -3847,6 +3933,7 @@ local Sync = require(script.Parent.Sync)
 local WorldBuilder = require(script.Parent.World.WorldBuilder)
 local ActionService = require(script.Parent.Services.ActionService)
 local DiveService = require(script.Parent.Services.DiveService)
+local LeaderboardService = require(script.Parent.Services.LeaderboardService)
 local PetService = require(script.Parent.Services.PetService)
 local PurchaseService = require(script.Parent.Services.PurchaseService)
 
@@ -3857,6 +3944,7 @@ DiveService.init()
 PetService.init()
 ActionService.init()
 PurchaseService.init()
+LeaderboardService.init()
 
 local function spawnCharacter(player: Player)
 	if not player.Parent then
@@ -3878,6 +3966,8 @@ local function onCharacter(session: Sessions.Session, character: Model)
 	end
 	character:PivotTo(Layout.spawnCFrame(session.world))
 	humanoid.WalkSpeed = 20
+	-- Clients draw their own nameplates (name + coins) above every diver.
+	humanoid.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None
 	humanoid.Died:Connect(function()
 		DiveService.onDied(session)
 		task.delay(2.5, function()
@@ -4427,6 +4517,13 @@ local function ready(player: Player): (boolean, string?, any)
 end
 
 function ActionService.init()
+	Net.on("Sell", function(player: Player): (boolean, string?, any)
+		local session = Sessions.get(player)
+		if not session or not session.ready then
+			return false, "err.notReady"
+		end
+		return DiveService.sell(session, true)
+	end)
 	Net.on("BuyUpgrade", buyUpgrade)
 	Net.on("Teleport", teleport)
 	Net.on("Setting", setting)
@@ -4528,7 +4625,7 @@ local function startDive(session: Session)
 	session.mode = "Diving"
 	session.oxygenMax = Economy.upgradeValue("tank", profile.upgrades.tank)
 	session.oxygen = session.oxygenMax
-	session.cargo = {}
+	session.diveStart = #profile.backpack
 	session.surfacedFor = 0
 	session.syncTimer = 0
 	session.maxDepth = 0
@@ -4557,6 +4654,8 @@ local function clearWorld(session: Session): { [string]: any }
 	return { world = world, reward = reward, nextWorld = nextWorld, all = world == Config.WorldCount }
 end
 
+-- Ends a dive. Treasure stays in the backpack until sold at the sell stand; a rescue (blackout,
+-- death, leaving mid-dive) drops half of what was gathered on this dive.
 -- reason: "surface" | "blackout" | "died" | "leave"
 local function endDive(session: Session, reason: string)
 	if session.mode ~= "Diving" and session.mode ~= "Rescue" then
@@ -4564,29 +4663,17 @@ local function endDive(session: Session, reason: string)
 	end
 	local profile = session.profile
 	local world = session.world
-	local cargo = session.cargo
-	local rescued = reason == "blackout" or reason == "died"
-	-- Leaving mid-dive settles like a rescue so quitting is never better than surfacing.
-	local penalised = rescued or reason == "leave"
-	local keep = if penalised then Config.Dive.BlackoutKeep else 1
-	local total = 0
-	local discovered = {}
-	for _, key in cargo do
-		total += Economy.relicValueByKey(key)
-		if (profile.relics[key] or 0) == 0 and not table.find(discovered, key) then
-			table.insert(discovered, key)
+	local backpack = profile.backpack
+	local rescued = reason ~= "surface"
+	local gathered = math.max(0, #backpack - session.diveStart)
+	local lost = 0
+	if rescued and gathered > 0 then
+		lost = gathered - math.floor(gathered * Config.Dive.BlackoutKeep)
+		for _ = 1, lost do
+			table.remove(backpack)
 		end
-		profile.relics[key] = (profile.relics[key] or 0) + 1
 	end
-	local payout = math.floor(total * Sessions.multiplier(session) * keep)
-	local counted = if penalised then math.floor(#cargo * keep) else #cargo
-	profile.coins += payout
-	profile.lifetime += payout
-	profile.stats.relics += #cargo
 	local progress = Profile.progress(profile, world)
-	local goal = Economy.goal(world)
-	local wasReady = progress.sold >= goal
-	progress.sold += counted
 	local meters = Economy.displayMeters(world, session.maxDepth)
 	local record = nil
 	if meters > progress.best then
@@ -4600,39 +4687,97 @@ local function endDive(session: Session, reason: string)
 	if carried and not rescued and not progress.cleared then
 		cleared = clearWorld(session)
 	end
-	if rescued then
+	if rescued and reason ~= "leave" then
 		profile.stats.blackouts += 1
 	end
-	if profile.tutorial == 2 and #cargo > 0 then
+	if profile.tutorial == 2 and #backpack > 0 then
 		profile.tutorial = 3
-	end
-	if profile.tutorial == 3 and not rescued and #cargo > 0 then
-		profile.tutorial = 4
 	end
 
 	session.mode = "Dock"
 	session.oxygen = session.oxygenMax
-	session.cargo = {}
 	session.chestCarried = false
 
-	Net.push(session.player, "sold", {
-		payout = payout,
-		count = #cargo,
-		keys = cargo,
+	Net.push(session.player, "surfaced", {
+		gathered = gathered,
+		lost = lost,
+		cargo = #backpack,
 		rescued = rescued,
 		chest = carried and not rescued,
 		chestLost = carried and rescued,
 		record = record,
-		discovered = discovered,
-		progress = progress.sold,
-		goal = goal,
-		chestReady = not wasReady and progress.sold >= goal and not progress.cleared,
 	})
 	if cleared then
 		Net.push(session.player, "cleared", cleared)
 	end
 	Sync.profile(session)
 	DiveService.rollLayout(session)
+end
+
+-- Sells the whole backpack. Only on the dock, standing at this world's sell stand.
+function DiveService.sell(session: Session, fromPrompt: boolean?): (boolean, string?)
+	local profile = session.profile
+	local backpack = profile.backpack
+	if session.mode ~= "Dock" then
+		return false, "err.diving"
+	end
+	if #backpack == 0 then
+		return false, "nothingToSell"
+	end
+	local root = rootOf(session.player)
+	if not root or not aliveHumanoid(session.player) then
+		return false, "err.generic"
+	end
+	local spot = Layout.origin(session.world) + Layout.dock(session.world).sell
+	local offset = root.Position - spot
+	local reach = Config.SellRadius + (if fromPrompt then 8 else 0)
+	if Vector3.new(offset.X, 0, offset.Z).Magnitude > reach or math.abs(offset.Y) > 10 then
+		return false, "sellFar"
+	end
+	local now = os.clock()
+	if now - session.lastSell < 0.8 then
+		return false, "err.busy"
+	end
+	session.lastSell = now
+	local total = 0
+	local perWorld: { [number]: number } = {}
+	for _, key in backpack do
+		total += Economy.relicValueByKey(key)
+		local relic = Worlds.relics[key]
+		if relic then
+			perWorld[relic.world] = (perWorld[relic.world] or 0) + 1
+		end
+	end
+	local count = #backpack
+	local payout = math.floor(total * Sessions.multiplier(session))
+	profile.coins += payout
+	profile.lifetime += payout
+	table.clear(backpack)
+	session.diveStart = 0
+	local world = session.world
+	local goal = Economy.goal(world)
+	local current = Profile.progress(profile, world)
+	local wasReady = current.sold >= goal
+	for relicWorld, n in perWorld do
+		local progress = Profile.progress(profile, relicWorld)
+		progress.sold += n
+	end
+	local chestReady = not wasReady and current.sold >= goal and not current.cleared
+	if profile.tutorial == 2 or profile.tutorial == 3 then
+		profile.tutorial = 4
+	end
+	Net.push(session.player, "sold", {
+		payout = payout,
+		count = count,
+		progress = current.sold,
+		goal = goal,
+		chestReady = chestReady,
+	})
+	Sync.profile(session)
+	if chestReady then
+		DiveService.rollLayout(session)
+	end
+	return true, nil
 end
 
 local function blackout(session: Session)
@@ -4666,6 +4811,13 @@ local function tick(session: Session, dt: number)
 	if session.mode == "Dock" then
 		if depth >= Config.Dive.SubmergeDepth and Layout.overLagoon(session.world, position) then
 			startDive(session)
+		elseif #session.profile.backpack > 0 then
+			-- Stepping onto the sell pad sells everything.
+			local spot = Layout.origin(session.world) + Layout.dock(session.world).sell
+			local offset = position - spot
+			if Vector3.new(offset.X, 0, offset.Z).Magnitude <= Config.SellRadius and math.abs(offset.Y) < 8 then
+				DiveService.sell(session)
+			end
 		end
 		return
 	end
@@ -4739,7 +4891,7 @@ local function onCollect(player: Player, layoutId: any, point: any)
 			reject(session, point, "gone")
 			return
 		end
-		if #session.cargo >= capacity(session) then
+		if #session.profile.backpack >= capacity(session) then
 			reject(session, point, "full")
 			return
 		end
@@ -4752,15 +4904,27 @@ local function onCollect(player: Player, layoutId: any, point: any)
 		end
 		startDive(session)
 	end
+	local profile = session.profile
 	if point == 0 then
 		session.chestCarried = true
-		Net.push(player, "collected", { point = 0, chest = true, cargo = #session.cargo })
+		Net.push(player, "collected", { point = 0, chest = true, cargo = #profile.backpack })
 		return
 	end
 	local key = session.relics[point]
 	session.relics[point] = nil
-	table.insert(session.cargo, key)
-	Net.push(player, "collected", { point = point, key = key, cargo = #session.cargo, capacity = capacity(session) })
+	table.insert(profile.backpack, key)
+	local discovered = (profile.relics[key] or 0) == 0
+	profile.relics[key] = (profile.relics[key] or 0) + 1
+	profile.stats.relics += 1
+	Sync.stats(session)
+	Net.push(player, "collected", {
+		point = point,
+		key = key,
+		cargo = #profile.backpack,
+		capacity = capacity(session),
+		discovered = discovered,
+		total = profile.relics[key],
+	})
 end
 
 local function onHazard(player: Player, index: any)
@@ -4827,7 +4991,7 @@ function DiveService.onDied(session: Session)
 end
 
 function DiveService.onLeave(session: Session)
-	if (session.mode == "Diving" or session.mode == "Rescue") and #session.cargo > 0 then
+	if session.mode == "Diving" or session.mode == "Rescue" then
 		endDive(session, if session.mode == "Rescue" then "blackout" else "leave")
 	end
 end
@@ -4867,6 +5031,172 @@ return DiveService
           </Properties>
         </Item>
         <Item class="ModuleScript" referent="33">
+          <Properties>
+            <string name="Name">LeaderboardService</string>
+            <string name="Source"><![CDATA[--!strict
+-- Global leaderboard: every diver's lifetime coins go into an OrderedDataStore and the top 10
+-- are published as JSON in ReplicatedStorage for the boards on every dock. When DataStores are
+-- unavailable (Studio without API access) the board ranks the players in this server instead.
+
+local DataStoreService = game:GetService("DataStoreService")
+local HttpService = game:GetService("HttpService")
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local Shared = ReplicatedStorage:WaitForChild("Shared")
+local Remotes = require(Shared.Remotes)
+
+local ProfileStore = require(script.Parent.Parent.ProfileStore)
+local Sessions = require(script.Parent.Parent.Sessions)
+
+local LeaderboardService = {}
+
+local STORE_NAME = "DeepDive_TopDivers_v1"
+local TOP = 10
+local GLOBAL_REFRESH = 90
+local LOCAL_REFRESH = 8
+local WRITE_INTERVAL = 120
+
+local store: OrderedDataStore? = nil
+local storeFailed = false
+local names: { [number]: string } = {}
+local lastWrite: { [Player]: number } = {}
+local lastValue: { [Player]: number } = {}
+local published: StringValue
+
+local function getStore(): OrderedDataStore?
+	if store or storeFailed or ProfileStore.memoryMode then
+		return store
+	end
+	local ok, result = pcall(function()
+		return DataStoreService:GetOrderedDataStore(STORE_NAME)
+	end)
+	if ok then
+		store = result
+	else
+		storeFailed = true
+	end
+	return store
+end
+
+local function nameOf(userId: number): string
+	local player = Players:GetPlayerByUserId(userId)
+	if player then
+		names[userId] = player.Name
+		return player.Name
+	end
+	local cached = names[userId]
+	if cached then
+		return cached
+	end
+	local ok, result = pcall(function()
+		return Players:GetNameFromUserIdAsync(userId)
+	end)
+	local name = if ok and type(result) == "string" then result else "Diver"
+	names[userId] = name
+	return name
+end
+
+-- Queues this player's lifetime coins for the global store (rate limited unless forced).
+function LeaderboardService.submit(player: Player, force: boolean?)
+	local session = Sessions.get(player)
+	if not session then
+		return
+	end
+	local value = math.floor(session.profile.lifetime)
+	local now = os.clock()
+	if not force and (now - (lastWrite[player] or -math.huge) < WRITE_INTERVAL or lastValue[player] == value) then
+		return
+	end
+	local ds = getStore()
+	if not ds then
+		return
+	end
+	lastWrite[player] = now
+	lastValue[player] = value
+	local userId = player.UserId
+	task.spawn(function()
+		pcall(function()
+			ds:SetAsync(tostring(userId), value)
+		end)
+	end)
+end
+
+type Entry = { n: string, v: number, u: number }
+
+local function localEntries(): { Entry }
+	local list: { Entry } = {}
+	for _, player in Players:GetPlayers() do
+		local lifetime = player:GetAttribute("Lifetime")
+		if type(lifetime) == "number" then
+			table.insert(list, { n = player.Name, v = math.floor(lifetime), u = player.UserId })
+		end
+	end
+	table.sort(list, function(a, b)
+		return a.v > b.v
+	end)
+	while #list > TOP do
+		table.remove(list)
+	end
+	return list
+end
+
+-- Returns true when the published list came from the global store.
+function LeaderboardService.refresh(): boolean
+	local list: { Entry } = {}
+	local global = false
+	local ds = getStore()
+	if ds then
+		global = pcall(function()
+			local pages = ds:GetSortedAsync(false, TOP)
+			for _, item in pages:GetCurrentPage() do
+				local userId = tonumber(item.key)
+				if userId and type(item.value) == "number" then
+					table.insert(list, { n = nameOf(userId), v = item.value, u = userId })
+				end
+			end
+		end)
+	end
+	if not global or #list == 0 then
+		list = localEntries()
+		global = false
+	end
+	published.Value = HttpService:JSONEncode({ global = global, entries = list })
+	return global
+end
+
+function LeaderboardService.init()
+	local existing = ReplicatedStorage:FindFirstChild(Remotes.Board)
+	if existing then
+		existing:Destroy()
+	end
+	published = Instance.new("StringValue")
+	published.Name = Remotes.Board
+	published.Value = HttpService:JSONEncode({ global = false, entries = {} })
+	published.Parent = ReplicatedStorage
+
+	Players.PlayerRemoving:Connect(function(player)
+		LeaderboardService.submit(player, true)
+		lastWrite[player] = nil
+		lastValue[player] = nil
+	end)
+	task.spawn(function()
+		task.wait(4)
+		while true do
+			for player in Sessions.all() do
+				LeaderboardService.submit(player)
+			end
+			local global = LeaderboardService.refresh()
+			task.wait(if global then GLOBAL_REFRESH else LOCAL_REFRESH)
+		end
+	end)
+end
+
+return LeaderboardService
+]]></string>
+          </Properties>
+        </Item>
+        <Item class="ModuleScript" referent="34">
           <Properties>
             <string name="Name">PetService</string>
             <string name="Source"><![CDATA[--!strict
@@ -5081,7 +5411,7 @@ return PetService
 ]]></string>
           </Properties>
         </Item>
-        <Item class="ModuleScript" referent="34">
+        <Item class="ModuleScript" referent="35">
           <Properties>
             <string name="Name">PurchaseService</string>
             <string name="Source"><![CDATA[--!strict
@@ -5189,7 +5519,7 @@ return PurchaseService
           </Properties>
         </Item>
       </Item>
-      <Item class="ModuleScript" referent="35">
+      <Item class="ModuleScript" referent="36">
         <Properties>
           <string name="Name">Sessions</string>
           <string name="Source"><![CDATA[--!strict
@@ -5217,7 +5547,8 @@ export type Session = {
 	relics: { [number]: string },
 	chestActive: boolean,
 	chestCarried: boolean,
-	cargo: { string },
+	diveStart: number, -- backpack size when the current dive began
+	lastSell: number,
 	surfacedFor: number,
 	syncTimer: number,
 	lastHazard: number,
@@ -5242,7 +5573,8 @@ function Sessions.create(player: Player, profile: Profile.Data): Session
 		relics = {},
 		chestActive = false,
 		chestCarried = false,
-		cargo = {},
+		diveStart = 0,
+		lastSell = 0,
 		surfacedFor = 0,
 		syncTimer = 0,
 		lastHazard = 0,
@@ -5304,7 +5636,7 @@ return Sessions
 ]]></string>
         </Properties>
       </Item>
-      <Item class="ModuleScript" referent="36">
+      <Item class="ModuleScript" referent="37">
         <Properties>
           <string name="Name">Sync</string>
           <string name="Source"><![CDATA[--!strict
@@ -5330,35 +5662,44 @@ function Sync.view(session: Sessions.Session)
 	}
 end
 
-function Sync.leaderstats(session: Sessions.Session)
-	local stats: Instance? = session.player:FindFirstChild("leaderstats")
+-- Public stats as player attributes (nameplates, the Tab list and the global board read these)
+-- plus classic leaderstats for tools that expect them.
+function Sync.stats(session: Sessions.Session)
+	local player = session.player
+	local profile = session.profile
+	player:SetAttribute("Coins", profile.coins)
+	player:SetAttribute("Relics", profile.stats.relics)
+	player:SetAttribute("Lifetime", profile.lifetime)
+	local stats: Instance? = player:FindFirstChild("leaderstats")
 	if not stats then
 		local folder = Instance.new("Folder")
 		folder.Name = "leaderstats"
-		local world = Instance.new("IntValue")
-		world.Name = "World"
-		world.Parent = folder
 		local coins = Instance.new("StringValue")
 		coins.Name = "Coins"
 		coins.Parent = folder
-		folder.Parent = session.player
+		local relics = Instance.new("IntValue")
+		relics.Name = "Relics"
+		relics.Parent = folder
+		folder.Parent = player
 		stats = folder
 	end
 	assert(stats, "leaderstats")
-	local worldValue = stats:FindFirstChild("World") :: IntValue?
 	local coinsValue = stats:FindFirstChild("Coins") :: StringValue?
-	if worldValue then
-		worldValue.Value = session.profile.unlocked
-	end
+	local relicsValue = stats:FindFirstChild("Relics") :: IntValue?
 	if coinsValue then
-		coinsValue.Value = Format.short(session.profile.coins)
+		coinsValue.Value = Format.short(profile.coins)
+	end
+	if relicsValue then
+		relicsValue.Value = profile.stats.relics
 	end
 end
+
+Sync.leaderstats = Sync.stats
 
 -- Call after any profile change.
 function Sync.profile(session: Sessions.Session)
 	ProfileStore.markDirty(session.player)
-	Sync.leaderstats(session)
+	Sync.stats(session)
 	Net.push(session.player, "profile", Sync.view(session))
 end
 
@@ -5366,11 +5707,11 @@ return Sync
 ]]></string>
         </Properties>
       </Item>
-      <Item class="Folder" referent="37">
+      <Item class="Folder" referent="38">
         <Properties>
           <string name="Name">World</string>
         </Properties>
-        <Item class="ModuleScript" referent="38">
+        <Item class="ModuleScript" referent="39">
           <Properties>
             <string name="Name">Decor</string>
             <string name="Source"><![CDATA[--!strict
@@ -6441,7 +6782,7 @@ return Decor
 ]]></string>
           </Properties>
         </Item>
-        <Item class="ModuleScript" referent="39">
+        <Item class="ModuleScript" referent="40">
           <Properties>
             <string name="Name">Dock</string>
             <string name="Source"><![CDATA[--!strict
@@ -6453,6 +6794,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Build = require(Shared.Models.Build)
 local Color = require(Shared.Color)
+local Config = require(Shared.Config)
 local Layout = require(Shared.Layout)
 local RelicModels = require(Shared.Models.RelicModels)
 local Worlds = require(Shared.Data.Worlds)
@@ -6672,6 +7014,58 @@ function Dock.build(world: number, parent: Instance): SpawnLocation
 	local signTrim = Build.block(folder, V(8.4, 4, 0.3), signAt * cf(0, 5.2, 0.1), accent)
 	signTrim.Material = Enum.Material.Neon
 
+	-- Sell stand: a glowing gold pad (stepping on it sells the backpack) in front of a market
+	-- stall. The server sells by distance to dock.sell; the pad is the visual.
+	local sellPosition = o + V(dock.sell.X, landY, dock.sell.Z)
+	local sell = CFrame.lookAt(sellPosition, spawnFlat)
+	local GOLD = Color3.fromRGB(255, 208, 72)
+	local GOLD_DARK = Color3.fromRGB(196, 132, 28)
+	local sellRim = Build.column(folder, 0.34, Config.SellRadius * 2, sell * cf(0, 0.3, 0), GOLD_DARK)
+	solid(sellRim)
+	local sellPad = Build.column(folder, 0.36, Config.SellRadius * 2 - 1.6, sell * cf(0, 0.34, 0), GOLD)
+	sellPad.Name = "SellPad"
+	sellPad.Material = Enum.Material.Neon
+	sellPad.Transparency = 0.2
+	sellPad:SetAttribute("World", world)
+	Build.light(sellPad, GOLD, 16, 1.4)
+	local stall = sell * cf(0, 0, 7)
+	solid(Build.block(folder, V(12, 3.4, 3.6), stall * cf(0, 1.7, 0), Color3.fromRGB(250, 244, 230)))
+	Build.block(folder, V(12.4, 0.4, 4), stall * cf(0, 3.6, 0), GOLD_DARK)
+	for _, x in { -5.6, 5.6 } do
+		solid(Build.column(folder, 8, 0.6, stall * cf(x, 4, 1.2), Color3.fromRGB(245, 245, 250)))
+	end
+	for i = 0, 6 do
+		local stripeColor = if i % 2 == 0 then Color3.fromRGB(76, 200, 110) else Color3.fromRGB(255, 255, 255)
+		Build.wedge(folder, V(1.8, 1.4, 5), stall * cf(-5.4 + i * 1.8, 8.4, 0.2), stripeColor)
+	end
+	-- Coin piles and a treasure chest on the counter.
+	for i, offset in { V(-3.6, 3.95, 0), V(-2.4, 3.95, 0.6), V(3.2, 3.95, -0.3) } do
+		for layer = 0, 2 - (i - 1) % 2 do
+			local coin = Build.cylinder(folder, 0.3, 1.2, stall * cf(offset + V(0, layer * 0.3, 0)) * ang(0, 0, rad(90)), GOLD)
+			coin.Material = Enum.Material.Metal
+		end
+	end
+	local counterChest = RelicModels.buildChest(world, 2.2)
+	counterChest:PivotTo(stall * cf(0.6, 4.9, 0) * ang(0, math.pi, 0))
+	counterChest.Parent = folder
+	local sellSign = Build.block(folder, V(8, 2.4, 0.3), stall * cf(0, 10.3, 0.4), Color3.fromRGB(40, 44, 60))
+	sellSign.Name = "SellSign"
+	local sellAnchor = anchorPart(folder, "SellAnchor", sell * cf(0, 3, 0), V(6, 4, 6))
+	prompt(sellAnchor, "Sell", world, "Sell", "Treasure Shop", Config.SellRadius + 4)
+
+	-- Global leaderboard board (the client draws the rankings on BoardScreen).
+	local boardPosition = o + V(dock.board.X, landY, dock.board.Z)
+	local boardAt = CFrame.lookAt(boardPosition, spawnFlat)
+	for _, x in { -8.6, 8.6 } do
+		solid(Build.column(folder, 16, 1, boardAt * cf(x, 8, 0.6), WOOD_DARK))
+	end
+	local frame = Build.block(folder, V(18.4, 14.4, 0.8), boardAt * cf(0, 10, 0.4), accent2)
+	solid(frame)
+	local screen = Build.block(folder, V(17, 13, 0.3), boardAt * cf(0, 10, -0.1), Color3.fromRGB(18, 28, 52))
+	screen.Name = "BoardScreen"
+	local crown = Build.block(folder, V(6, 1.6, 0.9), boardAt * cf(0, 17.8, 0.4), GOLD)
+	crown.Material = Enum.Material.Neon
+
 	-- Invisible boundary around the island so divers stay home.
 	local walls = Instance.new("Folder")
 	walls.Name = "Boundary"
@@ -6700,7 +7094,7 @@ return Dock
 ]]></string>
           </Properties>
         </Item>
-        <Item class="ModuleScript" referent="40">
+        <Item class="ModuleScript" referent="41">
           <Properties>
             <string name="Name">Terrain</string>
             <string name="Source"><![CDATA[--!strict
@@ -6895,7 +7289,7 @@ return TerrainBuilder
 ]]></string>
           </Properties>
         </Item>
-        <Item class="ModuleScript" referent="41">
+        <Item class="ModuleScript" referent="42">
           <Properties>
             <string name="Name">WorldBuilder</string>
             <string name="Source"><![CDATA[--!strict
@@ -7186,21 +7580,21 @@ return WorldBuilder
       </Item>
     </Item>
   </Item>
-  <Item class="SoundService" referent="42">
+  <Item class="SoundService" referent="43">
     <Properties>
       <string name="Name">SoundService</string>
       <token name="AmbientReverb">0</token>
       <bool name="RespectFilteringEnabled">true</bool>
     </Properties>
   </Item>
-  <Item class="StarterGui" referent="43">
+  <Item class="StarterGui" referent="44">
     <Properties>
       <string name="Name">StarterGui</string>
       <bool name="ResetPlayerGuiOnSpawn">false</bool>
       <bool name="ShowDevelopmentGui">true</bool>
     </Properties>
   </Item>
-  <Item class="StarterPlayer" referent="44">
+  <Item class="StarterPlayer" referent="45">
     <Properties>
       <string name="Name">StarterPlayer</string>
       <bool name="AutoJumpEnabled">false</bool>
@@ -7215,20 +7609,20 @@ return WorldBuilder
       <bool name="LoadCharacterAppearance">true</bool>
       <float name="NameDisplayDistance">60</float>
     </Properties>
-    <Item class="StarterCharacterScripts" referent="45">
+    <Item class="StarterCharacterScripts" referent="46">
       <Properties>
         <string name="Name">StarterCharacterScripts</string>
       </Properties>
     </Item>
-    <Item class="StarterPlayerScripts" referent="46">
+    <Item class="StarterPlayerScripts" referent="47">
       <Properties>
         <string name="Name">StarterPlayerScripts</string>
       </Properties>
-      <Item class="Folder" referent="47">
+      <Item class="Folder" referent="48">
         <Properties>
           <string name="Name">Client</string>
         </Properties>
-        <Item class="ModuleScript" referent="48">
+        <Item class="ModuleScript" referent="49">
           <Properties>
             <string name="Name">ClientNet</string>
             <string name="Source"><![CDATA[--!strict
@@ -7294,11 +7688,11 @@ return ClientNet
 ]]></string>
           </Properties>
         </Item>
-        <Item class="Folder" referent="49">
+        <Item class="Folder" referent="50">
           <Properties>
             <string name="Name">Controllers</string>
           </Properties>
-          <Item class="ModuleScript" referent="50">
+          <Item class="ModuleScript" referent="51">
             <Properties>
               <string name="Name">Ambience</string>
               <string name="Source"><![CDATA[--!strict
@@ -7555,7 +7949,154 @@ return Ambience
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="51">
+          <Item class="ModuleScript" referent="52">
+            <Properties>
+              <string name="Name">Board</string>
+              <string name="Source"><![CDATA[--!strict
+-- Draws the global leaderboard on the board at the current world's dock, from the JSON the
+-- server publishes in ReplicatedStorage (top 10 by lifetime coins).
+
+local HttpService = game:GetService("HttpService")
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Workspace = game:GetService("Workspace")
+
+local Shared = ReplicatedStorage:WaitForChild("Shared")
+local Format = require(Shared.Format)
+local Remotes = require(Shared.Remotes)
+local Strings = require(Shared.Strings)
+
+local Board = {}
+
+local MEDALS = { utf8.char(0x1F947), utf8.char(0x1F948), utf8.char(0x1F949) }
+
+function Board.init(app: any)
+	local Kit = app.Kit
+	local current: SurfaceGui? = nil
+	local localPlayer = Players.LocalPlayer
+
+	local function decode(): (boolean, { any })
+		local value = ReplicatedStorage:FindFirstChild(Remotes.Board)
+		if not value or not value:IsA("StringValue") then
+			return false, {}
+		end
+		local ok, data = pcall(HttpService.JSONDecode, HttpService, value.Value)
+		if not ok or type(data) ~= "table" or type(data.entries) ~= "table" then
+			return false, {}
+		end
+		return data.global == true, data.entries
+	end
+
+	local function render()
+		if current then
+			current:Destroy()
+			current = nil
+		end
+		local worlds = Workspace:FindFirstChild("Worlds")
+		local folder = worlds and worlds:FindFirstChild("World" .. app.State.world)
+		local screen = folder and folder:FindFirstChild("BoardScreen", true)
+		if not screen or not screen:IsA("BasePart") then
+			return
+		end
+		local global, entries = decode()
+		local gui = Instance.new("SurfaceGui")
+		gui.Name = "LeaderboardGui"
+		gui.Face = Enum.NormalId.Front
+		gui.SizingMode = Enum.SurfaceGuiSizingMode.PixelsPerStud
+		gui.PixelsPerStud = 40
+		gui.LightInfluence = 0
+		gui.Parent = screen
+		current = gui
+		local root = Kit.new("Frame", { BackgroundTransparency = 1, Size = UDim2.fromScale(1, 1), Parent = gui })
+		Kit.padding(root, 14, 22, 14, 22)
+		Kit.list(root, Enum.FillDirection.Vertical, 4, Enum.HorizontalAlignment.Center, Enum.VerticalAlignment.Top)
+		Kit.text({
+			Text = utf8.char(0x1F3C6) .. "  " .. Strings.get("boardTitle"),
+			TextSize = 46,
+			Color = Color3.fromRGB(255, 222, 92),
+			Stroke = 4,
+			Size = UDim2.new(1, 0, 0, 54),
+			LayoutOrder = 1,
+			Parent = root,
+		})
+		Kit.text({
+			Text = Strings.get(if global then "boardGlobal" else "boardLocal"),
+			TextSize = 22,
+			Color = Color3.fromRGB(170, 200, 235),
+			Stroke = 2,
+			Size = UDim2.new(1, 0, 0, 28),
+			LayoutOrder = 2,
+			Parent = root,
+		})
+		if #entries == 0 then
+			Kit.text({ Text = Strings.get("boardEmpty"), TextSize = 26, Size = UDim2.new(1, 0, 0, 60), LayoutOrder = 3, Parent = root })
+			return
+		end
+		for rank, entry in entries do
+			if rank > 10 then
+				break
+			end
+			local mine = entry.u == localPlayer.UserId
+			local row = Kit.new("Frame", {
+				BackgroundColor3 = if mine then Color3.fromRGB(255, 214, 90) else Color3.fromRGB(255, 255, 255),
+				BackgroundTransparency = if mine then 0.55 else if rank % 2 == 0 then 0.92 else 0.84,
+				Size = UDim2.new(1, 0, 0, 36),
+				LayoutOrder = 10 + rank,
+				Parent = root,
+			})
+			Kit.corner(row, 10)
+			Kit.text({
+				Text = MEDALS[rank] or ("#" .. rank),
+				TextSize = if rank <= 3 then 28 else 24,
+				Stroke = if rank <= 3 then 0 else 2,
+				Size = UDim2.fromOffset(60, 36),
+				Position = UDim2.fromOffset(6, 0),
+				Parent = row,
+			})
+			Kit.text({
+				Text = tostring(entry.n),
+				TextSize = 26,
+				Color = if rank == 1 then Color3.fromRGB(255, 230, 120) else Color3.new(1, 1, 1),
+				Stroke = 2.5,
+				Size = UDim2.new(1, -260, 1, 0),
+				Position = UDim2.fromOffset(72, 0),
+				XAlign = Enum.TextXAlignment.Left,
+				Parent = row,
+			})
+			Kit.text({
+				Text = Format.short(tonumber(entry.v) or 0),
+				TextSize = 26,
+				Color = Color3.fromRGB(255, 222, 92),
+				Stroke = 2.5,
+				Size = UDim2.fromOffset(170, 36),
+				Position = UDim2.new(1, -180, 0, 0),
+				XAlign = Enum.TextXAlignment.Right,
+				Parent = row,
+			})
+		end
+	end
+
+	local function hook()
+		local value = ReplicatedStorage:WaitForChild(Remotes.Board, 30)
+		if value and value:IsA("StringValue") then
+			value.Changed:Connect(render)
+		end
+		render()
+	end
+	task.spawn(hook)
+	app.State.worldChanged:Connect(function()
+		task.delay(0.5, render)
+	end)
+	app.State.languageChanged:Connect(render)
+	-- The world folder may still be building when we first look.
+	task.delay(3, render)
+end
+
+return Board
+]]></string>
+            </Properties>
+          </Item>
+          <Item class="ModuleScript" referent="53">
             <Properties>
               <string name="Name">Dive</string>
               <string name="Source"><![CDATA[--!strict
@@ -7569,6 +8110,7 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Config = require(Shared.Config)
 local Economy = require(Shared.Economy)
 local Format = require(Shared.Format)
+local Layout = require(Shared.Layout)
 local Strings = require(Shared.Strings)
 local Worlds = require(Shared.Data.Worlds)
 
@@ -7601,7 +8143,6 @@ function Dive.init(app: any)
 			dive.blackout = false
 			dive.oxygen = payload.oxygen
 			dive.max = payload.max
-			dive.cargo = 0
 			dive.chestCarried = false
 			State.diveChanged:Fire()
 		elseif payload.state == "blackout" then
@@ -7640,6 +8181,11 @@ function Dive.init(app: any)
 		dive.cargo = payload.cargo
 		app.Relics.confirm(payload.point)
 		app.Hud.bumpCargo()
+		local relic = Worlds.relics[payload.key]
+		if payload.discovered and relic then
+			app.Sfx.play("Discover")
+			app.Toasts.show(Strings.get("newRelic") .. "  " .. Strings.name(relic.name), "rare", utf8.char(0x2728))
+		end
 		if payload.capacity and payload.cargo >= payload.capacity then
 			app.Toasts.show(Strings.get("backpackFull"), "blue", utf8.char(0x1F392))
 		end
@@ -7652,46 +8198,49 @@ function Dive.init(app: any)
 		end
 	end)
 
-	Net.on("sold", function(payload: any)
+	-- Dive over: treasure stays in the backpack until it is sold at the sell stand.
+	Net.on("surfaced", function(payload: any)
 		dive.active = false
-		dive.cargo = 0
 		dive.chestCarried = false
-		local wasBlackout = dive.blackout
+		dive.cargo = payload.cargo or dive.cargo
 		dive.blackout = false
 		State.diveChanged:Fire()
 		if payload.rescued then
-			app.Screens.rescued(Strings.get("rescued") .. (if payload.payout > 0 then "  +" .. Format.short(payload.payout) else ""))
-		end
-		if payload.payout > 0 then
-			task.delay(if wasBlackout then 2 else 0, function()
-				app.Sfx.play("Sell")
-				app.Effects.floatText("+" .. Format.commas(payload.payout), Color3.fromRGB(255, 226, 90), UDim2.fromScale(0.5, 0.62), 46)
-				local coins = math.clamp(math.floor(payload.count * 1.5) + 4, 6, 24)
-				app.Effects.coinBurst(coins, Vector2.new(0.5, 0.66), app.Hud.coinTarget, function()
-					app.Sfx.play("Coin", 0.9 + math.random() * 0.3)
-				end)
-				if not payload.rescued then
-					app.Toasts.show(Strings.get("sold", { n = payload.count }), "gold", utf8.char(0x1F4B0))
-				end
-			end)
-		end
-		for _, key in payload.discovered or {} do
-			local relic = Worlds.relics[key]
-			if relic and relic.rarity >= 3 then
-				app.Toasts.show(Strings.get("newRelic") .. "  " .. Strings.name(relic.name), "rare", utf8.char(0x2728))
+			local text = Strings.get("rescued")
+			if (payload.lost or 0) > 0 then
+				text ..= "  (" .. Strings.get("lostTreasure", { n = payload.lost }) .. ")"
 			end
+			app.Screens.rescued(text)
+		elseif (payload.cargo or 0) > 0 and not payload.chest then
+			app.Toasts.show(Strings.get("carrying", { n = payload.cargo }), "gold", utf8.char(0x1F392))
 		end
 		if payload.record then
 			app.Toasts.show(Strings.get("depthRecord", { n = payload.record }), "blue", utf8.char(0x1F3C6))
 		end
+		if payload.chestLost then
+			app.Toasts.show(Strings.get("chestLost"), "bad")
+		end
+	end)
+
+	Net.on("sold", function(payload: any)
+		dive.cargo = 0
+		app.Hud.bumpCargo()
+		local world = State.world
+		local spot = Layout.origin(world) + Layout.dock(world).sell
+		app.WorldFx.coinFountain(spot + Vector3.new(0, 0.5, 0), math.clamp(payload.count + 6, 8, 22))
+		app.Sfx.play(if payload.count >= 10 then "SellBig" else "Sell")
+		app.Effects.flash(Color3.fromRGB(255, 226, 120), 0.35, 0.35)
+		app.Effects.floatText("+" .. Format.commas(payload.payout), Color3.fromRGB(255, 226, 90), UDim2.fromScale(0.5, 0.58), 48)
+		local coins = math.clamp(math.floor(payload.count * 1.5) + 6, 8, 26)
+		app.Effects.coinBurst(coins, Vector2.new(0.5, 0.62), app.Hud.coinTarget, function()
+			app.Sfx.play("Coin", 0.9 + math.random() * 0.3)
+		end)
+		app.Toasts.show(Strings.get("sold", { n = payload.count }), "gold", utf8.char(0x1F4B0))
 		if payload.chestReady then
 			task.delay(1.2, function()
 				app.Sfx.play("Unlock")
 				app.Toasts.show(Strings.get("chestReady"), "gold", utf8.char(0x1F451))
 			end)
-		end
-		if payload.chestLost then
-			app.Toasts.show(Strings.get("chestLost"), "bad")
 		end
 	end)
 
@@ -7763,7 +8312,7 @@ return Dive
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="52">
+          <Item class="ModuleScript" referent="54">
             <Properties>
               <string name="Name">Fish</string>
               <string name="Source"><![CDATA[--!strict
@@ -7908,7 +8457,7 @@ return Fish
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="53">
+          <Item class="ModuleScript" referent="55">
             <Properties>
               <string name="Name">Hazards</string>
               <string name="Source"><![CDATA[--!strict
@@ -8057,7 +8606,110 @@ return Hazards
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="54">
+          <Item class="ModuleScript" referent="56">
+            <Properties>
+              <string name="Name">Nameplates</string>
+              <string name="Source"><![CDATA[--!strict
+-- Floating nameplates above every diver (including you): display name and coins. Coins come
+-- from the "Coins" attribute the server keeps on each player.
+
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local Shared = ReplicatedStorage:WaitForChild("Shared")
+local Format = require(Shared.Format)
+
+local Nameplates = {}
+
+type Plate = { gui: BillboardGui, connections: { RBXScriptConnection } }
+
+function Nameplates.init(app: any)
+	local Kit = app.Kit
+	local localPlayer = Players.LocalPlayer
+	local plates: { [Player]: Plate } = {}
+
+	local function remove(player: Player)
+		local plate = plates[player]
+		if plate then
+			for _, connection in plate.connections do
+				connection:Disconnect()
+			end
+			plate.gui:Destroy()
+			plates[player] = nil
+		end
+	end
+
+	local function build(player: Player, character: Model)
+		remove(player)
+		local head = character:WaitForChild("Head", 10)
+		if not head or player.Character ~= character then
+			return
+		end
+		local isMe = player == localPlayer
+		local gui = Instance.new("BillboardGui")
+		gui.Name = "DeepDiveNameplate"
+		gui.Size = UDim2.fromOffset(240, 62)
+		gui.StudsOffset = Vector3.new(0, 2.7, 0)
+		gui.Adornee = head :: Instance
+		gui.LightInfluence = 0
+		gui.MaxDistance = 110
+		gui.ResetOnSpawn = false
+		gui.Parent = app.Gui.promptParent
+		local column = Kit.new("Frame", { BackgroundTransparency = 1, Size = UDim2.fromScale(1, 1), Parent = gui })
+		Kit.list(column, Enum.FillDirection.Vertical, 0)
+		Kit.text({
+			Text = player.DisplayName,
+			TextSize = 22,
+			Color = if isMe then Color3.fromRGB(255, 236, 150) else Color3.new(1, 1, 1),
+			Stroke = 3,
+			Size = UDim2.new(1, 0, 0, 28),
+			LayoutOrder = 1,
+			Parent = column,
+		})
+		local row = Kit.new("Frame", { BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 28), LayoutOrder = 2, Parent = column })
+		Kit.list(row, Enum.FillDirection.Horizontal, 4)
+		local coin = Kit.Icons.coin(20, row)
+		coin.LayoutOrder = 1
+		local amount = Kit.text({
+			Text = "0",
+			TextSize = 20,
+			Color = Color3.fromRGB(255, 222, 92),
+			Stroke = 3,
+			StrokeColor = Color3.fromRGB(90, 56, 8),
+			Size = UDim2.new(0, 0, 1, 0),
+			AutoX = true,
+			LayoutOrder = 2,
+			Parent = row,
+		})
+		local function refresh()
+			local coins = player:GetAttribute("Coins")
+			amount.Text = Format.short(if type(coins) == "number" then coins else 0)
+		end
+		refresh()
+		plates[player] = { gui = gui, connections = { player:GetAttributeChangedSignal("Coins"):Connect(refresh) } }
+	end
+
+	local function watch(player: Player)
+		player.CharacterAdded:Connect(function(character)
+			build(player, character)
+		end)
+		if player.Character then
+			task.spawn(build, player, player.Character)
+		end
+	end
+
+	for _, player in Players:GetPlayers() do
+		watch(player)
+	end
+	Players.PlayerAdded:Connect(watch)
+	Players.PlayerRemoving:Connect(remove)
+end
+
+return Nameplates
+]]></string>
+            </Properties>
+          </Item>
+          <Item class="ModuleScript" referent="57">
             <Properties>
               <string name="Name">Pets</string>
               <string name="Source"><![CDATA[--!strict
@@ -8198,7 +8850,7 @@ return Pets
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="55">
+          <Item class="ModuleScript" referent="58">
             <Properties>
               <string name="Name">Prompts</string>
               <string name="Source"><![CDATA[--!strict
@@ -8215,8 +8867,8 @@ local Worlds = require(Shared.Data.Worlds)
 
 local Prompts = {}
 
-local KIND_TEXT = { Egg = "prompt.egg", Kiosk = "prompt.upgrades", Portal = "prompt.portal" }
-local KIND_PALETTE = { Egg = "Purple", Kiosk = "Orange", Portal = "Blue" }
+local KIND_TEXT = { Egg = "prompt.egg", Kiosk = "prompt.upgrades", Portal = "prompt.portal", Sell = "sellAction" }
+local KIND_PALETTE = { Egg = "Purple", Kiosk = "Orange", Portal = "Blue", Sell = "Gold" }
 
 function Prompts.init(app: any)
 	local Kit = app.Kit
@@ -8232,6 +8884,8 @@ function Prompts.init(app: any)
 			return Strings.get("menu.upgrades")
 		elseif kind == "Portal" then
 			return Strings.get("menu.worlds")
+		elseif kind == "Sell" then
+			return Strings.get("sellShop")
 		end
 		return prompt.ObjectText
 	end
@@ -8319,6 +8973,8 @@ function Prompts.init(app: any)
 			app.openUpgrades()
 		elseif kind == "Portal" then
 			app.openWorlds()
+		elseif kind == "Sell" then
+			app.sell()
 		end
 	end)
 end
@@ -8327,7 +8983,7 @@ return Prompts
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="56">
+          <Item class="ModuleScript" referent="59">
             <Properties>
               <string name="Name">Relics</string>
               <string name="Source"><![CDATA[--!strict
@@ -8438,14 +9094,14 @@ function Relics.init(app: any)
 				sparkle.SpreadAngle = Vector2.new(180, 180)
 				sparkle.Parent = root
 			end
-			if relic.rarity >= 5 then
-				local highlight = Instance.new("Highlight")
-				highlight.FillTransparency = 0.75
-				highlight.FillColor = app.Theme.rarityColor(5)
-				highlight.OutlineColor = app.Theme.rarityColor(5)
-				highlight.DepthMode = Enum.HighlightDepthMode.Occluded
-				highlight.Parent = model
-			end
+			-- Bold black cartoon outline on every relic (legendaries also glow gold).
+			local highlight = Instance.new("Highlight")
+			highlight.OutlineColor = Color3.new(0, 0, 0)
+			highlight.OutlineTransparency = 0
+			highlight.FillColor = app.Theme.rarityColor(5)
+			highlight.FillTransparency = if relic.rarity >= 5 then 0.75 else 1
+			highlight.DepthMode = Enum.HighlightDepthMode.Occluded
+			highlight.Parent = model
 			templates[key] = model
 			return model:Clone()
 		end
@@ -8483,6 +9139,12 @@ function Relics.init(app: any)
 		end
 		local model = RelicModels.buildChest(world, 4.2)
 		model:PivotTo(CFrame.new(chestPosition + Vector3.new(0, 1, 0)))
+		local outline = Instance.new("Highlight")
+		outline.OutlineColor = Color3.new(0, 0, 0)
+		outline.FillColor = Color3.fromRGB(255, 214, 90)
+		outline.FillTransparency = 0.85
+		outline.DepthMode = Enum.HighlightDepthMode.Occluded
+		outline.Parent = model
 		model.Parent = folder
 		local root = model.PrimaryPart :: BasePart
 		local top = Instance.new("Attachment")
@@ -8585,6 +9247,9 @@ function Relics.init(app: any)
 		pending[entry.point] = entry
 		local relic = Worlds.relics[entry.key]
 		app.Sfx.play(if relic.rarity >= 3 then "CollectRare" else "Collect")
+		local color = app.Theme.rarityColor(relic.rarity)
+		app.WorldFx.burst(entry.base, color, 14 + relic.rarity * 6, 0.7 + relic.rarity * 0.12)
+		app.WorldFx.ring(entry.base, color, 4 + relic.rarity, 0.45)
 		app.Effects.floatText("+1 " .. Strings.name(relic.name), app.Theme.rarityColor(relic.rarity), UDim2.fromScale(0.5, 0.42), 28)
 		app.Net.collect(layoutId, entry.point)
 	end
@@ -8651,7 +9316,7 @@ return Relics
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="57">
+          <Item class="ModuleScript" referent="60">
             <Properties>
               <string name="Name">Swim</string>
               <string name="Source"><![CDATA[--!strict
@@ -8829,6 +9494,7 @@ function Swim.init(app: any)
 		emitter.Rate = 0
 		emitter.Parent = part
 		emitter:Emit(if big then 40 else 18)
+		app.WorldFx.ring(Vector3.new(position.X, Config.SurfaceY + 0.15, position.Z), Color3.fromRGB(230, 250, 255), if big then 8 else 4.5, 0.7)
 		task.delay(1.5, function()
 			part:Destroy()
 		end)
@@ -9152,7 +9818,7 @@ return Swim
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="58">
+          <Item class="ModuleScript" referent="61">
             <Properties>
               <string name="Name">WorldProps</string>
               <string name="Source"><![CDATA[--!strict
@@ -9246,6 +9912,11 @@ function WorldProps.init(app: any)
 					descendant,
 					{ { text = utf8.char(0x1F93F) .. " " .. Strings.get("menu.upgrades"), size = 52, color = Color3.fromRGB(255, 226, 120) } }
 				)
+			elseif descendant.Name == "SellSign" and descendant:IsA("BasePart") then
+				signGui(
+					descendant,
+					{ { text = utf8.char(0x1F4B0) .. " " .. Strings.get("sellShop"), size = 50, color = Color3.fromRGB(255, 222, 92) } }
+				)
 			elseif descendant.Name == "EggAnchor" and descendant:IsA("BasePart") then
 				local billboard = Instance.new("BillboardGui")
 				billboard.Size = UDim2.fromOffset(300, 96)
@@ -9325,7 +9996,7 @@ return WorldProps
             </Properties>
           </Item>
         </Item>
-        <Item class="LocalScript" referent="59">
+        <Item class="LocalScript" referent="62">
           <Properties>
             <string name="Name">Main</string>
             <string name="Source"><![CDATA[--!strict
@@ -9358,6 +10029,8 @@ local Theme = require(UI.Theme)
 local Toasts = require(UI.Toasts)
 local Tutorial = require(UI.Tutorial)
 local EggPanel = require(UI.Panels.Egg)
+local IndexPanel = require(UI.Panels.Index)
+local PlayerList = require(UI.PlayerList)
 local PetsPanel = require(UI.Panels.Pets)
 local SettingsPanel = require(UI.Panels.Settings)
 local ShopPanel = require(UI.Panels.Shop)
@@ -9367,11 +10040,14 @@ local WorldsPanel = require(UI.Panels.Worlds)
 local ClientNet = require(script.Parent.ClientNet)
 local Sfx = require(script.Parent.Sfx)
 local State = require(script.Parent.State)
+local WorldFx = require(script.Parent.WorldFx)
 
 local Ambience = require(Controllers.Ambience)
+local Board = require(Controllers.Board)
 local Dive = require(Controllers.Dive)
 local Fish = require(Controllers.Fish)
 local Hazards = require(Controllers.Hazards)
+local Nameplates = require(Controllers.Nameplates)
 local Pets = require(Controllers.Pets)
 local Prompts = require(Controllers.Prompts)
 local Relics = require(Controllers.Relics)
@@ -9424,6 +10100,7 @@ local app: any = {
 	Clear = Clear,
 	Hatch = Hatch,
 	Relics = Relics,
+	WorldFx = WorldFx,
 }
 
 local panels: { [string]: any } = {}
@@ -9482,6 +10159,16 @@ end
 function app.openSettings()
 	panels.settings.open()
 end
+function app.openIndex()
+	panels.index.open()
+end
+function app.sell()
+	local result = ClientNet.invoke("Sell")
+	if not result.ok and result.err and result.err ~= "err.busy" then
+		Sfx.play("Error")
+		Toasts.show(Strings.get(result.err), "bad", utf8.char(0x1F392))
+	end
+end
 function app.openEgg(world: number)
 	if world ~= State.world then
 		return
@@ -9495,6 +10182,7 @@ Hud.init({
 	openPets = app.openPets,
 	openShop = app.openShop,
 	openSettings = app.openSettings,
+	openIndex = app.openIndex,
 	swimInput = Swim.setInput,
 })
 
@@ -9504,6 +10192,7 @@ panels.pets = PetsPanel.new(app)
 panels.shop = ShopPanel.new(app)
 panels.settings = SettingsPanel.new(app)
 panels.egg = EggPanel.new(app)
+panels.index = IndexPanel.new(app)
 for _, panel in panels do
 	local previous = panel.onClose
 	panel.onClose = function()
@@ -9524,6 +10213,9 @@ Pets.init(app)
 WorldProps.init(app)
 Prompts.init(app)
 Tutorial.init(app)
+Nameplates.init(app)
+Board.init(app)
+app.PlayerList = PlayerList.init()
 
 -- Handshake: wait until the server has loaded our profile and world.
 local view = nil
@@ -9565,12 +10257,13 @@ end)
 ]]></string>
           </Properties>
         </Item>
-        <Item class="ModuleScript" referent="60">
+        <Item class="ModuleScript" referent="63">
           <Properties>
             <string name="Name">Sfx</string>
             <string name="Source"><![CDATA[--!strict
--- Sound cues built from the engine's bundled sounds (no uploaded audio). Each cue is a short
--- sequence of (sound, pitch, delay) steps so one sample can make several distinct effects.
+-- Sound design built from the engine's bundled sounds (no uploaded audio needed). Each cue is a
+-- layered sequence of { sound, pitch, delay, volume } steps with a little random pitch so repeats
+-- never sound identical. Any cue can be swapped for a recording via Config.SoundIds.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local SoundService = game:GetService("SoundService")
@@ -9582,44 +10275,67 @@ local Sfx = {}
 
 local S = Config.Sounds
 
+-- Rising arpeggio of pings (a major chord: 1, 1.26, 1.5, 2).
+local function chord(base: number, spacing: number, volume: number, steps: { number }): { { any } }
+	local out = {}
+	for i, ratio in steps do
+		table.insert(out, { S.Ping :: any, base * ratio, (i - 1) * spacing, volume })
+	end
+	return out
+end
+
+local function concat(...: { { any } }): { { any } }
+	local out = {}
+	for _, list in { ... } do
+		for _, step in list do
+			table.insert(out, step)
+		end
+	end
+	return out
+end
+
 local CUES: { [string]: { { any } } } = {
-	Click = { { S.Click, 1.0, 0, 0.5 } },
-	Hover = { { S.Click, 1.7, 0, 0.18 } },
-	Collect = { { S.Ping, 1.35, 0, 0.45 } },
-	CollectRare = { { S.Ping, 1.1, 0, 0.5 }, { S.Ping, 1.4, 0.07, 0.5 }, { S.Ping, 1.75, 0.14, 0.5 } },
-	Sell = { { S.Click, 1.4, 0, 0.5 }, { S.Click, 1.55, 0.06, 0.5 }, { S.Click, 1.7, 0.12, 0.5 }, { S.Ping, 1.6, 0.2, 0.5 } },
-	Coin = { { S.Click, 2.0, 0, 0.25 } },
-	Upgrade = { { S.Ping, 0.9, 0, 0.5 }, { S.Ping, 1.2, 0.08, 0.5 }, { S.Ping, 1.5, 0.16, 0.55 } },
-	Unlock = { { S.Ping, 0.8, 0, 0.55 }, { S.Ping, 1.0, 0.1, 0.55 }, { S.Ping, 1.2, 0.2, 0.55 }, { S.Ping, 1.6, 0.3, 0.6 } },
-	Warning = { { S.Ping, 0.55, 0, 0.45 }, { S.Ping, 0.55, 0.22, 0.45 } },
-	Splash = { { S.Splash, 1.0, 0, 0.6 } },
-	SplashSmall = { { S.Splash, 1.35, 0, 0.35 } },
-	Dash = { { S.Splash, 1.8, 0, 0.3 } },
-	Hurt = { { S.Snap, 0.6, 0, 0.6 }, { S.Ping, 0.5, 0.05, 0.3 } },
-	Error = { { S.Click, 0.6, 0, 0.5 } },
-	Open = { { S.Click, 1.25, 0, 0.35 }, { S.Ping, 1.9, 0.03, 0.18 } },
-	Close = { { S.Click, 0.9, 0, 0.3 } },
-	EggShake = { { S.Snap, 1.3, 0, 0.35 } },
-	EggCrack = { { S.Snap, 0.9, 0, 0.5 }, { S.Ping, 1.2, 0.05, 0.4 } },
-	Reveal = { { S.Ping, 1.0, 0, 0.5 }, { S.Ping, 1.25, 0.08, 0.5 }, { S.Ping, 1.5, 0.16, 0.5 }, { S.Ping, 2.0, 0.26, 0.55 } },
-	Legendary = {
-		{ S.Ping, 0.8, 0, 0.6 },
-		{ S.Ping, 1.0, 0.1, 0.6 },
-		{ S.Ping, 1.26, 0.2, 0.6 },
-		{ S.Ping, 1.5, 0.3, 0.6 },
-		{ S.Ping, 2.0, 0.42, 0.7 },
-	},
-	Clear = {
-		{ S.Ping, 1.0, 0, 0.6 },
-		{ S.Ping, 1.26, 0.12, 0.6 },
-		{ S.Ping, 1.5, 0.24, 0.6 },
-		{ S.Ping, 2.0, 0.4, 0.7 },
-		{ S.Ping, 1.5, 0.6, 0.5 },
-		{ S.Ping, 2.0, 0.72, 0.7 },
-	},
-	Blackout = { { S.Ping, 0.45, 0, 0.5 }, { S.Ping, 0.4, 0.3, 0.45 } },
-	Travel = { { S.Splash, 0.7, 0, 0.5 }, { S.Ping, 1.4, 0.2, 0.35 } },
-	Chest = { { S.Ping, 0.9, 0, 0.6 }, { S.Ping, 1.35, 0.1, 0.6 }, { S.Ping, 1.8, 0.2, 0.6 } },
+	Click = { { S.Button, 1.15, 0, 0.35 }, { S.Click, 1.6, 0, 0.18 } },
+	Hover = { { S.Click, 2.1, 0, 0.1 } },
+	Open = { { S.Swoosh, 1.5, 0, 0.22 }, { S.Ping, 2.2, 0.04, 0.12 } },
+	Close = { { S.Swoosh, 1.15, 0, 0.18 } },
+	Error = { { S.Button, 0.62, 0, 0.4 }, { S.Button, 0.55, 0.09, 0.35 } },
+	Collect = { { S.Ping, 1.5, 0, 0.42 }, { S.Ping, 2.0, 0.05, 0.3 }, { S.Splash, 2.4, 0, 0.12 } },
+	CollectRare = concat(chord(1.2, 0.06, 0.42, { 1, 1.26, 1.5, 2 }), { { S.Swoosh, 1.8, 0, 0.18 } }),
+	Discover = concat(chord(1.0, 0.07, 0.45, { 1, 1.26, 1.5, 2, 2.52 }), { { S.Swoosh, 1.4, 0, 0.2 } }),
+	Coin = { { S.Click, 2.3, 0, 0.2 }, { S.Ping, 3.0, 0, 0.08 } },
+	Sell = concat({
+		{ S.Button, 1.4, 0, 0.35 },
+		{ S.Click, 2.0, 0.05, 0.3 },
+		{ S.Click, 2.2, 0.1, 0.3 },
+		{ S.Click, 2.4, 0.15, 0.3 },
+	}, chord(1.3, 0.07, 0.42, { 1, 1.26, 1.5, 2 })),
+	SellBig = concat(
+		{ { S.Button, 1.2, 0, 0.4 }, { S.Swoosh, 1.2, 0, 0.25 } },
+		chord(1.0, 0.07, 0.45, { 1, 1.26, 1.5, 2, 2.52, 3 }),
+		chord(2.0, 0.05, 0.25, { 1, 1.5 })
+	),
+	Upgrade = concat(chord(0.9, 0.07, 0.45, { 1, 1.26, 1.5, 2 }), { { S.Swoosh, 1.7, 0.02, 0.22 }, { S.Button, 1.3, 0, 0.3 } }),
+	Unlock = concat(chord(0.8, 0.1, 0.5, { 1, 1.26, 1.5, 2 }), { { S.Swoosh, 1.1, 0, 0.25 } }),
+	Warning = { { S.Ping, 0.62, 0, 0.42 }, { S.Ping, 0.55, 0.2, 0.42 } },
+	Splash = { { S.Splash, 1.0, 0, 0.65 }, { S.Splash, 1.45, 0.06, 0.3 }, { S.Swoosh, 0.7, 0, 0.18 } },
+	SplashSmall = { { S.Splash, 1.35, 0, 0.35 }, { S.Splash, 1.8, 0.04, 0.15 } },
+	Dash = { { S.Swoosh, 1.35, 0, 0.35 }, { S.Splash, 1.9, 0.02, 0.2 } },
+	Hurt = { { S.Snap, 0.6, 0, 0.6 }, { S.Land, 0.8, 0, 0.4 }, { S.Ping, 0.45, 0.05, 0.3 } },
+	EggShake = { { S.Snap, 1.3, 0, 0.3 }, { S.Land, 1.6, 0, 0.2 } },
+	EggCrack = { { S.Snap, 0.85, 0, 0.55 }, { S.Swoosh, 1.6, 0.02, 0.3 }, { S.Ping, 1.4, 0.06, 0.35 } },
+	Hatch = { { S.Snap, 0.85, 0, 0.55 }, { S.Swoosh, 1.6, 0.02, 0.3 } },
+	Reveal = concat(chord(1.0, 0.08, 0.45, { 1, 1.26, 1.5, 2 }), { { S.Swoosh, 1.3, 0, 0.25 } }),
+	Legendary = concat(chord(0.8, 0.1, 0.55, { 1, 1.26, 1.5, 2, 2.52 }), chord(1.6, 0.1, 0.35, { 1, 1.26, 1.5, 2 }), { { S.Swoosh, 0.9, 0, 0.3 } }),
+	Clear = concat(
+		chord(1.0, 0.12, 0.55, { 1, 1.26, 1.5, 2 }),
+		chord(1.5, 0.1, 0.5, { 1, 1.33 }),
+		chord(2.0, 0.1, 0.55, { 1, 1.26, 1.5 }),
+		{ { S.Swoosh, 1.0, 0, 0.3 } }
+	),
+	Blackout = { { S.Ping, 0.45, 0, 0.5 }, { S.Ping, 0.4, 0.3, 0.45 }, { S.Swoosh, 0.5, 0, 0.3 } },
+	Travel = { { S.Swoosh, 0.8, 0, 0.4 }, { S.Splash, 0.7, 0.05, 0.4 }, { S.Ping, 1.4, 0.25, 0.3 } },
+	Chest = concat(chord(0.9, 0.1, 0.55, { 1, 1.26, 1.5, 2 }), { { S.Swoosh, 1.0, 0, 0.3 } }),
 }
 
 local enabled = true
@@ -9627,6 +10343,13 @@ local group = Instance.new("SoundGroup")
 group.Name = "DeepDiveSfx"
 group.Volume = 0.8
 group.Parent = SoundService
+-- A touch of room reverb makes the layered cues blend.
+local reverb = Instance.new("ReverbSoundEffect")
+reverb.DecayTime = 0.6
+reverb.Density = 0.8
+reverb.WetLevel = -14
+reverb.DryLevel = 0
+reverb.Parent = group
 
 local pools: { [string]: { Sound } } = {}
 
@@ -9657,14 +10380,25 @@ function Sfx.play(name: string, pitchScale: number?)
 	if not enabled then
 		return
 	end
+	local override = (Config.SoundIds :: any)[name]
+	if type(override) == "string" and override ~= "" then
+		local sound = acquire(override)
+		sound.PlaybackSpeed = (pitchScale or 1) * (0.97 + math.random() * 0.06)
+		sound.Volume = 0.6
+		sound.TimePosition = 0
+		sound:Play()
+		return
+	end
 	local cue = CUES[name]
 	if not cue then
 		return
 	end
+	-- One random detune per cue keeps the chord intact but varies repeats.
+	local detune = (pitchScale or 1) * (0.96 + math.random() * 0.08)
 	for _, step in cue do
 		local function fire()
 			local sound = acquire(step[1])
-			sound.PlaybackSpeed = step[2] * (pitchScale or 1)
+			sound.PlaybackSpeed = step[2] * detune
 			sound.Volume = step[4] or 0.5
 			sound.TimePosition = 0
 			sound:Play()
@@ -9705,7 +10439,7 @@ return Sfx
 ]]></string>
           </Properties>
         </Item>
-        <Item class="ModuleScript" referent="61">
+        <Item class="ModuleScript" referent="64">
           <Properties>
             <string name="Name">State</string>
             <string name="Source"><![CDATA[--!strict
@@ -9770,6 +10504,9 @@ function State.applyView(view: any)
 	State.passes = view.passes or {}
 	State.memory = view.memory == true
 	State.world = view.world or view.profile.world or 1
+	if type(view.profile.backpack) == "table" then
+		State.dive.cargo = #view.profile.backpack
+	end
 	State.profileChanged:Fire(State.profile)
 	if State.world ~= previousWorld then
 		State.worldChanged:Fire(State.world)
@@ -9840,11 +10577,11 @@ return State
 ]]></string>
           </Properties>
         </Item>
-        <Item class="Folder" referent="62">
+        <Item class="Folder" referent="65">
           <Properties>
             <string name="Name">UI</string>
           </Properties>
-          <Item class="ModuleScript" referent="63">
+          <Item class="ModuleScript" referent="66">
             <Properties>
               <string name="Name">Anim</string>
               <string name="Source"><![CDATA[--!strict
@@ -9927,7 +10664,7 @@ return Anim
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="64">
+          <Item class="ModuleScript" referent="67">
             <Properties>
               <string name="Name">Clear</string>
               <string name="Source"><![CDATA[--!strict
@@ -10101,7 +10838,7 @@ return Clear
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="65">
+          <Item class="ModuleScript" referent="68">
             <Properties>
               <string name="Name">Effects</string>
               <string name="Source"><![CDATA[--!strict
@@ -10269,7 +11006,7 @@ return Effects
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="66">
+          <Item class="ModuleScript" referent="69">
             <Properties>
               <string name="Name">Gui</string>
               <string name="Source"><![CDATA[--!strict
@@ -10387,7 +11124,7 @@ return Gui
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="67">
+          <Item class="ModuleScript" referent="70">
             <Properties>
               <string name="Name">Hatch</string>
               <string name="Source"><![CDATA[--!strict
@@ -10624,7 +11361,7 @@ return Hatch
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="68">
+          <Item class="ModuleScript" referent="71">
             <Properties>
               <string name="Name">Hud</string>
               <string name="Source"><![CDATA[--!strict
@@ -10666,6 +11403,7 @@ export type Actions = {
 	openPets: () -> (),
 	openShop: () -> (),
 	openSettings: () -> (),
+	openIndex: () -> (),
 	swimInput: (string, boolean) -> (),
 }
 
@@ -10787,17 +11525,37 @@ end
 
 -- Menu rail --------------------------------------------------------------------------------------
 
-local MENU_BUTTON = 64
+local MENU_BUTTON = 76
 local MENU_GAP = 10
+local MENU_COUNT = 6
 local menu = Kit.new("Frame", {
 	Name = "Menu",
 	BackgroundTransparency = 1,
-	Size = UDim2.fromOffset(MENU_BUTTON + 4, 5 * MENU_BUTTON + 4 * MENU_GAP),
-	Position = UDim2.new(0, MARGIN, 0.5, if TOUCH_SCALE > 1 then 42 else 30),
+	Size = UDim2.fromOffset(MENU_BUTTON + 4, MENU_COUNT * MENU_BUTTON + (MENU_COUNT - 1) * MENU_GAP),
+	Position = UDim2.new(0, MARGIN, 0.5, if TOUCH_SCALE > 1 then 42 else 34),
 	AnchorPoint = Vector2.new(0, 0.5),
 	Parent = root,
 })
-Kit.list(menu, Enum.FillDirection.Vertical, MENU_GAP, Enum.HorizontalAlignment.Left, Enum.VerticalAlignment.Center)
+-- One column on roomy screens; two columns of three when the canvas is short (and on phones).
+local menuGrid = Kit.new("UIGridLayout", {
+	CellSize = UDim2.fromOffset(MENU_BUTTON, MENU_BUTTON),
+	CellPadding = UDim2.fromOffset(MENU_GAP, MENU_GAP),
+	FillDirection = Enum.FillDirection.Vertical,
+	FillDirectionMaxCells = MENU_COUNT,
+	HorizontalAlignment = Enum.HorizontalAlignment.Left,
+	VerticalAlignment = Enum.VerticalAlignment.Center,
+	SortOrder = Enum.SortOrder.LayoutOrder,
+	Parent = menu,
+}) :: UIGridLayout
+local function layoutMenu(canvas: Vector2)
+	local compact = TOUCH_SCALE > 1 or canvas.Y < 660
+	local perColumn = if compact then 3 else MENU_COUNT
+	local columns = math.ceil(MENU_COUNT / perColumn)
+	menuGrid.FillDirectionMaxCells = perColumn
+	menu.Size = UDim2.fromOffset(columns * MENU_BUTTON + (columns - 1) * MENU_GAP + 4, perColumn * MENU_BUTTON + (perColumn - 1) * MENU_GAP)
+end
+layoutMenu(Gui.canvasSize)
+Gui.resized:Connect(layoutMenu)
 local badges: { [string]: Frame } = {}
 local menuLabels: { [string]: TextLabel } = {}
 
@@ -10805,10 +11563,10 @@ local function menuButton(key: string, emoji: string, palette: string, order: nu
 	local api = Kit.button({
 		Name = key,
 		Icon = emoji,
-		IconSize = 28,
+		IconSize = 34,
 		Palette = palette,
 		Size = UDim2.fromOffset(MENU_BUTTON, MENU_BUTTON),
-		Radius = 16,
+		Radius = 18,
 		Stroke = 2.5,
 		LayoutOrder = order,
 		Parent = menu,
@@ -10816,13 +11574,13 @@ local function menuButton(key: string, emoji: string, palette: string, order: nu
 	})
 	local content = api.button:FindFirstChild("Content") :: Frame?
 	if content then
-		content.Position = UDim2.fromOffset(0, -8)
+		content.Position = UDim2.fromOffset(0, -9)
 	end
 	local label = Kit.text({
 		Text = "",
-		TextSize = 13,
-		Size = UDim2.new(1, 0, 0, 16),
-		Position = UDim2.new(0, 0, 1, -18),
+		TextSize = 15,
+		Size = UDim2.new(1, 0, 0, 18),
+		Position = UDim2.new(0, 0, 1, -21),
 		ZIndex = 4,
 		Stroke = 2,
 		StrokeColor = (Theme.Buttons[palette] or Theme.Buttons.Blue)[3],
@@ -10868,29 +11626,33 @@ local dive = Kit.new("Frame", {
 	AnchorPoint = Vector2.new(0.5, 1),
 	Parent = root,
 })
+-- Bottom row: [bubble + oxygen] [depth, in water only] [backpack], centred as a group.
+local diveRow = Kit.new("Frame", {
+	BackgroundTransparency = 1,
+	Size = UDim2.new(1, 0, 0, 40),
+	Position = UDim2.new(0, 0, 1, 0),
+	AnchorPoint = Vector2.new(0, 1),
+	Parent = dive,
+})
+Kit.list(diveRow, Enum.FillDirection.Horizontal, 10, Enum.HorizontalAlignment.Center, Enum.VerticalAlignment.Center)
+local oxygenGroup = Kit.new("Frame", { BackgroundTransparency = 1, Size = UDim2.fromOffset(284, 40), LayoutOrder = 1, Parent = diveRow })
 local oxygenBar = Kit.progress({
 	Size = UDim2.fromOffset(250, 28),
-	Position = UDim2.new(0, 34, 1, -4),
-	AnchorPoint = Vector2.new(0, 1),
+	Position = UDim2.new(0, 34, 0.5, 0),
+	AnchorPoint = Vector2.new(0, 0.5),
 	Colors = { C.Oxygen, C.OxygenDeep },
 	TextSize = 18,
 	Outline = 2.5,
 	LabelStroke = 2,
-	Parent = dive,
+	Parent = oxygenGroup,
 })
-local bubble = Kit.Icons.bubble(42, dive)
-bubble.Position = UDim2.new(0, 4, 1, 3)
-bubble.AnchorPoint = Vector2.new(0, 1)
+local bubble = Kit.Icons.bubble(42, oxygenGroup)
+bubble.Position = UDim2.new(0, 4, 0.5, 0)
+bubble.AnchorPoint = Vector2.new(0, 0.5)
 bubble.ZIndex = 3
 
-local depthChip = Kit.pill({
-	Name = "Depth",
-	Size = UDim2.fromOffset(136, 36),
-	Position = UDim2.new(0, 296, 1, 0),
-	AnchorPoint = Vector2.new(0, 1),
-	Outline = 2.5,
-	Parent = dive,
-})
+local depthChip = Kit.pill({ Name = "Depth", Size = UDim2.fromOffset(136, 36), Outline = 2.5, Parent = diveRow })
+depthChip.LayoutOrder = 2
 local depthRow = Kit.new("Frame", { BackgroundTransparency = 1, Size = UDim2.fromScale(1, 1), Parent = depthChip })
 Kit.list(depthRow, Enum.FillDirection.Horizontal, 4, Enum.HorizontalAlignment.Center, Enum.VerticalAlignment.Center)
 Kit.text({ Text = utf8.char(0x1F30A), TextSize = 17, Size = UDim2.fromOffset(22, 22), Stroke = 0, LayoutOrder = 1, Parent = depthRow })
@@ -10907,14 +11669,8 @@ local depthMax = Kit.text({
 	Parent = depthRow,
 })
 
-local cargoChip = Kit.pill({
-	Name = "Cargo",
-	Size = UDim2.fromOffset(118, 36),
-	Position = UDim2.new(0, 442, 1, 0),
-	AnchorPoint = Vector2.new(0, 1),
-	Outline = 2.5,
-	Parent = dive,
-})
+local cargoChip = Kit.pill({ Name = "Cargo", Size = UDim2.fromOffset(118, 36), Outline = 2.5, Parent = diveRow })
+cargoChip.LayoutOrder = 3
 local bag = Kit.Icons.bag(32, cargoChip)
 bag.Position = UDim2.new(0, 6, 0.5, 0)
 bag.AnchorPoint = Vector2.new(0, 0.5)
@@ -10992,8 +11748,9 @@ function Hud.init(actions: Actions)
 	Hud.menuButtons.worlds = menuButton("worlds", utf8.char(0x1F30D), "Blue", 1, actions.openWorlds)
 	Hud.menuButtons.upgrades = menuButton("upgrades", utf8.char(0x1F93F), "Orange", 2, actions.openUpgrades)
 	Hud.menuButtons.pets = menuButton("pets", utf8.char(0x1F43E), "Pink", 3, actions.openPets)
-	Hud.menuButtons.shop = menuButton("shop", utf8.char(0x1F6D2), "Green", 4, actions.openShop)
-	Hud.menuButtons.settings = menuButton("settings", utf8.char(0x2699) .. utf8.char(0xFE0F), "Gray", 5, actions.openSettings)
+	Hud.menuButtons.index = menuButton("index", utf8.char(0x1F4D6), "Purple", 4, actions.openIndex)
+	Hud.menuButtons.shop = menuButton("shop", utf8.char(0x1F6D2), "Green", 5, actions.openShop)
+	Hud.menuButtons.settings = menuButton("settings", utf8.char(0x2699) .. utf8.char(0xFE0F), "Gray", 6, actions.openSettings)
 	boostChip.Activated:Connect(actions.openPets)
 	addCoins.button.Activated:Connect(actions.openShop)
 
@@ -11076,8 +11833,9 @@ RunService.RenderStepped:Connect(function(dt: number)
 	local world = State.world
 	local showDive = d.inWater or d.active
 	diveAlpha += ((if showDive then 1 else 0) - diveAlpha) * math.clamp(dt * 6, 0, 1)
-	dive.Visible = diveAlpha > 0.02
-	dive.Position = UDim2.new(0.5, 0, 1, -14 + (1 - diveAlpha) * 120)
+	-- The oxygen/backpack bar is always on screen (how long you can dive, what you carry);
+	-- the depth readout joins it in the water.
+	depthChip.Visible = diveAlpha > 0.5
 	-- The world chip steps aside while diving so the view stays clear.
 	banner.Visible = diveAlpha < 0.5
 
@@ -11085,7 +11843,7 @@ RunService.RenderStepped:Connect(function(dt: number)
 	local ratio = math.clamp(d.oxygen / max, 0, 1)
 	oxygenBar.fill.Size = UDim2.fromScale(ratio, 1)
 	oxygenBar.fill.Visible = ratio > 0.01
-	oxygenBar.label.Text = if d.active then Format.seconds(d.oxygen) else Format.seconds(max)
+	oxygenBar.label.Text = if d.active then Format.seconds(d.oxygen) else Strings.get("diveTime", { t = Format.seconds(max) })
 	local drain = Economy.oxygenDrain(world, math.max(0, d.depth))
 	if d.active and drain >= 1.3 then
 		pressureChip.Visible = true
@@ -11131,7 +11889,7 @@ return Hud
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="69">
+          <Item class="ModuleScript" referent="72">
             <Properties>
               <string name="Name">Kit</string>
               <string name="Source"><![CDATA[--!strict
@@ -11693,12 +12451,12 @@ return Kit
 ]]></string>
             </Properties>
           </Item>
-          <Item class="Folder" referent="70">
+          <Item class="Folder" referent="73">
             <Properties>
               <string name="Name">Overlays</string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="71">
+          <Item class="ModuleScript" referent="74">
             <Properties>
               <string name="Name">Panel</string>
               <string name="Source"><![CDATA[--!strict
@@ -11942,11 +12700,11 @@ return Panel
 ]]></string>
             </Properties>
           </Item>
-          <Item class="Folder" referent="72">
+          <Item class="Folder" referent="75">
             <Properties>
               <string name="Name">Panels</string>
             </Properties>
-            <Item class="ModuleScript" referent="73">
+            <Item class="ModuleScript" referent="76">
               <Properties>
                 <string name="Name">Egg</string>
                 <string name="Source"><![CDATA[--!strict
@@ -12260,7 +13018,313 @@ return EggPanel
 ]]></string>
               </Properties>
             </Item>
-            <Item class="ModuleScript" referent="74">
+            <Item class="ModuleScript" referent="77">
+              <Properties>
+                <string name="Name">Index</string>
+                <string name="Source"><![CDATA[--!strict
+-- Relic index: every world's five relics. Discovered relics show their 3D model, rarity, value
+-- and how many you have collected; undiscovered ones are black silhouettes marked "???".
+
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local Shared = ReplicatedStorage:WaitForChild("Shared")
+local Color = require(Shared.Color)
+local Config = require(Shared.Config)
+local Economy = require(Shared.Economy)
+local Format = require(Shared.Format)
+local Strings = require(Shared.Strings)
+local Worlds = require(Shared.Data.Worlds)
+
+local Kit = require(script.Parent.Parent.Kit)
+local Panel = require(script.Parent.Parent.Panel)
+local Theme = require(script.Parent.Parent.Theme)
+local Viewport = require(script.Parent.Parent.Viewport)
+
+local IndexPanel = {}
+
+local C = Theme.C
+local RELICS_PER_WORLD = 5
+
+type Card = {
+	frame: Frame,
+	view: Viewport.ViewApi,
+	name: TextLabel,
+	rarityChip: Frame,
+	rarity: TextLabel,
+	worth: TextLabel,
+	count: TextLabel,
+	key: string?,
+}
+
+local function discoveredIn(profile: any, world: number): number
+	local n = 0
+	for _, relic in Worlds.get(world).relics do
+		if (profile.relics[relic.key] or 0) > 0 then
+			n += 1
+		end
+	end
+	return n
+end
+
+function IndexPanel.totals(profile: any): (number, number)
+	local found = 0
+	for world = 1, Config.WorldCount do
+		found += discoveredIn(profile, world)
+	end
+	return found, Config.WorldCount * RELICS_PER_WORLD
+end
+
+function IndexPanel.new(app: any): Panel.PanelApi
+	local panel = Panel.new({
+		Parent = app.Gui.panels,
+		Title = Strings.get("indexTitle"),
+		Icon = utf8.char(0x1F4D6),
+		Palette = "Purple",
+		Size = Vector2.new(900, 560),
+	})
+	local body = panel.body
+	local selected = 1
+
+	-- Header: total progress bar.
+	local progress = Kit.progress({
+		Size = UDim2.new(1, -8, 0, 30),
+		Position = UDim2.fromOffset(4, 20),
+		Colors = { Color.hex("#d99bff"), Color.hex("#8a4fe0") },
+		TextSize = 18,
+		Parent = body,
+	})
+
+	-- World list -----------------------------------------------------------------------------------
+	local list = Kit.new("ScrollingFrame", {
+		BackgroundColor3 = C.PanelAlt,
+		BackgroundTransparency = 0.2,
+		Size = UDim2.new(0, 250, 1, -70),
+		Position = UDim2.fromOffset(0, 64),
+		CanvasSize = UDim2.new(),
+		AutomaticCanvasSize = Enum.AutomaticSize.Y,
+		ScrollBarThickness = 8,
+		ScrollBarImageColor3 = C.NavySoft,
+		BorderSizePixel = 0,
+		Parent = body,
+	}) :: ScrollingFrame
+	Kit.corner(list, 16)
+	Kit.padding(list, 8, 12, 8, 8)
+	Kit.list(list, Enum.FillDirection.Vertical, 6, Enum.HorizontalAlignment.Center, Enum.VerticalAlignment.Top)
+
+	type Row = { button: TextButton, label: TextLabel, tally: TextLabel, stroke: UIStroke }
+	local rows: { Row } = {}
+	local refresh: () -> () = function() end
+	for world = 1, Config.WorldCount do
+		local data = Worlds.get(world)
+		local button = Kit.new("TextButton", {
+			Name = "World" .. world,
+			Text = "",
+			AutoButtonColor = false,
+			BackgroundColor3 = Color3.new(1, 1, 1),
+			Size = UDim2.new(1, -4, 0, 46),
+			LayoutOrder = world,
+			Parent = list,
+		}) :: TextButton
+		Kit.corner(button, 12)
+		Kit.gradient(button, Color.lighten(Color.hex(data.accent[1]), 0.25), Color.hex(data.accent[2]), 90)
+		local stroke = Kit.stroke(button, Color.darken(Color.hex(data.accent[2]), 0.5), 2.5)
+		local label = Kit.text({
+			Text = "",
+			TextSize = 16,
+			Size = UDim2.new(1, -66, 1, 0),
+			Position = UDim2.fromOffset(10, 0),
+			XAlign = Enum.TextXAlignment.Left,
+			Stroke = 2,
+			StrokeColor = Color.darken(Color.hex(data.accent[2]), 0.55),
+			Parent = button,
+		})
+		local tally = Kit.text({
+			Text = "",
+			TextSize = 15,
+			Size = UDim2.fromOffset(58, 46),
+			Position = UDim2.new(1, -60, 0, 0),
+			Stroke = 2,
+			Parent = button,
+		})
+		button.Activated:Connect(function()
+			selected = world
+			app.Sfx.play("Click")
+			refresh()
+		end)
+		rows[world] = { button = button, label = label, tally = tally, stroke = stroke }
+	end
+
+	-- Relic cards ----------------------------------------------------------------------------------
+	local title = Kit.text({
+		Text = "",
+		TextSize = 26,
+		Size = UDim2.new(1, -266, 0, 32),
+		Position = UDim2.fromOffset(266, 66),
+		XAlign = Enum.TextXAlignment.Left,
+		Stroke = 3,
+		Parent = body,
+	})
+	local completeChip = Kit.new("Frame", {
+		BackgroundColor3 = Color3.new(1, 1, 1),
+		Size = UDim2.fromOffset(120, 30),
+		Position = UDim2.new(1, -4, 0, 67),
+		AnchorPoint = Vector2.new(1, 0),
+		Visible = false,
+		Parent = body,
+	})
+	Kit.round(completeChip)
+	Kit.gradient(completeChip, Theme.Buttons.Gold[1], Theme.Buttons.Gold[2])
+	Kit.stroke(completeChip, Theme.Buttons.Gold[3], 2.5)
+	local completeLabel =
+		Kit.text({ Text = "", TextSize = 17, Size = UDim2.fromScale(1, 1), StrokeColor = Theme.Buttons.Gold[3], Parent = completeChip })
+
+	local grid = Kit.new("Frame", {
+		BackgroundTransparency = 1,
+		Size = UDim2.new(1, -266, 1, -110),
+		Position = UDim2.fromOffset(266, 108),
+		Parent = body,
+	})
+	Kit.new("UIGridLayout", {
+		CellSize = UDim2.fromOffset(186, 184),
+		CellPadding = UDim2.fromOffset(12, 12),
+		HorizontalAlignment = Enum.HorizontalAlignment.Center,
+		SortOrder = Enum.SortOrder.LayoutOrder,
+		Parent = grid,
+	})
+	local lockedNote = Kit.text({
+		Text = "",
+		TextSize = 22,
+		Color = C.Muted,
+		Stroke = 0,
+		Wrapped = true,
+		Size = UDim2.new(1, -266, 0, 60),
+		Position = UDim2.new(0, 266, 0.55, 0),
+		Visible = false,
+		Parent = body,
+	})
+
+	local cards: { Card } = {}
+	for i = 1, RELICS_PER_WORLD do
+		local frame = Kit.new("Frame", { BackgroundColor3 = Color3.new(1, 1, 1), LayoutOrder = i, Parent = grid }) :: Frame
+		Kit.corner(frame, 16)
+		Kit.stroke(frame, C.Outline, 3)
+		local view = Viewport.new(frame, UDim2.fromOffset(150, 88), UDim2.new(0.5, 0, 0, 6), Vector2.new(0.5, 0))
+		view.setSpin(true)
+		local name =
+			Kit.text({ Text = "", TextSize = 17, Size = UDim2.new(1, -10, 0, 20), Position = UDim2.fromOffset(5, 96), Stroke = 2, Parent = frame })
+		local rarityChip = Kit.new("Frame", {
+			BackgroundColor3 = C.Gray,
+			Size = UDim2.fromOffset(110, 20),
+			Position = UDim2.new(0.5, 0, 0, 120),
+			AnchorPoint = Vector2.new(0.5, 0),
+			Parent = frame,
+		})
+		Kit.round(rarityChip)
+		Kit.stroke(rarityChip, C.Outline, 2)
+		local rarity = Kit.text({ Text = "", TextSize = 13, Size = UDim2.fromScale(1, 1), Stroke = 1.6, Parent = rarityChip })
+		local worthRow =
+			Kit.new("Frame", { BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 20), Position = UDim2.fromOffset(0, 143), Parent = frame })
+		Kit.list(worthRow, Enum.FillDirection.Horizontal, 4)
+		local coin = Kit.Icons.coin(16, worthRow)
+		coin.LayoutOrder = 1
+		local worth =
+			Kit.text({ Text = "", TextSize = 15, Size = UDim2.new(0, 0, 1, 0), AutoX = true, Stroke = 2, LayoutOrder = 2, Parent = worthRow })
+		local count = Kit.text({
+			Text = "",
+			TextSize = 13,
+			Color = C.Muted,
+			Stroke = 0,
+			Size = UDim2.new(1, -10, 0, 16),
+			Position = UDim2.fromOffset(5, 164),
+			Parent = frame,
+		})
+		cards[i] = { frame = frame, view = view, name = name, rarityChip = rarityChip, rarity = rarity, worth = worth, count = count, key = nil }
+	end
+
+	local function paintCard(card: Card, relic: any, found: number, world: number)
+		local discovered = found > 0
+		local rarityColor = Theme.rarityColor(relic.rarity)
+		if card.key ~= relic.key then
+			card.key = relic.key
+			card.view.setModel(Viewport.relic(relic.key))
+		end
+		-- Undiscovered relics render as flat black silhouettes.
+		card.view.frame.Ambient = if discovered then Color3.fromRGB(190, 200, 215) else Color3.new(0, 0, 0)
+		card.view.frame.LightColor = if discovered then Color3.fromRGB(255, 250, 240) else Color3.new(0, 0, 0)
+		card.view.frame.ImageColor3 = if discovered then Color3.new(1, 1, 1) else Color3.fromRGB(20, 28, 44)
+		card.frame.BackgroundColor3 = if discovered then rarityColor:Lerp(Color3.new(1, 1, 1), 0.72) else Color3.fromRGB(196, 206, 220)
+		card.name.Text = if discovered then Strings.name(relic.name) else "???"
+		local stroke = card.name:FindFirstChildOfClass("UIStroke")
+		if stroke then
+			stroke.Color = if discovered then rarityColor:Lerp(Color3.new(0, 0, 0), 0.55) else C.Ink
+		end
+		card.rarityChip.BackgroundColor3 = rarityColor
+		card.rarity.Text = Strings.get("rarity." .. Config.Rarities[relic.rarity])
+		card.worth.Text = Format.short(Economy.relicValue(world, relic.rarity))
+		card.count.Text = if discovered then Strings.get("indexCount", { n = Format.commas(found) }) else Strings.get("indexUndiscovered")
+	end
+
+	refresh = function()
+		local profile = app.State.profile
+		if not profile then
+			return
+		end
+		local found, total = IndexPanel.totals(profile)
+		progress.set(found / total, Strings.get("indexProgress", { a = found, b = total }))
+		for world, row in rows do
+			local data = Worlds.get(world)
+			local unlocked = world <= profile.unlocked
+			local n = discoveredIn(profile, world)
+			row.label.Text = (if unlocked then "" else utf8.char(0x1F512) .. " ") .. world .. ". " .. Strings.name(data.name)
+			row.tally.Text = if n == RELICS_PER_WORLD then utf8.char(0x2714) else n .. "/" .. RELICS_PER_WORLD
+			row.button.BackgroundTransparency = if unlocked then 0 else 0.45
+			row.stroke.Thickness = if world == selected then 4 else 2.5
+			row.stroke.Color = if world == selected then Color3.new(1, 1, 1) else Color.darken(Color.hex(data.accent[2]), 0.5)
+		end
+		local data = Worlds.get(selected)
+		title.Text = Strings.get("world", { n = selected }) .. "  ·  " .. Strings.name(data.name)
+		local titleStroke = title:FindFirstChildOfClass("UIStroke")
+		if titleStroke then
+			titleStroke.Color = Color.darken(Color.hex(data.accent[2]), 0.45)
+		end
+		title.TextColor3 = Color.lighten(Color.hex(data.accent[1]), 0.35)
+		local count = discoveredIn(profile, selected)
+		completeChip.Visible = count == RELICS_PER_WORLD
+		completeLabel.Text = Strings.get("indexComplete")
+		local unlocked = selected <= profile.unlocked
+		for i, card in cards do
+			local relic = data.relics[i]
+			card.frame.Visible = relic ~= nil
+			if relic then
+				paintCard(card, relic, profile.relics[relic.key] or 0, selected)
+			end
+		end
+		lockedNote.Visible = not unlocked and count == 0
+		lockedNote.Text = Strings.get("indexLocked")
+		grid.Visible = unlocked or count > 0
+	end
+
+	panel.onOpen = function()
+		selected = app.State.world
+		refresh()
+	end
+	app.State.profileChanged:Connect(function()
+		if panel.isOpen then
+			refresh()
+		end
+	end)
+	app.State.languageChanged:Connect(function()
+		panel.setTitle(Strings.get("indexTitle"))
+		refresh()
+	end)
+	return panel
+end
+
+return IndexPanel
+]]></string>
+              </Properties>
+            </Item>
+            <Item class="ModuleScript" referent="78">
               <Properties>
                 <string name="Name">Pets</string>
                 <string name="Source"><![CDATA[--!strict
@@ -12693,7 +13757,7 @@ return PetsPanel
 ]]></string>
               </Properties>
             </Item>
-            <Item class="ModuleScript" referent="75">
+            <Item class="ModuleScript" referent="79">
               <Properties>
                 <string name="Name">Settings</string>
                 <string name="Source"><![CDATA[--!strict
@@ -12841,7 +13905,7 @@ return SettingsPanel
 ]]></string>
               </Properties>
             </Item>
-            <Item class="ModuleScript" referent="76">
+            <Item class="ModuleScript" referent="80">
               <Properties>
                 <string name="Name">Shop</string>
                 <string name="Source"><![CDATA[--!strict
@@ -13045,7 +14109,7 @@ return ShopPanel
 ]]></string>
               </Properties>
             </Item>
-            <Item class="ModuleScript" referent="77">
+            <Item class="ModuleScript" referent="81">
               <Properties>
                 <string name="Name">Upgrades</string>
                 <string name="Source"><![CDATA[--!strict
@@ -13274,7 +14338,7 @@ return UpgradesPanel
 ]]></string>
               </Properties>
             </Item>
-            <Item class="ModuleScript" referent="78">
+            <Item class="ModuleScript" referent="82">
               <Properties>
                 <string name="Name">Worlds</string>
                 <string name="Source"><![CDATA[--!strict
@@ -13555,7 +14619,235 @@ return WorldsPanel
               </Properties>
             </Item>
           </Item>
-          <Item class="ModuleScript" referent="79">
+          <Item class="ModuleScript" referent="83">
+            <Properties>
+              <string name="Name">PlayerList</string>
+              <string name="Source"><![CDATA[--!strict
+-- Custom player list (replaces Roblox's Tab list): avatar, nickname, coins and relics collected,
+-- sorted by coins. Tab toggles it; touch screens get a button instead.
+
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local StarterGui = game:GetService("StarterGui")
+local UserInputService = game:GetService("UserInputService")
+
+local Shared = ReplicatedStorage:WaitForChild("Shared")
+local Format = require(Shared.Format)
+local Strings = require(Shared.Strings)
+
+local Anim = require(script.Parent.Anim)
+local Gui = require(script.Parent.Gui)
+local Kit = require(script.Parent.Kit)
+local Theme = require(script.Parent.Theme)
+
+local PlayerList = {}
+
+local C = Theme.C
+local WIDTH = 360
+local ROW = 38
+-- Columns start after the avatar (42) and must end inside the padded row (WIDTH - 16) with an
+-- 8px right margin: 42 + 146 + 82 + 66 = 336 = 360 - 16 - 8.
+local NAME_W, COIN_W, RELIC_W = 146, 82, 66
+
+type Row = { frame: Frame, name: TextLabel, coins: TextLabel, relics: TextLabel, stroke: UIStroke }
+
+function PlayerList.init()
+	pcall(function()
+		StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.PlayerList, false)
+	end)
+	local localPlayer = Players.LocalPlayer
+
+	local panel = Kit.new("Frame", {
+		Name = "PlayerList",
+		BackgroundColor3 = C.Navy,
+		BackgroundTransparency = 0.18,
+		Size = UDim2.fromOffset(WIDTH, 0),
+		AutomaticSize = Enum.AutomaticSize.Y,
+		Position = UDim2.new(1, -16, 0, 12),
+		AnchorPoint = Vector2.new(1, 0),
+		Parent = Gui.hud,
+	}) :: Frame
+	Kit.corner(panel, 14)
+	Kit.stroke(panel, C.Outline, 2.5)
+	Kit.padding(panel, 0, 8, 8, 8)
+	Kit.list(panel, Enum.FillDirection.Vertical, 4, Enum.HorizontalAlignment.Center, Enum.VerticalAlignment.Top)
+
+	local header = Kit.new("Frame", { BackgroundColor3 = Color3.new(1, 1, 1), Size = UDim2.new(1, 16, 0, 40), LayoutOrder = 0, Parent = panel })
+	Kit.corner(header, 14)
+	Kit.gradient(header, Theme.Buttons.Purple[1], Theme.Buttons.Blue[2], 0)
+	local title = Kit.text({
+		Text = "",
+		TextSize = 19,
+		Size = UDim2.new(1, -20, 1, 0),
+		Position = UDim2.fromOffset(12, 0),
+		XAlign = Enum.TextXAlignment.Left,
+		Stroke = 2.5,
+		Parent = header,
+	})
+
+	local function columns(parent: Instance, size: number, color: Color3?, stroke: number?): (TextLabel, TextLabel, TextLabel)
+		local name = Kit.text({
+			Text = "",
+			TextSize = size,
+			Color = color,
+			Stroke = stroke,
+			Size = UDim2.fromOffset(NAME_W, ROW),
+			Position = UDim2.fromOffset(42, 0),
+			XAlign = Enum.TextXAlignment.Left,
+			Parent = parent,
+		})
+		local coins = Kit.text({
+			Text = "",
+			TextSize = size,
+			Color = color,
+			Stroke = stroke,
+			Size = UDim2.fromOffset(COIN_W, ROW),
+			Position = UDim2.fromOffset(42 + NAME_W, 0),
+			XAlign = Enum.TextXAlignment.Right,
+			Parent = parent,
+		})
+		local relics = Kit.text({
+			Text = "",
+			TextSize = size,
+			Color = color,
+			Stroke = stroke,
+			Size = UDim2.fromOffset(RELIC_W, ROW),
+			Position = UDim2.fromOffset(42 + NAME_W + COIN_W, 0),
+			XAlign = Enum.TextXAlignment.Right,
+			Parent = parent,
+		})
+		return name, coins, relics
+	end
+
+	local labels = Kit.new("Frame", { BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 20), LayoutOrder = 1, Parent = panel })
+	local labelName, labelCoins, labelRelics = columns(labels, 13, Color3.fromRGB(170, 196, 226), 0)
+	for _, label in { labelName, labelCoins, labelRelics } do
+		label.Size = UDim2.new(0, label.Size.X.Offset, 1, 0)
+	end
+
+	local rows: { [Player]: Row } = {}
+
+	local function makeRow(player: Player): Row
+		local frame = Kit.new("Frame", {
+			Name = player.Name,
+			BackgroundColor3 = Color3.fromRGB(255, 255, 255),
+			BackgroundTransparency = 0.9,
+			Size = UDim2.new(1, 0, 0, ROW),
+			Parent = panel,
+		}) :: Frame
+		Kit.corner(frame, 10)
+		local stroke = Kit.stroke(frame, Theme.Buttons.Gold[2], 2)
+		stroke.Enabled = player == localPlayer
+		local avatar = Kit.new("ImageLabel", {
+			BackgroundColor3 = Color3.fromRGB(60, 90, 140),
+			Image = string.format("rbxthumb://type=AvatarHeadShot&id=%d&w=48&h=48", math.max(1, player.UserId)),
+			Size = UDim2.fromOffset(30, 30),
+			Position = UDim2.fromOffset(6, 4),
+			Parent = frame,
+		})
+		Kit.round(avatar)
+		Kit.stroke(avatar, C.Outline, 2)
+		local name, coins, relics = columns(frame, 17, nil, 2)
+		name.Text = player.DisplayName
+		name.TextTruncate = Enum.TextTruncate.AtEnd
+		if player == localPlayer then
+			name.TextColor3 = Color3.fromRGB(255, 232, 140)
+		end
+		coins.TextColor3 = Color3.fromRGB(255, 222, 92)
+		relics.TextColor3 = Color3.fromRGB(150, 230, 255)
+		local row = { frame = frame, name = name, coins = coins, relics = relics, stroke = stroke }
+		rows[player] = row
+		return row
+	end
+
+	local function numberOf(player: Player, attribute: string): number
+		local value = player:GetAttribute(attribute)
+		return if type(value) == "number" then value else 0
+	end
+
+	local function refresh()
+		local list = Players:GetPlayers()
+		table.sort(list, function(a, b)
+			local ca, cb = numberOf(a, "Coins"), numberOf(b, "Coins")
+			if ca ~= cb then
+				return ca > cb
+			end
+			return a.Name < b.Name
+		end)
+		for index, player in list do
+			local row = rows[player] or makeRow(player)
+			row.frame.LayoutOrder = 10 + index
+			row.coins.Text = Format.short(numberOf(player, "Coins"))
+			row.relics.Text = Format.short(numberOf(player, "Relics"))
+		end
+		title.Text = utf8.char(0x1F465) .. "  " .. Strings.get("playersTitle") .. "  " .. #list
+		labelName.Text = Strings.get("colName")
+		labelCoins.Text = Strings.get("colCoins")
+		labelRelics.Text = Strings.get("colRelics")
+	end
+
+	local function watch(player: Player)
+		player:GetAttributeChangedSignal("Coins"):Connect(refresh)
+		player:GetAttributeChangedSignal("Relics"):Connect(refresh)
+		refresh()
+	end
+	for _, player in Players:GetPlayers() do
+		watch(player)
+	end
+	Players.PlayerAdded:Connect(watch)
+	Players.PlayerRemoving:Connect(function(player)
+		local row = rows[player]
+		if row then
+			row.frame:Destroy()
+			rows[player] = nil
+		end
+		task.defer(refresh)
+	end)
+
+	-- Visibility: open by default with a keyboard, toggled with Tab or the touch button.
+	local touch = Gui.isTouch()
+	panel.Visible = not touch
+	local function setOpen(open: boolean)
+		panel.Visible = open
+		if open then
+			Anim.pop(panel, 0.06)
+			refresh()
+		end
+	end
+	UserInputService.InputBegan:Connect(function(input, processed)
+		if not processed and input.KeyCode == Enum.KeyCode.Tab then
+			setOpen(not panel.Visible)
+		end
+	end)
+	if touch then
+		local toggle = Kit.button({
+			Name = "PlayersButton",
+			Text = "",
+			Icon = utf8.char(0x1F465),
+			IconSize = 24,
+			Palette = "Purple",
+			Size = UDim2.fromOffset(52, 52),
+			Position = UDim2.new(1, -16, 0, 12),
+			AnchorPoint = Vector2.new(1, 0),
+			Radius = 26,
+			Stroke = 2.5,
+			Parent = Gui.hud,
+			OnClick = function()
+				setOpen(not panel.Visible)
+			end,
+		})
+		panel.Position = UDim2.new(1, -16, 0, 72)
+		local _ = toggle
+	end
+	refresh()
+	return { refresh = refresh, setOpen = setOpen }
+end
+
+return PlayerList
+]]></string>
+            </Properties>
+          </Item>
+          <Item class="ModuleScript" referent="84">
             <Properties>
               <string name="Name">Screens</string>
               <string name="Source"><![CDATA[--!strict
@@ -13882,7 +15174,7 @@ return Screens
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="80">
+          <Item class="ModuleScript" referent="85">
             <Properties>
               <string name="Name">Theme</string>
               <string name="Source"><![CDATA[--!strict
@@ -13959,7 +15251,7 @@ return Theme
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="81">
+          <Item class="ModuleScript" referent="86">
             <Properties>
               <string name="Name">Toasts</string>
               <string name="Source"><![CDATA[--!strict
@@ -14049,7 +15341,7 @@ return Toasts
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="82">
+          <Item class="ModuleScript" referent="87">
             <Properties>
               <string name="Name">Tutorial</string>
               <string name="Source"><![CDATA[--!strict
@@ -14153,7 +15445,11 @@ function Tutorial.init(app: any)
 				text = Strings.get("tutorial.1")
 				target = Layout.at(world, 0, 3, info.radius - 4)
 			elseif step == 2 or step == 3 then
-				if app.State.dive.cargo > 0 then
+				if app.State.dive.cargo > 0 and not app.State.dive.active then
+					-- Treasure in the backpack: point at the gold sell pad.
+					text = Strings.get("tutorial.3")
+					target = Layout.at(world, dock.sell.X, dock.sell.Y + 4, dock.sell.Z)
+				elseif app.State.dive.cargo > 0 then
 					text = Strings.get("tutorial.3")
 				else
 					text = Strings.get("tutorial.2")
@@ -14194,7 +15490,7 @@ function Tutorial.init(app: any)
 			billboard.Enabled = false
 		end
 		-- Sits above the dive bar while in the water, near the bottom edge on land.
-		banner.Position = UDim2.new(0.5, 0, 1, if app.State.dive.inWater or app.State.dive.active then -112 else -24)
+		banner.Position = UDim2.new(0.5, 0, 1, if app.State.dive.inWater or app.State.dive.active then -112 else -70)
 	end)
 	local _ = arrow3d
 	local _c = C
@@ -14204,7 +15500,7 @@ return Tutorial
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="83">
+          <Item class="ModuleScript" referent="88">
             <Properties>
               <string name="Name">Viewport</string>
               <string name="Source"><![CDATA[--!strict
@@ -14338,10 +15634,161 @@ return Viewport
             </Properties>
           </Item>
         </Item>
+        <Item class="ModuleScript" referent="89">
+          <Properties>
+            <string name="Name">WorldFx</string>
+            <string name="Source"><![CDATA[--!strict
+-- World-space effects: sparkle bursts, expanding shockwave rings and coin fountains. Everything
+-- is anchored, non-colliding and cleaned up automatically.
+
+local TweenService = game:GetService("TweenService")
+local Workspace = game:GetService("Workspace")
+
+local WorldFx = {}
+
+local SPARKLE = "rbxasset://textures/particles/sparkles_main.dds"
+
+local function folder(): Instance
+	local existing = Workspace:FindFirstChild("DeepDiveClient")
+	if existing then
+		return existing
+	end
+	local created = Instance.new("Folder")
+	created.Name = "DeepDiveClient"
+	created.Parent = Workspace
+	return created
+end
+
+local function anchor(position: Vector3): Part
+	local part = Instance.new("Part")
+	part.Name = "Fx"
+	part.Anchored = true
+	part.CanCollide = false
+	part.CanQuery = false
+	part.CanTouch = false
+	part.Transparency = 1
+	part.Size = Vector3.new(0.2, 0.2, 0.2)
+	part.CFrame = CFrame.new(position)
+	part.Parent = folder()
+	return part
+end
+
+local function emitter(parent: Instance, color: Color3, size: number, speed: NumberRange, lifetime: NumberRange): ParticleEmitter
+	local e = Instance.new("ParticleEmitter")
+	e.Texture = SPARKLE
+	e.Color = ColorSequence.new(color:Lerp(Color3.new(1, 1, 1), 0.35), color)
+	e.LightEmission = 0.9
+	e.LightInfluence = 0
+	e.Size =
+		NumberSequence.new({ NumberSequenceKeypoint.new(0, size), NumberSequenceKeypoint.new(0.4, size * 0.8), NumberSequenceKeypoint.new(1, 0) })
+	e.Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0), NumberSequenceKeypoint.new(0.7, 0.2), NumberSequenceKeypoint.new(1, 1) })
+	e.Lifetime = lifetime
+	e.Speed = speed
+	e.SpreadAngle = Vector2.new(180, 180)
+	e.Rotation = NumberRange.new(0, 360)
+	e.RotSpeed = NumberRange.new(-180, 180)
+	e.Drag = 3
+	e.Rate = 0
+	e.Parent = parent
+	return e
+end
+
+local function cleanup(instance: Instance, after: number)
+	task.delay(after, function()
+		instance:Destroy()
+	end)
+end
+
+-- Star-sparkle burst, e.g. when a relic is collected.
+function WorldFx.burst(position: Vector3, color: Color3, amount: number?, size: number?)
+	local part = anchor(position)
+	local s = size or 0.9
+	emitter(part, color, s, NumberRange.new(6, 14), NumberRange.new(0.5, 0.9)):Emit(amount or 22)
+	local glow = emitter(part, Color3.new(1, 1, 1), s * 2.6, NumberRange.new(0, 0.5), NumberRange.new(0.25, 0.35))
+	glow.Drag = 0
+	glow:Emit(2)
+	local light = Instance.new("PointLight")
+	light.Color = color
+	light.Range = 12
+	light.Brightness = 3
+	light.Parent = part
+	TweenService:Create(light, TweenInfo.new(0.5, Enum.EasingStyle.Quad), { Brightness = 0 }):Play()
+	cleanup(part, 1.2)
+end
+
+-- Flat neon ring that expands and fades.
+function WorldFx.ring(position: Vector3, color: Color3, radius: number?, duration: number?)
+	local ring = Instance.new("Part")
+	ring.Name = "FxRing"
+	ring.Shape = Enum.PartType.Cylinder
+	ring.Anchored = true
+	ring.CanCollide = false
+	ring.CanQuery = false
+	ring.CanTouch = false
+	ring.CastShadow = false
+	ring.Material = Enum.Material.Neon
+	ring.Color = color
+	ring.Transparency = 0.25
+	ring.Size = Vector3.new(0.2, 1, 1)
+	ring.CFrame = CFrame.new(position) * CFrame.Angles(0, 0, math.rad(90))
+	ring.Parent = folder()
+	local r = (radius or 8) * 2
+	local t = duration or 0.6
+	TweenService:Create(ring, TweenInfo.new(t, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), { Size = Vector3.new(0.1, r, r), Transparency = 1 })
+		:Play()
+	cleanup(ring, t + 0.1)
+end
+
+-- Gold coins that pop up out of a spot and rain back down (sell stand).
+function WorldFx.coinFountain(position: Vector3, count: number?)
+	local n = math.clamp(count or 12, 4, 24)
+	for i = 1, n do
+		task.delay(i * 0.03, function()
+			local coin = Instance.new("Part")
+			coin.Name = "FxCoin"
+			coin.Shape = Enum.PartType.Cylinder
+			coin.Anchored = true
+			coin.CanCollide = false
+			coin.CanQuery = false
+			coin.CanTouch = false
+			coin.CastShadow = false
+			coin.Material = Enum.Material.Neon
+			coin.Color = Color3.fromRGB(255, 210, 70)
+			coin.Size = Vector3.new(0.25, 1.1, 1.1)
+			local start = position + Vector3.new(math.random(-10, 10) / 10, 0.5, math.random(-10, 10) / 10)
+			coin.CFrame = CFrame.new(start)
+			coin.Parent = folder()
+			local angle = math.random() * math.pi * 2
+			local outward = Vector3.new(math.cos(angle), 0, math.sin(angle)) * (2 + math.random() * 3)
+			local peak = start + outward * 0.5 + Vector3.new(0, 5 + math.random() * 3, 0)
+			local land = start + outward + Vector3.new(0, -0.3, 0)
+			local up = TweenService:Create(coin, TweenInfo.new(0.35, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+				CFrame = CFrame.new(peak) * CFrame.Angles(math.random() * 6, math.random() * 6, 0),
+			})
+			up:Play()
+			up.Completed:Wait()
+			local down = TweenService:Create(coin, TweenInfo.new(0.4, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
+				CFrame = CFrame.new(land) * CFrame.Angles(0, 0, math.rad(90)),
+				Transparency = 0.6,
+			})
+			down:Play()
+			down.Completed:Wait()
+			TweenService:Create(coin, TweenInfo.new(0.3), { Transparency = 1 }):Play()
+			cleanup(coin, 0.35)
+		end)
+	end
+	WorldFx.burst(position + Vector3.new(0, 1.5, 0), Color3.fromRGB(255, 214, 90), 30, 1.1)
+	WorldFx.ring(position + Vector3.new(0, 0.6, 0), Color3.fromRGB(255, 214, 90), 9)
+end
+
+return WorldFx
+]]></string>
+          </Properties>
+        </Item>
       </Item>
     </Item>
   </Item>
-  <Item class="Workspace" referent="84">
+  <Item class="Workspace" referent="90">
     <Properties>
       <string name="Name">Workspace</string>
       <float name="FallenPartsDestroyHeight">-1200</float>

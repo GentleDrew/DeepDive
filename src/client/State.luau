@@ -60,6 +60,9 @@ function State.applyView(view: any)
 	State.passes = view.passes or {}
 	State.memory = view.memory == true
 	State.world = view.world or view.profile.world or 1
+	if type(view.profile.backpack) == "table" then
+		State.dive.cargo = #view.profile.backpack
+	end
 	State.profileChanged:Fire(State.profile)
 	if State.world ~= previousWorld then
 		State.worldChanged:Fire(State.world)

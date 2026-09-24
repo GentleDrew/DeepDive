@@ -291,11 +291,13 @@ step("dive, collect, surface", function()
 	end
 	check(
 		Engine.waitFor(function()
-			return #s.cargo == collected
-		end, 3, "cargo"),
-		string.format("server cargo %d, expected %d", #s.cargo, collected)
+			return #s.profile.backpack == collected
+		end, 3, "backpack"),
+		string.format("server backpack %d, expected %d", #s.profile.backpack, collected)
 	)
-	check(State.dive.cargo == #s.cargo, "client cargo mismatch")
+	check(State.dive.cargo == #s.profile.backpack, "client backpack count mismatch")
+	check(s.profile.stats.relics == collected, "lifetime relic count should track pickups")
+	check(player:GetAttribute("Relics") == collected, "Relics attribute not published")
 	local coinsBefore = s.profile.coins
 	local since = os.clock()
 	moveTo(lagoon(1, 0, 1.6, 0))
@@ -305,11 +307,50 @@ step("dive, collect, surface", function()
 		end, 3, "surface"),
 		"server did not end the dive on surfacing"
 	)
+	local surfaced = Engine.lastPush("surfaced", since)
+	check(surfaced and surfaced.gathered == collected and not surfaced.rescued, "surfaced push missing")
+	check(s.profile.coins == coinsBefore, "surfacing must not sell any more")
+	check(#s.profile.backpack == collected, "treasure should stay in the backpack after surfacing")
+	-- The Sell prompt from too far away is refused; stepping onto the gold pad sells.
+	local far = invoke("Sell")
+	check(not far.ok and far.err == "sellFar", "selling away from the stand must fail (" .. tostring(far.err) .. ")")
+	local spot = Layout.origin(1) + Layout.dock(1).sell
+	since = os.clock()
+	moveTo(spot + Vector3.new(0, 3, 0))
+	check(
+		Engine.waitFor(function()
+			return Engine.lastPush("sold", since) ~= nil
+		end, 3, "sale at the stand"),
+		"standing on the sell pad did not sell"
+	)
 	local sold = Engine.lastPush("sold", since)
 	check(sold and sold.count == collected and sold.payout > 0, "sold push missing or empty")
 	check(s.profile.coins > coinsBefore, "coins did not increase")
+	check(#s.profile.backpack == 0, "backpack should be empty after selling")
+	check(s.profile.worlds["1"].sold == collected, "treasure progress should count the sale")
+	local empty = invoke("Sell")
+	check(not empty.ok and empty.err == "nothingToSell", "selling an empty backpack must fail")
 	Engine.wait(0.5)
 	check(State.profile.coins == s.profile.coins, "client coins not synced")
+	check(player:GetAttribute("Coins") == s.profile.coins, "Coins attribute not published")
+	check(State.dive.cargo == 0, "client backpack should read empty")
+end)
+
+step("nameplates, player list, leaderboard", function()
+	local gui = Engine.gui()
+	local plate = gui:FindFirstChild("DeepDiveNameplate")
+	check(plate ~= nil, "no nameplate above the diver")
+	local list = gui:FindFirstChild("PlayerList", true)
+	check(list ~= nil and list:FindFirstChild(player.Name) ~= nil, "player list has no row for the diver")
+	check(
+		Engine.waitFor(function()
+			local value = rawGame:GetService("ReplicatedStorage"):FindFirstChild("LeaderboardData")
+			return value and string.find(value.Value, tostring(player.UserId), 1, true) ~= nil
+		end, 20, "leaderboard entry"),
+		"leaderboard never listed the diver"
+	)
+	local board = worldFolder(1):FindFirstChild("BoardScreen", true)
+	check(board ~= nil and board:FindFirstChild("LeaderboardGui") ~= nil, "dock leaderboard board not drawn")
 end)
 
 if not quick then
@@ -480,8 +521,8 @@ if not quick then
 			end, 5, "rescue"),
 			"rescue did not finish"
 		)
-		local sold = Engine.lastPush("sold", since)
-		check(sold and sold.rescued, "rescue sale missing")
+		local surfaced = Engine.lastPush("surfaced", since)
+		check(surfaced and surfaced.rescued and surfaced.lost == 1, "rescue should drop half of this dive's treasure")
 		check((root().Position - Layout.spawnCFrame(2).Position).Magnitude < 8, "rescued diver should be back at spawn")
 		Engine.wait(2)
 		check(not State.dive.blackout, "blackout overlay should clear")

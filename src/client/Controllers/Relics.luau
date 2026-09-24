@@ -106,14 +106,14 @@ function Relics.init(app: any)
 				sparkle.SpreadAngle = Vector2.new(180, 180)
 				sparkle.Parent = root
 			end
-			if relic.rarity >= 5 then
-				local highlight = Instance.new("Highlight")
-				highlight.FillTransparency = 0.75
-				highlight.FillColor = app.Theme.rarityColor(5)
-				highlight.OutlineColor = app.Theme.rarityColor(5)
-				highlight.DepthMode = Enum.HighlightDepthMode.Occluded
-				highlight.Parent = model
-			end
+			-- Bold black cartoon outline on every relic (legendaries also glow gold).
+			local highlight = Instance.new("Highlight")
+			highlight.OutlineColor = Color3.new(0, 0, 0)
+			highlight.OutlineTransparency = 0
+			highlight.FillColor = app.Theme.rarityColor(5)
+			highlight.FillTransparency = if relic.rarity >= 5 then 0.75 else 1
+			highlight.DepthMode = Enum.HighlightDepthMode.Occluded
+			highlight.Parent = model
 			templates[key] = model
 			return model:Clone()
 		end
@@ -151,6 +151,12 @@ function Relics.init(app: any)
 		end
 		local model = RelicModels.buildChest(world, 4.2)
 		model:PivotTo(CFrame.new(chestPosition + Vector3.new(0, 1, 0)))
+		local outline = Instance.new("Highlight")
+		outline.OutlineColor = Color3.new(0, 0, 0)
+		outline.FillColor = Color3.fromRGB(255, 214, 90)
+		outline.FillTransparency = 0.85
+		outline.DepthMode = Enum.HighlightDepthMode.Occluded
+		outline.Parent = model
 		model.Parent = folder
 		local root = model.PrimaryPart :: BasePart
 		local top = Instance.new("Attachment")
@@ -253,6 +259,9 @@ function Relics.init(app: any)
 		pending[entry.point] = entry
 		local relic = Worlds.relics[entry.key]
 		app.Sfx.play(if relic.rarity >= 3 then "CollectRare" else "Collect")
+		local color = app.Theme.rarityColor(relic.rarity)
+		app.WorldFx.burst(entry.base, color, 14 + relic.rarity * 6, 0.7 + relic.rarity * 0.12)
+		app.WorldFx.ring(entry.base, color, 4 + relic.rarity, 0.45)
 		app.Effects.floatText("+1 " .. Strings.name(relic.name), app.Theme.rarityColor(relic.rarity), UDim2.fromScale(0.5, 0.42), 28)
 		app.Net.collect(layoutId, entry.point)
 	end

@@ -50,6 +50,10 @@ Config.Dive = {
 	ServerHz = 10,
 }
 
+-- Selling happens at each world's sell stand (not on surfacing).
+Config.SellRadius = 9 -- standing this close to the sell pad sells the backpack
+Config.BackpackHardCap = 400 -- sanity cap for stored treasure
+
 Config.Rarities = { "Common", "Uncommon", "Rare", "Epic", "Legendary", "Secret" }
 Config.RarityColors = {
 	Common = "#c9d6de",
@@ -139,14 +143,36 @@ Config.Products = {
 }
 Config.SwiftFinsBonus = 1.25
 
--- Built-in engine sounds only (no uploaded audio needed).
+-- Built-in engine sounds (no uploaded audio needed). Cues layer and re-pitch these.
 Config.Sounds = {
 	Ping = "rbxasset://sounds/electronicpingshort.wav",
 	Click = "rbxasset://sounds/clickfast.wav",
+	Button = "rbxasset://sounds/button.wav",
+	Swoosh = "rbxasset://sounds/swoosh.wav",
 	Splash = "rbxasset://sounds/impact_water.mp3",
 	Snap = "rbxasset://sounds/snap.wav",
+	Land = "rbxasset://sounds/action_jump_land.mp3",
 	Swim = "rbxasset://sounds/action_swim.mp3",
 	Jump = "rbxasset://sounds/action_jump.mp3",
+}
+-- Optional: paste Creator Store audio ids ("rbxassetid://123...") to replace any cue with a
+-- real recording. Empty = use the built-in layered version.
+Config.SoundIds = {
+	Collect = "",
+	CollectRare = "",
+	Discover = "",
+	Sell = "",
+	Coin = "",
+	Splash = "",
+	Upgrade = "",
+	Hatch = "",
+	Reveal = "",
+	Legendary = "",
+	Clear = "",
+	Click = "",
+	Open = "",
+	Error = "",
+	Blackout = "",
 }
 -- Optional background music (rbxassetid://...). Empty = silent.
 Config.Music = {

@@ -25,23 +25,24 @@ function Tutorial.init(app: any)
 	local banner = Kit.new("Frame", {
 		Name = "Tutorial",
 		BackgroundColor3 = Color3.new(1, 1, 1),
-		Size = UDim2.fromOffset(0, 58),
+		Size = UDim2.fromOffset(0, 44),
 		AutomaticSize = Enum.AutomaticSize.X,
-		Position = UDim2.new(0.5, 0, 1, -150),
+		Position = UDim2.new(0.5, 0, 1, -112),
 		AnchorPoint = Vector2.new(0.5, 1),
 		Visible = false,
 		Parent = Gui.hud,
 	}) :: Frame
 	Kit.round(banner)
 	Kit.gradient(banner, Theme.Buttons.Gold[1], Theme.Buttons.Gold[2])
-	Kit.stroke(banner, Theme.Buttons.Gold[3], 4)
-	Kit.padding(banner, 0, 24, 0, 18)
+	Kit.stroke(banner, Theme.Buttons.Gold[3], 3)
+	Kit.padding(banner, 0, 18, 0, 14)
 	local row = Kit.new("Frame", { BackgroundTransparency = 1, Size = UDim2.fromScale(0, 1), AutomaticSize = Enum.AutomaticSize.X, Parent = banner })
-	Kit.list(row, Enum.FillDirection.Horizontal, 10)
-	local arrow = Kit.text({ Text = utf8.char(0x1F449), TextSize = 32, Size = UDim2.fromOffset(40, 40), Stroke = 0, LayoutOrder = 1, Parent = row })
+	Kit.list(row, Enum.FillDirection.Horizontal, 8)
+	local arrow = Kit.text({ Text = utf8.char(0x1F449), TextSize = 24, Size = UDim2.fromOffset(30, 30), Stroke = 0, LayoutOrder = 1, Parent = row })
 	local label = Kit.text({
 		Text = "",
-		TextSize = 24,
+		TextSize = 19,
+		Stroke = 2,
 		Size = UDim2.new(0, 0, 1, 0),
 		AutoX = true,
 		StrokeColor = Theme.Buttons.Gold[3],
@@ -50,9 +51,10 @@ function Tutorial.init(app: any)
 	})
 	local okButton = Kit.button({
 		Text = "OK",
-		TextSize = 20,
+		TextSize = 17,
 		Palette = "Green",
-		Size = UDim2.fromOffset(70, 40),
+		Size = UDim2.fromOffset(58, 32),
+		Stroke = 2,
 		LayoutOrder = 3,
 		Parent = row,
 		OnClick = function()
@@ -137,7 +139,8 @@ function Tutorial.init(app: any)
 		else
 			billboard.Enabled = false
 		end
-		banner.Position = UDim2.new(0.5, 0, 1, if app.State.dive.inWater or app.State.dive.active then -150 else -40)
+		-- Sits above the dive bar while in the water, near the bottom edge on land.
+		banner.Position = UDim2.new(0.5, 0, 1, if app.State.dive.inWater or app.State.dive.active then -112 else -24)
 	end)
 	local _ = arrow3d
 	local _c = C

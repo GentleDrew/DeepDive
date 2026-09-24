@@ -623,6 +623,30 @@ step("all 20 worlds", function()
 		"not every world finished building"
 	)
 	local WorldBuilder = Engine.server.module("ServerScriptService.Server.World.WorldBuilder")
+	-- Every lagoon must actually hold water, whichever way the engine treats Water fills that
+	-- overlap solid terrain, with solid ground under the spawn.
+	for world = 1, Config.WorldCount do
+		local info = Layout.info(world)
+		local o = info.origin
+		local dock = Layout.dock(world)
+		local samples = {
+			{ "lagoon centre", o + Vector3.new(0, -2, 0), "Water" },
+			{ "deep pit", o + Vector3.new(0, -(info.depth + info.midDepth) / 2, 0), "Water" },
+			{ "middle terrace", o + Vector3.new(-(info.deepRadius + info.midRadius) / 2, -(info.shelfDepth + info.midDepth) / 2, 0), "Water" },
+			{ "shelf", o + Vector3.new(0, -info.shelfDepth / 2, -(info.midRadius + info.radius) / 2), "Water" },
+			{ "beach inlet", o + Vector3.new(0, -2, info.radius + 1), "Water" },
+			{ "under the diving board", o + Vector3.new(dock.pierEnd.X, -2, dock.pierEnd.Z), "Water" },
+			{ "air above the lagoon", o + Vector3.new(0, 1, 0), "Air" },
+		}
+		for _, rule in { "empty", "replace" } do
+			for _, sample in samples do
+				local got = Engine.terrainAt(sample[2], rule)
+				check(got == sample[3], string.format("World %d %s: expected %s, got %s (water rule %s)", world, sample[1], sample[3], got, rule))
+			end
+			local ground = Engine.terrainAt(o + Vector3.new(0, info.landY - 1, info.radius + 30), rule)
+			check(ground ~= "Air" and ground ~= "Water", string.format("World %d has no ground under the spawn (%s)", world, ground))
+		end
+	end
 	for world = 1, Config.WorldCount do
 		local built = WorldBuilder.get(world)
 		if built then

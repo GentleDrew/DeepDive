@@ -172,10 +172,12 @@ function Panel.new(props: PanelProps): PanelApi
 	closeButton.button.ZIndex = 26
 
 	local scale = Anim.scaleOf(holder)
-	-- Shrinks the window on short screens so it (plus the header ribbon and shadow) always fits.
+	-- Windows open a little under their design size on desktop (touch keeps full size for tap
+	-- targets) and shrink further on short screens so the header ribbon and shadow always fit.
 	local function fit(): number
 		local canvas = Gui.canvasSize
-		return math.min(1, (canvas.Y - 44) / (size.Y + 34), (canvas.X - 40) / (size.X + 24))
+		local base = if Gui.isTouch() then 1 else 0.9
+		return math.min(base, (canvas.Y - 44) / (size.Y + 34), (canvas.X - 40) / (size.X + 24))
 	end
 	Gui.resized:Connect(function()
 		if api.isOpen then

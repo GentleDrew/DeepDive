@@ -46,7 +46,8 @@ local function computeScale(usable: Vector2): number
 	if Gui.isTouch() then
 		s = math.min(s * TOUCH_BOOST, usable.Y / MIN_CANVAS_HEIGHT)
 	end
-	return math.clamp(s, 0.45, 1.35)
+	-- Never scale above the reference size: big monitors get more room, not bigger buttons.
+	return math.clamp(s, 0.45, 1)
 end
 
 local function layer(name: string, order: number, fullscreen: boolean): Frame

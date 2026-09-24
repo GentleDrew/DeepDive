@@ -118,20 +118,37 @@ function TerrainBuilder.buildIsland(world: number, rng: Random)
 	end
 	task.wait()
 
-	-- Lagoon: shelf, middle terrace and deep pit, each with its own floor layer.
-	cylinder(o, R, -info.shelfDepth, 0, WATER)
-	cylinder(o, R, 0, landY + 12, AIR)
-	cylinder(o, R, -info.shelfDepth - 2, -info.shelfDepth, floor)
-	cylinder(o, info.midRadius, -info.midDepth, -info.shelfDepth + 1, WATER)
-	cylinder(o, info.midRadius, -info.midDepth - 2, -info.midDepth, floor)
-	cylinder(o, info.deepRadius, -D, -info.midDepth + 1, WATER)
-	cylinder(o, info.deepRadius, -D - 3, -D, deep)
+	-- Lagoon: shelf, middle terrace and deep pit. A Water fill only occupies empty space and
+	-- leaves solid voxels alone, so every basin is first carved out of the rock core with Air,
+	-- floored, then flooded with exactly the same shapes. Solid details (rocks, mounds, the beach
+	-- ramp) go in last so they sit in the water.
+	local shelf, midR, midD, deepR = info.shelfDepth, info.midRadius, info.midDepth, info.deepRadius
+	cylinder(o, R, -shelf, landY + 12, AIR)
+	cylinder(o, R, -shelf - 2, -shelf, floor)
+	cylinder(o, midR, -midD, -shelf + 1, AIR)
+	cylinder(o, midR, -midD - 2, -midD, floor)
+	cylinder(o, deepR, -D, -midD + 1, AIR)
+	cylinder(o, deepR, -D - 3, -D, deep)
+	-- Beach inlet on the dock side, carved the same way.
+	local inlet = o + Vector3.new(0, 0, R + 4)
+	block(inlet, Vector3.new(42, 24, 22), AIR)
+	task.wait()
+
+	cylinder(o, R, -shelf, 0, WATER)
+	cylinder(o, midR, -midD, -shelf, WATER)
+	cylinder(o, deepR, -D, -midD, WATER)
+	block(inlet + Vector3.new(0, -6, 0), Vector3.new(42, 12, 22), WATER)
+	task.wait()
+
+	-- Sandy ramp from the dock down into the shelf (a WedgePart is tallest at +Z, the dock side).
+	terrain:FillWedge(CFrame.new(inlet + Vector3.new(0, -4, 0)), Vector3.new(42, 12, 22), beach)
+	block(inlet + Vector3.new(0, -12, 0), Vector3.new(42, 4, 22), beach)
 
 	-- Rugged walls: rocks jutting in around every terrace edge.
 	local rings = {
-		{ radius = R, top = 0, bottom = -info.shelfDepth, count = 22, size = { 4, 7 } },
-		{ radius = info.midRadius, top = -info.shelfDepth, bottom = -info.midDepth, count = 16, size = { 4, 8 } },
-		{ radius = info.deepRadius, top = -info.midDepth, bottom = -D, count = 12, size = { 4, 7 } },
+		{ radius = R, top = 0, bottom = -shelf, count = 22, size = { 4, 7 } },
+		{ radius = midR, top = -shelf, bottom = -midD, count = 16, size = { 4, 8 } },
+		{ radius = deepR, top = -midD, bottom = -D, count = 12, size = { 4, 7 } },
 	}
 	for _, ring in rings do
 		for i = 1, ring.count do
@@ -146,9 +163,9 @@ function TerrainBuilder.buildIsland(world: number, rng: Random)
 	end
 	-- Floor mounds so the bottom is not perfectly flat.
 	local mounds = {
-		{ inner = info.midRadius + 3, outer = R - 4, y = -info.shelfDepth, material = floor, count = 14 },
-		{ inner = info.deepRadius + 3, outer = info.midRadius - 3, y = -info.midDepth, material = floor, count = 10 },
-		{ inner = 0, outer = info.deepRadius - 4, y = -D, material = deep, count = 7 },
+		{ inner = midR + 3, outer = R - 4, y = -shelf, material = floor, count = 14 },
+		{ inner = deepR + 3, outer = midR - 3, y = -midD, material = floor, count = 10 },
+		{ inner = 0, outer = deepR - 4, y = -D, material = deep, count = 7 },
 	}
 	for _, ring in mounds do
 		for _ = 1, ring.count do
@@ -157,13 +174,6 @@ function TerrainBuilder.buildIsland(world: number, rng: Random)
 			terrain:FillBall(o + Vector3.new(math.cos(a) * r, ring.y - rng:NextNumber(2, 3.5), math.sin(a) * r), rng:NextNumber(3, 6), ring.material)
 		end
 	end
-	task.wait()
-
-	-- Beach inlet on the dock side: carve, then lay a sandy ramp down into the shelf.
-	block(o + Vector3.new(0, -6, R + 4), Vector3.new(42, 12, 22), WATER)
-	block(o + Vector3.new(0, 6, R + 4), Vector3.new(42, 12, 22), AIR)
-	terrain:FillWedge(CFrame.new(o + Vector3.new(0, -4, R + 4)), Vector3.new(42, 12, 22), beach)
-	block(o + Vector3.new(0, -12, R + 4), Vector3.new(42, 4, 22), beach)
 end
 
 -- Server-side default palette (clients re-apply per world as they travel).

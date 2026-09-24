@@ -1,6 +1,10 @@
 --!strict
--- Heads-up display: coins + boost, world banner with treasure progress, menu buttons, oxygen
--- bar with pressure, backpack, depth gauge and touch swim buttons.
+-- Heads-up display, kept small and out of the way:
+--   top-left     wallet (coins with a "+" shop shortcut, pet boost)
+--   top-centre   slim world chip with treasure progress (hidden while diving)
+--   left         menu rail
+--   bottom       one dive bar while in the water: oxygen, depth, backpack
+-- Touch devices also get swim buttons in the bottom-right corner.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
@@ -23,6 +27,9 @@ local Hud = {}
 
 local C = Theme.C
 local root = Gui.hud
+local MARGIN = 16
+-- Touch screens get the HUD groups 20% bigger (each scales from its own anchor corner).
+local TOUCH_SCALE = if Gui.isTouch() then 1.2 else 1
 
 export type Actions = {
 	openWorlds: () -> (),
@@ -47,59 +54,80 @@ function Hud.refresh()
 	end
 end
 
--- Coins ------------------------------------------------------------------------------------------
+-- Wallet -----------------------------------------------------------------------------------------
 
-local coinPill = Kit.pill({ Name = "Coins", Size = UDim2.fromOffset(250, 58), Position = UDim2.fromOffset(46, 14), Parent = root })
-local coinIcon = Kit.Icons.coin(66, root)
-coinIcon.Position = UDim2.fromOffset(14, 10)
+local wallet = Kit.new("Frame", {
+	Name = "Wallet",
+	BackgroundTransparency = 1,
+	Size = UDim2.fromOffset(206, 84),
+	Position = UDim2.fromOffset(MARGIN, 12),
+	Parent = root,
+})
+local coinPill = Kit.pill({ Name = "Coins", Size = UDim2.fromOffset(206, 44), Outline = 2.5, Parent = wallet })
+local coinIcon = Kit.Icons.coin(34, coinPill)
+coinIcon.Position = UDim2.new(0, 5, 0.5, 0)
+coinIcon.AnchorPoint = Vector2.new(0, 0.5)
 coinIcon.ZIndex = 3
 local coinLabel = Kit.text({
 	Text = "0",
-	TextSize = 38,
-	Size = UDim2.new(1, -60, 1, 0),
+	TextSize = 26,
+	Size = UDim2.new(1, -86, 1, 0),
 	Position = UDim2.fromOffset(46, 0),
 	XAlign = Enum.TextXAlignment.Left,
-	Stroke = 3,
+	Stroke = 2.5,
 	Parent = coinPill,
 })
 Hud.coinTarget = coinIcon
 local shownCoins = 0
+local addCoins = Kit.button({
+	Name = "AddCoins",
+	Text = "+",
+	TextSize = 24,
+	Palette = "Green",
+	Size = UDim2.fromOffset(32, 32),
+	Position = UDim2.new(1, -6, 0.5, 0),
+	AnchorPoint = Vector2.new(1, 0.5),
+	Radius = 16,
+	Stroke = 2,
+	Parent = coinPill,
+})
 
 local boostChip = Kit.new("TextButton", {
 	Name = "Boost",
 	Text = "",
 	AutoButtonColor = false,
 	BackgroundColor3 = Color3.new(1, 1, 1),
-	Size = UDim2.fromOffset(170, 36),
-	Position = UDim2.fromOffset(60, 78),
-	Parent = root,
+	Size = UDim2.fromOffset(122, 30),
+	Position = UDim2.fromOffset(10, 52),
+	Parent = wallet,
 }) :: TextButton
 Kit.round(boostChip)
 Kit.gradient(boostChip, Theme.Buttons.Pink[1], Theme.Buttons.Pink[2])
-Kit.stroke(boostChip, Theme.Buttons.Pink[3], 3)
-local boostLabel = Kit.text({ Text = "x1", TextSize = 20, Size = UDim2.fromScale(1, 1), StrokeColor = Theme.Buttons.Pink[3], Parent = boostChip })
+Kit.stroke(boostChip, Theme.Buttons.Pink[3], 2.5)
+local boostLabel =
+	Kit.text({ Text = "x1", TextSize = 16, Size = UDim2.fromScale(1, 1), Stroke = 2, StrokeColor = Theme.Buttons.Pink[3], Parent = boostChip })
 
--- World banner -----------------------------------------------------------------------------------
+-- World chip -------------------------------------------------------------------------------------
 
 local banner = Kit.pill({
 	Name = "WorldBanner",
-	Size = UDim2.fromOffset(470, 88),
-	Position = UDim2.new(0.5, 0, 0, 12),
+	Size = UDim2.fromOffset(300, 52),
+	Position = UDim2.new(0.5, 0, 0, 10),
 	AnchorPoint = Vector2.new(0.5, 0),
+	Transparency = 0.3,
+	Outline = 2.5,
 	Parent = root,
 })
-local bannerCorner = banner:FindFirstChildOfClass("UICorner")
-if bannerCorner then
-	bannerCorner.CornerRadius = UDim.new(0, 24)
-end
 local worldTitle =
-	Kit.text({ Text = "", TextSize = 26, Size = UDim2.new(1, -20, 0, 34), Position = UDim2.fromOffset(10, 6), Stroke = 3, Parent = banner })
+	Kit.text({ Text = "", TextSize = 18, Size = UDim2.new(1, -24, 0, 22), Position = UDim2.fromOffset(12, 4), Stroke = 2, Parent = banner })
 local progress = Kit.progress({
-	Size = UDim2.new(1, -40, 0, 28),
-	Position = UDim2.new(0.5, 0, 0, 46),
+	Size = UDim2.new(1, -28, 0, 17),
+	Position = UDim2.new(0.5, 0, 0, 28),
 	AnchorPoint = Vector2.new(0.5, 0),
 	Colors = { C.Gold, C.Orange },
-	TextSize = 18,
+	TextSize = 13,
+	Outline = 2,
+	LabelStroke = 1.6,
 	Parent = banner,
 })
 local chestPulse = false
@@ -107,7 +135,7 @@ local chestPulse = false
 local function refreshBanner()
 	local world = State.world
 	local data = Worlds.get(world)
-	worldTitle.Text = Strings.get("world", { n = world }) .. "  -  " .. Strings.name(data.name)
+	worldTitle.Text = Strings.get("world", { n = world }) .. "  ·  " .. Strings.name(data.name)
 	local titleStroke = worldTitle:FindFirstChildOfClass("UIStroke")
 	if titleStroke then
 		titleStroke.Color = Color.darken(Color.hex(data.accent[2]), 0.45)
@@ -128,27 +156,19 @@ local function refreshBanner()
 	end
 end
 
--- Menu buttons -----------------------------------------------------------------------------------
+-- Menu rail --------------------------------------------------------------------------------------
 
+local MENU_BUTTON = 64
+local MENU_GAP = 10
 local menu = Kit.new("Frame", {
 	Name = "Menu",
 	BackgroundTransparency = 1,
-	Size = UDim2.fromOffset(96, 478),
-	Position = UDim2.new(0, 16, 0.5, 10),
+	Size = UDim2.fromOffset(MENU_BUTTON + 4, 5 * MENU_BUTTON + 4 * MENU_GAP),
+	Position = UDim2.new(0, MARGIN, 0.5, if TOUCH_SCALE > 1 then 42 else 30),
 	AnchorPoint = Vector2.new(0, 0.5),
 	Parent = root,
 })
--- One column of five on normal screens, two columns (3 + 2) when the canvas is short.
-local menuGrid = Kit.new("UIGridLayout", {
-	CellSize = UDim2.fromOffset(86, 86),
-	CellPadding = UDim2.fromOffset(10, 12),
-	FillDirection = Enum.FillDirection.Vertical,
-	FillDirectionMaxCells = 5,
-	HorizontalAlignment = Enum.HorizontalAlignment.Left,
-	VerticalAlignment = Enum.VerticalAlignment.Center,
-	SortOrder = Enum.SortOrder.LayoutOrder,
-	Parent = menu,
-}) :: UIGridLayout
+Kit.list(menu, Enum.FillDirection.Vertical, MENU_GAP, Enum.HorizontalAlignment.Left, Enum.VerticalAlignment.Center)
 local badges: { [string]: Frame } = {}
 local menuLabels: { [string]: TextLabel } = {}
 
@@ -156,24 +176,26 @@ local function menuButton(key: string, emoji: string, palette: string, order: nu
 	local api = Kit.button({
 		Name = key,
 		Icon = emoji,
-		IconSize = 40,
+		IconSize = 28,
 		Palette = palette,
-		Size = UDim2.fromOffset(86, 86),
-		Radius = 22,
+		Size = UDim2.fromOffset(MENU_BUTTON, MENU_BUTTON),
+		Radius = 16,
+		Stroke = 2.5,
 		LayoutOrder = order,
 		Parent = menu,
 		OnClick = onClick,
 	})
 	local content = api.button:FindFirstChild("Content") :: Frame?
 	if content then
-		content.Position = UDim2.fromOffset(0, -9)
+		content.Position = UDim2.fromOffset(0, -8)
 	end
 	local label = Kit.text({
 		Text = "",
-		TextSize = 17,
-		Size = UDim2.new(1, 0, 0, 20),
-		Position = UDim2.new(0, 0, 1, -24),
+		TextSize = 13,
+		Size = UDim2.new(1, 0, 0, 16),
+		Position = UDim2.new(0, 0, 1, -18),
 		ZIndex = 4,
+		Stroke = 2,
 		StrokeColor = (Theme.Buttons[palette] or Theme.Buttons.Blue)[3],
 		Parent = api.button,
 	})
@@ -181,16 +203,16 @@ local function menuButton(key: string, emoji: string, palette: string, order: nu
 	local badge = Kit.new("Frame", {
 		Name = "Badge",
 		BackgroundColor3 = C.Red,
-		Size = UDim2.fromOffset(26, 26),
-		Position = UDim2.new(1, -8, 0, -8),
+		Size = UDim2.fromOffset(20, 20),
+		Position = UDim2.new(1, -4, 0, 4),
 		AnchorPoint = Vector2.new(0.5, 0.5),
 		Visible = false,
 		ZIndex = 5,
 		Parent = api.button,
 	})
 	Kit.round(badge)
-	Kit.stroke(badge, C.White, 3)
-	Kit.text({ Text = "!", TextSize = 18, Size = UDim2.fromScale(1, 1), ZIndex = 6, Parent = badge })
+	Kit.stroke(badge, C.White, 2)
+	Kit.text({ Text = "!", TextSize = 14, Size = UDim2.fromScale(1, 1), ZIndex = 6, Stroke = 1.5, Parent = badge })
 	badges[key] = badge
 	return api
 end
@@ -207,115 +229,96 @@ function Hud.setBadge(key: string, visible: boolean)
 	end
 end
 
--- Dive readouts ----------------------------------------------------------------------------------
+-- Dive bar ---------------------------------------------------------------------------------------
 
 local dive = Kit.new("Frame", {
 	Name = "Dive",
 	BackgroundTransparency = 1,
-	Size = UDim2.fromOffset(700, 110),
-	Position = UDim2.new(0.5, 0, 1, -18),
+	Size = UDim2.fromOffset(560, 88),
+	Position = UDim2.new(0.5, 0, 1, -14),
 	AnchorPoint = Vector2.new(0.5, 1),
 	Parent = root,
 })
 local oxygenBar = Kit.progress({
-	Size = UDim2.fromOffset(460, 44),
-	Position = UDim2.new(0, 70, 1, -8),
+	Size = UDim2.fromOffset(250, 28),
+	Position = UDim2.new(0, 34, 1, -4),
 	AnchorPoint = Vector2.new(0, 1),
 	Colors = { C.Oxygen, C.OxygenDeep },
-	TextSize = 24,
+	TextSize = 18,
+	Outline = 2.5,
+	LabelStroke = 2,
 	Parent = dive,
 })
-oxygenBar.label.Position = UDim2.fromOffset(0, 0)
-local bubble = Kit.Icons.bubble(64, dive)
-bubble.Position = UDim2.new(0, 38, 1, 0)
+local bubble = Kit.Icons.bubble(42, dive)
+bubble.Position = UDim2.new(0, 4, 1, 3)
 bubble.AnchorPoint = Vector2.new(0, 1)
 bubble.ZIndex = 3
-local pressureChip = Kit.pill({
-	Name = "Pressure",
-	Size = UDim2.fromOffset(190, 32),
-	Position = UDim2.new(0, 100, 1, -58),
+
+local depthChip = Kit.pill({
+	Name = "Depth",
+	Size = UDim2.fromOffset(136, 36),
+	Position = UDim2.new(0, 296, 1, 0),
 	AnchorPoint = Vector2.new(0, 1),
+	Outline = 2.5,
 	Parent = dive,
 })
-local pressureLabel = Kit.text({ Text = "", TextSize = 18, Size = UDim2.fromScale(1, 1), Parent = pressureChip })
-pressureChip.Visible = false
+local depthRow = Kit.new("Frame", { BackgroundTransparency = 1, Size = UDim2.fromScale(1, 1), Parent = depthChip })
+Kit.list(depthRow, Enum.FillDirection.Horizontal, 4, Enum.HorizontalAlignment.Center, Enum.VerticalAlignment.Center)
+Kit.text({ Text = utf8.char(0x1F30A), TextSize = 17, Size = UDim2.fromOffset(22, 22), Stroke = 0, LayoutOrder = 1, Parent = depthRow })
+local depthLabel =
+	Kit.text({ Text = "0m", TextSize = 19, Size = UDim2.new(0, 0, 1, 0), AutoX = true, Stroke = 2, LayoutOrder = 2, Parent = depthRow })
+local depthMax = Kit.text({
+	Text = "",
+	TextSize = 13,
+	Color = Color.hex("#c4dcf2"),
+	Size = UDim2.new(0, 0, 1, 0),
+	AutoX = true,
+	Stroke = 1.6,
+	LayoutOrder = 3,
+	Parent = depthRow,
+})
+
 local cargoChip = Kit.pill({
 	Name = "Cargo",
-	Size = UDim2.fromOffset(150, 52),
-	Position = UDim2.new(0, 548, 1, -4),
+	Size = UDim2.fromOffset(118, 36),
+	Position = UDim2.new(0, 442, 1, 0),
 	AnchorPoint = Vector2.new(0, 1),
+	Outline = 2.5,
 	Parent = dive,
 })
-local bag = Kit.Icons.bag(50, cargoChip)
-bag.Position = UDim2.fromOffset(6, 0)
+local bag = Kit.Icons.bag(32, cargoChip)
+bag.Position = UDim2.new(0, 6, 0.5, 0)
+bag.AnchorPoint = Vector2.new(0, 0.5)
 local cargoLabel = Kit.text({
 	Text = "0/5",
-	TextSize = 28,
-	Size = UDim2.new(1, -60, 1, 0),
-	Position = UDim2.fromOffset(56, 0),
+	TextSize = 20,
+	Size = UDim2.new(1, -48, 1, 0),
+	Position = UDim2.fromOffset(42, 0),
 	XAlign = Enum.TextXAlignment.Left,
+	Stroke = 2,
 	Parent = cargoChip,
 })
-local lowLabel = Kit.text({
-	Text = "",
-	TextSize = 30,
-	Color = Color.hex("#ffd0d4"),
-	Size = UDim2.fromOffset(460, 36),
-	Position = UDim2.new(0, 70, 1, -104),
+
+local pressureChip = Kit.pill({
+	Name = "Pressure",
+	Size = UDim2.fromOffset(150, 24),
+	Position = UDim2.new(0, 58, 1, -40),
 	AnchorPoint = Vector2.new(0, 1),
-	Stroke = 3,
-	StrokeColor = C.RedDark,
+	Outline = 2,
 	Parent = dive,
 })
-
--- Depth gauge ------------------------------------------------------------------------------------
-
--- Resting position; the gauge slides in from the right edge while diving.
-local gaugeHome = UDim2.new(1, -20, 0.5, 20)
-local gauge = Kit.new("Frame", {
-	Name = "Depth",
-	BackgroundTransparency = 1,
-	Size = UDim2.fromOffset(120, 360),
-	Position = gaugeHome,
-	AnchorPoint = Vector2.new(1, 0.5),
-	Parent = root,
-})
-local track = Kit.new("Frame", {
-	BackgroundColor3 = C.Ink,
-	BackgroundTransparency = 0.3,
-	Size = UDim2.new(0, 34, 1, -60),
-	Position = UDim2.new(1, -8, 0, 30),
-	AnchorPoint = Vector2.new(1, 0),
-	Parent = gauge,
-})
-Kit.round(track)
-Kit.stroke(track, C.Outline, 3)
-local trackFill = Kit.new("Frame", { BackgroundColor3 = Color3.new(1, 1, 1), Size = UDim2.fromScale(1, 0), Parent = track })
-Kit.round(trackFill)
-local trackGradient = Kit.gradient(trackFill, C.Cyan, C.DeepBlue)
-local marker = Kit.pill({
-	Name = "Marker",
-	Size = UDim2.fromOffset(92, 34),
-	Position = UDim2.new(0, -6, 0, 0),
-	AnchorPoint = Vector2.new(1, 0.5),
-	Parent = track,
-})
-local markerLabel = Kit.text({ Text = "0m", TextSize = 20, Size = UDim2.fromScale(1, 1), Parent = marker })
-local gaugeTop = Kit.text({
-	Text = "0m",
-	TextSize = 16,
-	Size = UDim2.fromOffset(80, 20),
-	Position = UDim2.new(1, 16, 0, 4),
-	AnchorPoint = Vector2.new(1, 0),
-	Parent = gauge,
-})
-local gaugeBottom = Kit.text({
+local pressureLabel = Kit.text({ Text = "", TextSize = 14, Size = UDim2.fromScale(1, 1), Stroke = 1.6, Parent = pressureChip })
+pressureChip.Visible = false
+local lowLabel = Kit.text({
 	Text = "",
-	TextSize = 16,
-	Size = UDim2.fromOffset(80, 20),
-	Position = UDim2.new(1, 16, 1, -4),
-	AnchorPoint = Vector2.new(1, 1),
-	Parent = gauge,
+	TextSize = 22,
+	Color = Color.hex("#ffd0d4"),
+	Size = UDim2.fromOffset(300, 28),
+	Position = UDim2.new(0, 34, 1, -68),
+	AnchorPoint = Vector2.new(0, 1),
+	Stroke = 2.5,
+	StrokeColor = C.RedDark,
+	Parent = dive,
 })
 
 -- Touch swim buttons ------------------------------------------------------------------------------
@@ -324,42 +327,35 @@ local touchPad = Kit.new("Frame", {
 	Name = "SwimPad",
 	BackgroundTransparency = 1,
 	Size = UDim2.fromOffset(260, 260),
-	Position = UDim2.new(1, -24, 1, -150),
+	-- Roblox hides its jump button while the swim controller has Jumping disabled, so the pad
+	-- takes that bottom-right corner.
+	Position = UDim2.new(1, -12, 1, -12),
 	AnchorPoint = Vector2.new(1, 1),
 	Visible = false,
 	Parent = root,
 })
 local touchButtons: { [string]: Kit.ButtonApi } = {}
 
-local memoryLabel = Kit.text({
-	Text = "",
-	TextSize = 16,
-	Color = Color.hex("#ffe08a"),
-	Size = UDim2.fromOffset(420, 22),
-	Position = UDim2.new(0, 16, 1, -8),
-	AnchorPoint = Vector2.new(0, 1),
-	XAlign = Enum.TextXAlignment.Left,
-	Parent = root,
-})
-
--- Screen-size adaptation --------------------------------------------------------------------------
-
-local function applyScreenLayout(canvas: Vector2)
-	local compact = canvas.Y < 690
-	menuGrid.FillDirectionMaxCells = if compact then 3 else 5
-	menu.Size = if compact then UDim2.fromOffset(182, 282) else UDim2.fromOffset(96, 478)
-	if Gui.isTouch() then
-		-- Roblox hides its jump button while the swim controller has Jumping disabled, so the
-		-- swim pad takes the bottom-right corner and the depth gauge moves up out of its way.
-		gaugeHome = UDim2.new(1, -20, 0, 8)
-		gauge.Size = UDim2.fromOffset(120, 230)
-		gauge.Position = gaugeHome
-		gauge.AnchorPoint = Vector2.new(1, 0)
-		touchPad.Position = UDim2.new(1, -12, 1, -12)
+if TOUCH_SCALE > 1 then
+	for _, group in { wallet, menu, dive } :: { GuiObject } do
+		local scale = Instance.new("UIScale")
+		scale.Name = "TouchScale"
+		scale.Scale = TOUCH_SCALE
+		scale.Parent = group
 	end
 end
-applyScreenLayout(Gui.canvasSize)
-Gui.resized:Connect(applyScreenLayout)
+
+local memoryLabel = Kit.text({
+	Text = "",
+	TextSize = 14,
+	Color = Color.hex("#ffe08a"),
+	Size = UDim2.fromOffset(420, 18),
+	Position = UDim2.new(0, MARGIN, 1, -8),
+	AnchorPoint = Vector2.new(0, 1),
+	XAlign = Enum.TextXAlignment.Left,
+	Stroke = 2,
+	Parent = root,
+})
 
 -- Wiring -----------------------------------------------------------------------------------------
 
@@ -370,6 +366,7 @@ function Hud.init(actions: Actions)
 	Hud.menuButtons.shop = menuButton("shop", utf8.char(0x1F6D2), "Green", 4, actions.openShop)
 	Hud.menuButtons.settings = menuButton("settings", utf8.char(0x2699) .. utf8.char(0xFE0F), "Gray", 5, actions.openSettings)
 	boostChip.Activated:Connect(actions.openPets)
+	addCoins.button.Activated:Connect(actions.openShop)
 
 	local function padButton(key: string, text: string, palette: string, size: number, position: UDim2)
 		local api = Kit.button({
@@ -451,9 +448,9 @@ RunService.RenderStepped:Connect(function(dt: number)
 	local showDive = d.inWater or d.active
 	diveAlpha += ((if showDive then 1 else 0) - diveAlpha) * math.clamp(dt * 6, 0, 1)
 	dive.Visible = diveAlpha > 0.02
-	gauge.Visible = diveAlpha > 0.02
-	dive.Position = UDim2.new(0.5, 0, 1, -18 + (1 - diveAlpha) * 140)
-	gauge.Position = gaugeHome + UDim2.fromOffset((1 - diveAlpha) * 160, 0)
+	dive.Position = UDim2.new(0.5, 0, 1, -14 + (1 - diveAlpha) * 120)
+	-- The world chip steps aside while diving so the view stays clear.
+	banner.Visible = diveAlpha < 0.5
 
 	local max = math.max(1, d.max)
 	local ratio = math.clamp(d.oxygen / max, 0, 1)
@@ -487,22 +484,17 @@ RunService.RenderStepped:Connect(function(dt: number)
 		cargoStroke.Color = if d.cargo >= capacity then C.RedDark else C.Ink
 	end
 
-	local maxDepth = Economy.depthStuds(world)
-	local depthRatio = math.clamp(d.depth / maxDepth, 0, 1)
-	trackFill.Size = UDim2.fromScale(1, depthRatio)
-	marker.Position = UDim2.new(0, -6, depthRatio, 0)
-	markerLabel.Text = tostring(Economy.displayMeters(world, math.max(0, d.depth))) .. "m"
-	gaugeBottom.Text = tostring(Worlds.get(world).meters) .. "m"
-	gaugeTop.Text = "0m"
-	trackGradient.Color = ColorSequence.new(Color.hex(Worlds.get(world).water), Color.darken(Color.hex(Worlds.get(world).water), 0.6))
+	depthLabel.Text = tostring(Economy.displayMeters(world, math.max(0, d.depth))) .. "m"
+	depthMax.Text = "/ " .. tostring(Worlds.get(world).meters) .. "m"
 
 	touchPad.Visible = Gui.isTouch() and d.swimming
 
+	-- The world chip's one UIScale carries both the touch size and the chest pulse.
 	local bannerScale = Anim.scaleOf(banner)
 	if chestPulse then
-		bannerScale.Scale = 1 + math.sin(os.clock() * 5) * 0.03
-	elseif bannerScale.Scale ~= 1 then
-		bannerScale.Scale = 1
+		bannerScale.Scale = TOUCH_SCALE * (1 + math.sin(os.clock() * 5) * 0.03)
+	elseif bannerScale.Scale ~= TOUCH_SCALE then
+		bannerScale.Scale = TOUCH_SCALE
 	end
 end)
 

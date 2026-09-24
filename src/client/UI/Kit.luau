@@ -330,7 +330,15 @@ function Kit.button(props: ButtonProps): ButtonApi
 end
 
 -- Rounded translucent navy capsule used by HUD readouts.
-function Kit.pill(props: { Parent: Instance?, Size: UDim2?, Position: UDim2?, AnchorPoint: Vector2?, Name: string?, Transparency: number? }): Frame
+function Kit.pill(props: {
+	Parent: Instance?,
+	Size: UDim2?,
+	Position: UDim2?,
+	AnchorPoint: Vector2?,
+	Name: string?,
+	Transparency: number?,
+	Outline: number?,
+}): Frame
 	local frame = Kit.new("Frame", {
 		Name = props.Name or "Pill",
 		BackgroundColor3 = C.Navy,
@@ -341,16 +349,23 @@ function Kit.pill(props: { Parent: Instance?, Size: UDim2?, Position: UDim2?, An
 		Parent = props.Parent,
 	})
 	Kit.round(frame)
-	Kit.stroke(frame, C.Outline, 3)
+	Kit.stroke(frame, C.Outline, props.Outline or 3)
 	Kit.gradient(frame, Color3.fromRGB(255, 255, 255), Color3.fromRGB(200, 214, 230))
 	return frame
 end
 
 export type ProgressApi = { frame: Frame, fill: Frame, label: TextLabel, set: (number, string?) -> (), setColors: (Color3, Color3) -> () }
 
-function Kit.progress(
-	props: { Parent: Instance?, Size: UDim2?, Position: UDim2?, AnchorPoint: Vector2?, Colors: { Color3 }?, TextSize: number? }
-): ProgressApi
+function Kit.progress(props: {
+	Parent: Instance?,
+	Size: UDim2?,
+	Position: UDim2?,
+	AnchorPoint: Vector2?,
+	Colors: { Color3 }?,
+	TextSize: number?,
+	Outline: number?,
+	LabelStroke: number?,
+}): ProgressApi
 	local frame = Kit.new("Frame", {
 		Name = "Progress",
 		BackgroundColor3 = C.Ink,
@@ -362,7 +377,7 @@ function Kit.progress(
 		Parent = props.Parent,
 	})
 	Kit.round(frame)
-	Kit.stroke(frame, C.Outline, 3)
+	Kit.stroke(frame, C.Outline, props.Outline or 3)
 	local fill = Kit.new("Frame", {
 		Name = "Fill",
 		BackgroundColor3 = Color3.new(1, 1, 1),
@@ -381,7 +396,8 @@ function Kit.progress(
 		Parent = fill,
 	})
 	Kit.round(shine)
-	local label = Kit.text({ Text = "", TextSize = props.TextSize or 16, Size = UDim2.fromScale(1, 1), ZIndex = 3, Parent = frame })
+	local label =
+		Kit.text({ Text = "", TextSize = props.TextSize or 16, Size = UDim2.fromScale(1, 1), ZIndex = 3, Stroke = props.LabelStroke, Parent = frame })
 	local api: ProgressApi = {
 		frame = frame,
 		fill = fill,

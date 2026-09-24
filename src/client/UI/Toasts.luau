@@ -1,5 +1,5 @@
 --!strict
--- Stacked notification toasts under the world banner.
+-- Stacked notification toasts under the world chip.
 
 local Anim = require(script.Parent.Anim)
 local Gui = require(script.Parent.Gui)
@@ -20,12 +20,12 @@ local KIND: { [string]: { any } } = {
 local stack = Kit.new("Frame", {
 	Name = "Toasts",
 	BackgroundTransparency = 1,
-	Size = UDim2.fromOffset(560, 300),
-	Position = UDim2.new(0.5, 0, 0, 132),
+	Size = UDim2.fromOffset(520, 240),
+	Position = UDim2.new(0.5, 0, 0, 70),
 	AnchorPoint = Vector2.new(0.5, 0),
 	Parent = Gui.hud,
 })
-Kit.list(stack, Enum.FillDirection.Vertical, 8, Enum.HorizontalAlignment.Center, Enum.VerticalAlignment.Top)
+Kit.list(stack, Enum.FillDirection.Vertical, 6, Enum.HorizontalAlignment.Center, Enum.VerticalAlignment.Top)
 
 local order = 0
 local active: { Frame } = {}
@@ -36,21 +36,30 @@ function Toasts.show(text: string, kind: string?, icon: string?)
 	local toast = Kit.new("Frame", {
 		Name = "Toast",
 		BackgroundColor3 = Color3.new(1, 1, 1),
-		Size = UDim2.fromOffset(0, 46),
+		Size = UDim2.fromOffset(0, 36),
 		AutomaticSize = Enum.AutomaticSize.X,
 		LayoutOrder = order,
 		Parent = stack,
 	}) :: Frame
 	Kit.round(toast)
 	Kit.gradient(toast, palette[1], palette[2])
-	Kit.stroke(toast, palette[3], 3)
-	Kit.padding(toast, 0, 20, 0, 20)
+	Kit.stroke(toast, palette[3], 2.5)
+	Kit.padding(toast, 0, 16, 0, 14)
 	local row = Kit.new("Frame", { BackgroundTransparency = 1, Size = UDim2.fromScale(0, 1), AutomaticSize = Enum.AutomaticSize.X, Parent = toast })
-	Kit.list(row, Enum.FillDirection.Horizontal, 8)
+	Kit.list(row, Enum.FillDirection.Horizontal, 6)
 	if icon then
-		Kit.text({ Text = icon, TextSize = 26, Size = UDim2.fromOffset(30, 30), Stroke = 0, LayoutOrder = 1, Parent = row })
+		Kit.text({ Text = icon, TextSize = 20, Size = UDim2.fromOffset(24, 24), Stroke = 0, LayoutOrder = 1, Parent = row })
 	end
-	Kit.text({ Text = text, TextSize = 22, Size = UDim2.new(0, 0, 1, 0), AutoX = true, StrokeColor = palette[3], LayoutOrder = 2, Parent = row })
+	Kit.text({
+		Text = text,
+		TextSize = 18,
+		Size = UDim2.new(0, 0, 1, 0),
+		AutoX = true,
+		Stroke = 2,
+		StrokeColor = palette[3],
+		LayoutOrder = 2,
+		Parent = row,
+	})
 	Anim.appear(toast, 0.35)
 	table.insert(active, toast)
 	while #active > 3 do

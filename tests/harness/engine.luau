@@ -1593,31 +1593,74 @@ local function checkType(value, expected: string, fn: string, argName: string)
 	end
 end
 
+-- Every fill is recorded as a shape so tests can ask what material ends up at a point
+-- (Engine.terrainAt replays the fills in order).
+Engine.terrainOps = {}
+local function recordFill(material, center: Vector3, bound: number, contains: (Vector3) -> boolean)
+	Engine.terrainCalls += 1
+	table.insert(Engine.terrainOps, { material = material.Name, center = center, bound = bound, contains = contains })
+end
+
 method("Terrain", "FillBlock", function(_, cf, size, material)
 	checkType(cf, "CFrame", "FillBlock", "cframe")
 	checkType(size, "Vector3", "FillBlock", "size")
 	checkTerrainMaterial(material, "FillBlock")
-	Engine.terrainCalls += 1
+	local half = size / 2
+	recordFill(material, cf.Position, half.Magnitude, function(p)
+		local l = cf:PointToObjectSpace(p)
+		return math.abs(l.X) <= half.X and math.abs(l.Y) <= half.Y and math.abs(l.Z) <= half.Z
+	end)
 end)
 method("Terrain", "FillBall", function(_, center, radius, material)
 	checkType(center, "Vector3", "FillBall", "center")
 	checkType(radius, "number", "FillBall", "radius")
 	checkTerrainMaterial(material, "FillBall")
-	Engine.terrainCalls += 1
+	recordFill(material, center, radius, function(p)
+		return (p - center).Magnitude <= radius
+	end)
 end)
 method("Terrain", "FillCylinder", function(_, cf, height, radius, material)
 	checkType(cf, "CFrame", "FillCylinder", "cframe")
 	checkType(height, "number", "FillCylinder", "height")
 	checkType(radius, "number", "FillCylinder", "radius")
 	checkTerrainMaterial(material, "FillCylinder")
-	Engine.terrainCalls += 1
+	recordFill(material, cf.Position, math.sqrt(radius * radius + height * height / 4), function(p)
+		local l = cf:PointToObjectSpace(p)
+		return math.abs(l.Y) <= height / 2 and l.X * l.X + l.Z * l.Z <= radius * radius
+	end)
 end)
 method("Terrain", "FillWedge", function(_, cf, size, material)
 	checkType(cf, "CFrame", "FillWedge", "cframe")
 	checkType(size, "Vector3", "FillWedge", "size")
 	checkTerrainMaterial(material, "FillWedge")
-	Engine.terrainCalls += 1
+	-- Same shape as a WedgePart: full height at +Z, thinning to the bottom edge at -Z.
+	local half = size / 2
+	recordFill(material, cf.Position, half.Magnitude, function(p)
+		local l = cf:PointToObjectSpace(p)
+		if math.abs(l.X) > half.X or math.abs(l.Z) > half.Z or l.Y < -half.Y then
+			return false
+		end
+		return l.Y <= -half.Y + size.Y * (l.Z + half.Z) / size.Z
+	end)
 end)
+
+-- Material at `p` after replaying every fill. rule "empty": Water only fills empty space (what
+-- Roblox does); rule "replace": Water overwrites solids too. Robust terrain code works under both.
+function Engine.terrainAt(p: Vector3, rule: string?): string
+	local material = "Air"
+	for _, op in Engine.terrainOps do
+		if (p - op.center).Magnitude <= op.bound and op.contains(p) then
+			if op.material == "Water" then
+				if rule == "replace" or material == "Air" then
+					material = "Water"
+				end
+			else
+				material = op.material
+			end
+		end
+	end
+	return material
+end
 method("Terrain", "FillRegion", function(_, region, resolution, material)
 	checkType(region, "Region3", "FillRegion", "region")
 	checkTerrainMaterial(material, "FillRegion")

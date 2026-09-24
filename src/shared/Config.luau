@@ -1,8 +1,8 @@
 --!strict
 -- Deep Dive tuning values. Pure data (no Roblox datatypes) so the luau/lune test runner can load it.
--- Economy curves were tuned with a pacing simulation (tests/run.luau): Worlds 1-4 take an
--- efficient player ~35 minutes, the full 20 worlds (including saving up each unlock fee) ~4.5
--- hours, roughly 8-10 hours of normal play.
+-- Economy curves were tuned with a pacing simulation (tests/run.luau): Worlds 1-5 take an
+-- efficient player ~30 minutes, Worlds 9-17 are the long middle (40-80 minutes each) and the
+-- full 20 worlds take ~13 hours, roughly 20+ hours of normal play.
 
 local Config = {}
 
@@ -93,9 +93,14 @@ Config.RadiusStep = 1.6
 Config.PressureBase = 0.010 -- extra oxygen drain per stud of depth
 Config.PressureStep = 0.0016
 Config.ClearRewardRelics = 60 -- first-clear bonus = this many common relics of that world
--- Clearing a world makes the next one available; unlocking it costs a fee worth this many
--- treasure goals of income (see Economy.unlockCost).
-Config.UnlockClears = 6
+-- Clearing a world makes the next one available; unlocking world N costs a fee worth
+-- UnlockClears[N] treasure goals of income (see Economy.unlockCost). The curve keeps the first
+-- worlds quick and makes the middle of the game a grind to push through.
+-- stylua: ignore
+Config.UnlockClears = {
+	0, 2, 2.5, 1.5, 1.8, 4, 20, 40, 55, 60,
+	55, 48, 38, 28, 25, 22, 20, 18, 18, 18,
+}
 Config.UnlockPetRamp = 4 -- worlds over which the fee's pet-boost part ramps in
 
 -- Stat curves the gear tiers map onto (see Data/Gear.luau and Economy.gearValue). `base` and

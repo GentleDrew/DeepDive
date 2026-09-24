@@ -49,7 +49,7 @@ function Economy.clearReward(world: number): number
 end
 
 -- Fee to unlock `world` after clearing the world before it (World 1 is free). It tracks what
--- a diver earns there: UnlockClears x (one treasure goal of the previous world, sold as commons,
+-- a diver earns there: UnlockClears[world] x (one treasure goal of the previous world, sold as commons,
 -- with three Epic pets of that world equipped; the pet part ramps in over the first
 -- Config.UnlockPetRamp worlds, before most divers have strong pets).
 function Economy.unlockCost(world: number): number
@@ -59,7 +59,8 @@ function Economy.unlockCost(world: number): number
 	local previous = world - 1
 	local typicalBoost = 3 * Config.PetBaseBoost * Config.PetWorldGrowth ^ (previous - 1) * Config.PetRarityFactor[4]
 	typicalBoost *= math.min(1, previous / Config.UnlockPetRamp)
-	return Economy.nice(Config.UnlockClears * Economy.goal(previous) * Economy.relicValue(previous, 1) * (1 + typicalBoost))
+	local clears = Config.UnlockClears[world] or Config.UnlockClears[#Config.UnlockClears]
+	return Economy.nice(clears * Economy.goal(previous) * Economy.relicValue(previous, 1) * (1 + typicalBoost))
 end
 
 function Economy.eggCost(world: number): number

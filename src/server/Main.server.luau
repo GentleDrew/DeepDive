@@ -15,15 +15,22 @@ local Sync = require(script.Parent.Sync)
 local WorldBuilder = require(script.Parent.World.WorldBuilder)
 local ActionService = require(script.Parent.Services.ActionService)
 local DiveService = require(script.Parent.Services.DiveService)
+local GearService = require(script.Parent.Services.GearService)
 local LeaderboardService = require(script.Parent.Services.LeaderboardService)
 local PetService = require(script.Parent.Services.PetService)
 local PurchaseService = require(script.Parent.Services.PurchaseService)
+local TradeService = require(script.Parent.Services.TradeService)
 
 Net.init()
 ProfileStore.init()
+ProfileStore.onSaved = function(player: Player)
+	Net.push(player, "saved")
+end
 WorldBuilder.init()
 DiveService.init()
 PetService.init()
+GearService.init()
+TradeService.init()
 ActionService.init()
 PurchaseService.init()
 LeaderboardService.init()
@@ -50,6 +57,11 @@ local function onCharacter(session: Sessions.Session, character: Model)
 	humanoid.WalkSpeed = 20
 	-- Clients draw their own nameplates (name + coins) above every diver.
 	humanoid.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None
+	-- Worn gear (tank, bag, flippers, magnet) once the body parts exist.
+	character:WaitForChild(if humanoid.RigType == Enum.HumanoidRigType.R15 then "UpperTorso" else "Torso", 10)
+	if Sessions.get(session.player) == session and session.player.Character == character then
+		GearService.dress(session)
+	end
 	humanoid.Died:Connect(function()
 		DiveService.onDied(session)
 		task.delay(2.5, function()
@@ -99,6 +111,7 @@ end
 local function onPlayerRemoving(player: Player)
 	local session = Sessions.get(player)
 	if session then
+		TradeService.onLeave(session)
 		DiveService.onLeave(session)
 		Sessions.remove(player)
 	end

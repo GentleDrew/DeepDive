@@ -76,9 +76,10 @@ function State.applyView(view: any)
 	end
 end
 
+-- Stat from the equipped gear in a slot ("tank", "pack", "fins", "magnet").
 function State.upgrade(track: string): number
 	local profile = State.profile
-	return Economy.upgradeValue(track, if profile then profile.upgrades[track] or 1 else 1)
+	return Economy.stat(if profile then profile.gear.equip else nil, track)
 end
 
 function State.capacity(): number
@@ -98,7 +99,7 @@ function State.boostSum(): number
 	for _, id in profile.equipped do
 		local pet = profile.pets[id]
 		if pet then
-			sum += Economy.petBoost(pet.s)
+			sum += Economy.petPower(pet.s, pet.m)
 		end
 	end
 	return sum

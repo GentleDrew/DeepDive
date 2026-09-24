@@ -253,6 +253,20 @@ step("every pet, relic, chest and egg builds cleanly", function()
 		inspect(RelicModels.buildChest(world), "chest " .. world)
 		inspect(RelicModels.buildEgg(world), "egg " .. world)
 	end
+	local GearModels = Engine.client.module(Shared .. "Models.GearModels")
+	local Gear = Engine.client.module(Shared .. "Data.Gear")
+	for _, item in Gear.list do
+		inspect(GearModels.build(item.key), "gear " .. item.key)
+	end
+	local Mutations = Engine.client.module(Shared .. "Models.Mutations")
+	for _, mutation in Config.Mutations do
+		local model = PetModels.build("p5.5")
+		Mutations.apply(model, { "Gold", mutation.key })
+		check(model:GetAttribute("Mutation") == mutation.key or mutation.key == "Gold", "mutation look " .. mutation.key)
+		inspect(model, "mutated pet " .. mutation.key)
+	end
+	local key, list = Mutations.parse("p1.2|Gold,Lava")
+	check(key == "p1.2" and #list == 2 and list[2] == "Lava", "follower mutation parse")
 	print("   models built: " .. built)
 end)
 
@@ -278,7 +292,7 @@ step("dive, collect, surface", function()
 	check(pad and pad.Visible == mobile, "swim pad should show underwater only on touch devices")
 	local wf = worldFolder(1)
 	local points = game:GetService("HttpService"):JSONDecode(wf:GetAttribute("Points"))
-	local capacity = Economy.upgradeValue("pack", s.profile.upgrades.pack)
+	local capacity = Economy.stat(s.profile.gear.equip, "pack")
 	local collected = 0
 	for point in State.layout.relics do
 		if collected >= capacity then
@@ -354,19 +368,46 @@ step("nameplates, player list, leaderboard", function()
 end)
 
 if not quick then
-	step("upgrades", function()
+	step("gear shop and worn gear", function()
 		local s = session()
 		s.profile.coins = 1e7
 		Sync.profile(s)
 		Engine.wait(0.2)
-		for _, track in { "tank", "pack", "fins", "magnet" } do
-			local before = s.profile.upgrades[track]
-			local result = invoke("BuyUpgrade", { track = track })
-			check(result.ok, "BuyUpgrade " .. track .. " failed: " .. tostring(result.err))
-			check(s.profile.upgrades[track] == before + 1, "upgrade level did not rise: " .. track)
+		local oxygenBefore = s.oxygenMax
+		for _, key in { "tank1b", "pack1a", "fins1a", "magnet1b" } do
+			local result = invoke("BuyGear", { key = key })
+			check(result.ok, "BuyGear " .. key .. " failed: " .. tostring(result.err))
+			check(s.profile.gear.owned[key] and result.data and result.data.equipped, key .. " not owned/equipped")
 		end
-		local bad = invoke("BuyUpgrade", { track = "rocket" })
-		check(not bad.ok, "invalid upgrade track accepted")
+		check(s.oxygenMax > oxygenBefore, "a better tank should raise max oxygen")
+		check(invoke("BuyGear", { key = "tank1a" }).ok, "buying a lower tier should still work")
+		check(s.profile.gear.equip.tank == "tank1b", "a worse piece must not replace the worn one")
+		check(invoke("EquipGear", { key = "tank1a" }).ok and s.profile.gear.equip.tank == "tank1a", "EquipGear failed")
+		check(invoke("EquipGear", { key = "tank1b" }).ok, "re-equip failed")
+		local owned = invoke("BuyGear", { key = "tank1b" })
+		check(not owned.ok and owned.err == "gearOwned", "buying owned gear must fail")
+		local locked = invoke("BuyGear", { key = "tank5a" })
+		check(not locked.ok and locked.err == "err.locked", "gear of a locked world must not sell")
+		check(not invoke("BuyGear", { key = "rocket9" }).ok, "unknown gear accepted")
+		check(not invoke("EquipGear", { key = "fins3a" }).ok, "equipping unowned gear accepted")
+		Engine.wait(0.3)
+		local character = Engine.unwrap(player).Character
+		local worn = character and character:FindFirstChild("DeepDiveGear")
+		check(worn ~= nil, "gear is not worn on the avatar")
+		if worn then
+			local models, welded = 0, true
+			for _, model in worn:GetChildren() do
+				models += 1
+				for _, d in model:GetDescendants() do
+					if d:IsA("BasePart") and (d.Anchored or not d.Massless or d.CanCollide or not d:FindFirstChildOfClass("WeldConstraint")) then
+						welded = false
+					end
+				end
+			end
+			check(models == 5, "expected 5 worn gear models (two flippers), got " .. models)
+			check(welded, "worn gear must be welded, massless and non-colliding")
+		end
+		check(State.profile.gear.equip.pack == "pack1a", "client did not get the gear")
 	end)
 
 	step("eggs and pets", function()
@@ -402,6 +443,100 @@ if not quick then
 		Engine.wait(1)
 		local pets = game:GetService("HttpService"):JSONDecode(player:GetAttribute("Pets") or "[]")
 		check(#pets == #s.profile.equipped, "Pets attribute does not match the equipped pets")
+
+		-- Enchanting: coins add a random new mutation; Lucky Enchants roll Galaxy or better.
+		local petId = next(s.profile.pets)
+		check(invoke("Equip", { id = petId, on = true }).ok, "equip before enchanting")
+		s.profile.coins = 1e9
+		local first = invoke("Mutate", { id = petId })
+		check(first.ok and #s.profile.pets[petId].m == 1, "Mutate failed: " .. tostring(first.err))
+		check(first.data and Economy.Mutations[first.data.mutation] ~= nil, "Mutate returned no mutation")
+		local noLucky = invoke("Mutate", { id = petId, lucky = true })
+		check(not noLucky.ok and noLucky.err == "noLucky", "lucky enchant without tokens must fail")
+		s.profile.enchants = 1
+		local lucky = invoke("Mutate", { id = petId, lucky = true })
+		check(lucky.ok and table.find(Config.LuckyMutations, lucky.data.mutation) ~= nil, "lucky enchant must roll Galaxy+")
+		check(s.profile.enchants == 0, "lucky token not spent")
+		for _ = 1, 3 do
+			check(invoke("Mutate", { id = petId }).ok, "enchant until full")
+		end
+		local full = invoke("Mutate", { id = petId })
+		check(not full.ok and full.err == "mutateMax", "enchanting past every mutation must fail")
+		check(Economy.mutationMultiplier(s.profile.pets[petId].m) == 20, "a fully mutated pet is x20")
+		Engine.wait(0.5)
+		local followers = game:GetService("HttpService"):JSONDecode(player:GetAttribute("Pets") or "[]")
+		local tagged = false
+		for _, entry in followers do
+			tagged = tagged or string.find(entry, "|", 1, true) ~= nil
+		end
+		check(tagged, "followers should carry the mutation tag")
+	end)
+
+	step("pet trading", function()
+		local s = session()
+		local friend = Engine.addPlayer("Buddy", 1002)
+		local friendSession
+		check(
+			Engine.waitFor(function()
+				friendSession = Sessions.get(friend)
+				return friendSession ~= nil and friendSession.ready
+			end, 20, "friend session"),
+			"second player never loaded"
+		)
+		friendSession.profile.petSeq += 1
+		friendSession.profile.pets["P1"] = { s = "p1.3", l = false }
+		local myPet = s.profile.equipped[1]
+		local myKey = s.profile.pets[myPet].s
+		local myMutations = #s.profile.pets[myPet].m
+		local since = os.clock()
+		local request = invoke("TradeRequest", { userId = 1002 })
+		check(request.ok and not request.data.started, "trade request failed: " .. tostring(request.err))
+		check(Engine.lastPush("tradeRequest", since, friend) ~= nil, "friend got no trade request")
+		local accept = Engine.invokeAs(friend, "TradeRespond", { userId = 1001, accept = true })
+		check(accept.ok, "accepting the trade failed: " .. tostring(accept.err))
+		Engine.wait(0.3)
+		check(s.trade ~= nil and friendSession.trade == s.trade, "trade did not open for both")
+		local Strings = Engine.client.module(Shared .. "Strings")
+		local panel = Engine.gui():FindFirstChild("Panel_" .. Strings.get("tradeTitle"), true)
+		check(panel ~= nil and panel.Visible, "trade window did not open")
+		check(not invoke("TradeOffer", { ids = { "P999" } }).ok, "offering a pet you do not own must fail")
+		check(invoke("TradeOffer", { ids = { myPet } }).ok, "TradeOffer failed")
+		check(Engine.invokeAs(friend, "TradeOffer", { ids = { "P1" } }).ok, "friend TradeOffer failed")
+		check(invoke("TradeReady", { ready = true }).ok, "TradeReady failed")
+		-- Changing an offer clears both ready flags.
+		check(Engine.invokeAs(friend, "TradeOffer", { ids = {} }).ok and not s.trade.ready[player], "offer change must reset ready")
+		check(Engine.invokeAs(friend, "TradeOffer", { ids = { "P1" } }).ok, "friend re-offer failed")
+		check(invoke("TradeReady", { ready = true }).ok, "TradeReady failed")
+		check(Engine.invokeAs(friend, "TradeReady", { ready = true }).ok, "friend TradeReady failed")
+		since = os.clock()
+		check(
+			Engine.waitFor(function()
+				return Engine.lastPush("tradeClosed", since) ~= nil
+			end, Config.TradeCountdown + 3, "trade done"),
+			"trade never completed"
+		)
+		local closed = Engine.lastPush("tradeClosed", since)
+		check(closed and closed.reason == "done" and closed.got == 1, "trade result push wrong")
+		check(s.profile.pets[myPet] == nil and table.find(s.profile.equipped, myPet) == nil, "traded pet still owned")
+		local gotBack, gaveAway = false, false
+		for _, pet in s.profile.pets do
+			gotBack = gotBack or pet.s == "p1.3"
+		end
+		for _, pet in friendSession.profile.pets do
+			gaveAway = gaveAway or (pet.s == myKey and pet.m ~= nil and #pet.m == myMutations)
+		end
+		check(gotBack, "did not receive the friend's pet")
+		check(gaveAway, "friend did not receive the pet with its mutations")
+		check(s.trade == nil and friendSession.trade == nil, "trade not cleaned up")
+		-- A second trade cancelled by leaving.
+		check(invoke("TradeRequest", { userId = 1002 }).ok, "second request failed")
+		check(Engine.invokeAs(friend, "TradeRequest", { userId = 1001 }).ok and s.trade ~= nil, "mutual request should open a trade")
+		since = os.clock()
+		Engine.removePlayer(friend)
+		Engine.wait(0.5)
+		local left = Engine.lastPush("tradeClosed", since)
+		check(left and left.reason == "left" and s.trade == nil, "leaving must cancel the trade")
+		Engine.wait(0.5)
 	end)
 
 	step("chest and world clear", function()

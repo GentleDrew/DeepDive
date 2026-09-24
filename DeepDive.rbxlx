@@ -164,8 +164,8 @@ return Color
           <string name="Name">Config</string>
           <string name="Source"><![CDATA[--!strict
 -- Deep Dive tuning values. Pure data (no Roblox datatypes) so the luau/lune test runner can load it.
--- Economy curves were tuned with a pacing simulation: World 1 clears in ~2 minutes, the full 20
--- worlds take an efficient player ~2 hours (roughly 3-4 hours of normal play).
+-- Economy curves were tuned with a pacing simulation (tests/run.luau): World 1 clears in under
+-- 2 minutes, the full 20 worlds take an efficient player ~80 minutes (2-3 hours of normal play).
 
 local Config = {}
 
@@ -247,8 +247,8 @@ Config.PetEquipPass = 2
 Config.PetInventoryCap = 60
 
 -- World progression.
-Config.GoalBase = 12
-Config.GoalGrowth = 1.2
+Config.GoalBase = 10
+Config.GoalGrowth = 1.17
 Config.DepthBase = 40 -- studs, World 1
 Config.DepthStep = 7.2
 Config.RadiusBase = 74
@@ -257,40 +257,33 @@ Config.PressureBase = 0.010 -- extra oxygen drain per stud of depth
 Config.PressureStep = 0.0016
 Config.ClearRewardRelics = 60 -- first-clear bonus = this many common relics of that world
 
+-- Stat curves the gear tiers map onto (see Data/Gear.luau and Economy.gearValue). `base` and
+-- `growth` shape gear prices: price = GearPriceScale * base * growth ^ (level - 2).
 Config.Upgrades = {
-	{
-		id = "tank",
-		max = 30,
-		base = 30,
-		growth = 2.08,
-		icon = "O2",
-		color = "#3fd2ff",
-	},
-	{
-		id = "pack",
-		max = 30,
-		base = 45,
-		growth = 2.08,
-		icon = "BAG",
-		color = "#ffb13f",
-	},
-	{
-		id = "fins",
-		max = 25,
-		base = 65,
-		growth = 2.25,
-		icon = "FIN",
-		color = "#5ee280",
-	},
-	{
-		id = "magnet",
-		max = 15,
-		base = 110,
-		growth = 2.6,
-		icon = "MAG",
-		color = "#ff6f91",
-	},
+	{ id = "tank", max = 30, base = 30, growth = 2.08, color = "#3fd2ff" },
+	{ id = "pack", max = 30, base = 45, growth = 2.08, color = "#ffb13f" },
+	{ id = "fins", max = 25, base = 65, growth = 2.25, color = "#5ee280" },
+	{ id = "magnet", max = 15, base = 110, growth = 2.6, color = "#ff6f91" },
 }
+Config.GearCurve = 0.75 -- < 1: early tiers climb the stat curves faster
+Config.GearPriceScale = 0.5
+
+-- Pet mutations (enchanting). An enchant adds one random mutation the pet does not have yet;
+-- multipliers add up (Gold x2 + Lava x5 = x7) and scale the pet's boost.
+Config.Mutations = {
+	{ key = "Gold", mult = 2, weight = 50, color = "#ffc62e" },
+	{ key = "Diamond", mult = 3, weight = 26, color = "#7ff0ff" },
+	{ key = "Galaxy", mult = 4, weight = 14, color = "#9a5cff" },
+	{ key = "Lava", mult = 5, weight = 7.5, color = "#ff5a1f" },
+	{ key = "GOAT", mult = 6, weight = 2.5, color = "#ff4fd8" },
+}
+-- Enchant price = this x the egg price of the pet's world, by mutations already on the pet.
+Config.MutationCost = { 3, 8, 20, 50, 120 }
+
+-- Trading.
+Config.TradeMaxPets = 8
+Config.TradeCountdown = 3
+Config.TradeRequestSeconds = 20
 
 -- Monetisation. id = 0 means "not created yet": the card shows "Coming soon" and cannot be bought.
 -- Create the passes / products on the Creator Dashboard and paste their ids here.
@@ -301,10 +294,13 @@ Config.Passes = {
 	{ key = "SwiftFins", id = 0, price = 99, color = "#3fd2ff" },
 }
 Config.Products = {
-	{ key = "CoinsSmall", id = 0, price = 25, dives = 4, color = "#ffd84f" },
-	{ key = "CoinsMedium", id = 0, price = 99, dives = 20, color = "#ffb13f" },
-	{ key = "CoinsLarge", id = 0, price = 299, dives = 75, color = "#ff8a3f" },
+	{ key = "CoinsSmall", id = 0, price = 25, dives = 4, enchants = 0, color = "#ffd84f" },
+	{ key = "CoinsMedium", id = 0, price = 99, dives = 20, enchants = 0, color = "#ffb13f" },
+	{ key = "CoinsLarge", id = 0, price = 299, dives = 75, enchants = 0, color = "#ff8a3f" },
+	-- Lucky Enchants: free enchants that only roll Galaxy, Lava or GOAT.
+	{ key = "LuckyEnchant", id = 0, price = 79, dives = 0, enchants = 3, color = "#be68ff" },
 }
+Config.LuckyMutations = { "Galaxy", "Lava", "GOAT" }
 Config.SwiftFinsBonus = 1.25
 
 -- Built-in engine sounds (no uploaded audio needed). Cues layer and re-pitch these.
@@ -353,6 +349,105 @@ return Config
           <string name="Name">Data</string>
         </Properties>
         <Item class="ModuleScript" referent="13">
+          <Properties>
+            <string name="Name">Gear</string>
+            <string name="Source"><![CDATA[--!strict
+-- Diving gear: every world sells two pieces (standard and "Pro") for each of the four slots,
+-- 160 items in all. Gear replaces stat upgrades: the equipped piece in a slot sets that stat,
+-- and every piece is worn on the avatar. Pure data (names, colours, tiers); prices and stats
+-- live in Economy.
+
+local Worlds = if script then require(script.Parent.Worlds) else require("./Worlds")
+
+local Gear = {}
+
+export type Item = {
+	key: string,
+	slot: string, -- "tank" | "pack" | "fins" | "magnet"
+	world: number,
+	pro: boolean,
+	tier: number, -- 1..40 within the slot (2 per world)
+	theme: { en: string, ko: string },
+	color: string,
+	accent: string,
+}
+
+Gear.Slots = { "tank", "pack", "fins", "magnet" }
+Gear.PerWorld = 2
+Gear.Tiers = 40
+
+-- Theme word per world (item names read "<theme> <slot>", e.g. "Kelp Tank Pro").
+local THEMES = {
+	{ "Sunny", "햇살" },
+	{ "Seagrass", "해초" },
+	{ "Kelp", "다시마" },
+	{ "Tidepool", "조수" },
+	{ "Rainbow", "무지개" },
+	{ "Bubblegum", "풍선껌" },
+	{ "Glowing", "발광" },
+	{ "Coral", "산호" },
+	{ "Shipwreck", "난파선" },
+	{ "Pirate", "해적" },
+	{ "Temple", "신전" },
+	{ "Atlantis", "아틀란티스" },
+	{ "Frost", "서리" },
+	{ "Crystal", "수정" },
+	{ "Volcanic", "화산" },
+	{ "Magma", "마그마" },
+	{ "Twilight", "황혼" },
+	{ "Midnight", "한밤" },
+	{ "Abyssal", "심연" },
+	{ "Leviathan", "리바이어던" },
+}
+
+Gear.list = {} :: { Item }
+Gear.byKey = {} :: { [string]: Item }
+Gear.bySlot = {} :: { [string]: { Item } } -- ordered by tier
+
+for _, slot in Gear.Slots do
+	Gear.bySlot[slot] = {}
+end
+
+for world = 1, #THEMES do
+	local data = Worlds.get(world)
+	for _, slot in Gear.Slots do
+		for index = 1, Gear.PerWorld do
+			local pro = index == 2
+			local item: Item = {
+				key = slot .. world .. (if pro then "b" else "a"),
+				slot = slot,
+				world = world,
+				pro = pro,
+				tier = (world - 1) * Gear.PerWorld + index,
+				theme = { en = THEMES[world][1], ko = THEMES[world][2] },
+				color = data.accent[1],
+				accent = data.accent[2],
+			}
+			table.insert(Gear.list, item)
+			Gear.byKey[item.key] = item
+			table.insert(Gear.bySlot[slot], item)
+		end
+	end
+end
+
+function Gear.get(key: string?): Item?
+	if not key then
+		return nil
+	end
+	return Gear.byKey[key]
+end
+
+-- Tier of a gear key (0 = starter gear / nothing equipped).
+function Gear.tier(key: string?): number
+	local item = Gear.get(key)
+	return if item then item.tier else 0
+end
+
+return Gear
+]]></string>
+          </Properties>
+        </Item>
+        <Item class="ModuleScript" referent="14">
           <Properties>
             <string name="Name">Worlds</string>
             <string name="Source"><![CDATA[--!strict
@@ -1546,7 +1641,7 @@ return Worlds
           </Properties>
         </Item>
       </Item>
-      <Item class="ModuleScript" referent="14">
+      <Item class="ModuleScript" referent="15">
         <Properties>
           <string name="Name">Economy</string>
           <string name="Source"><![CDATA[--!strict
@@ -1554,6 +1649,7 @@ return Worlds
 
 local Config = if script then require(script.Parent.Config) else require("./Config")
 local Worlds = if script then require(script.Parent.Data.Worlds) else require("./Data/Worlds")
+local Gear = if script then require(script.Parent.Data.Gear) else require("./Data/Gear")
 
 local Economy = {}
 
@@ -1624,7 +1720,9 @@ function Economy.displayMeters(world: number, depth: number): number
 	return math.max(0, math.floor(depth / Economy.depthStuds(world) * data.meters + 0.5))
 end
 
--- Upgrade tracks -------------------------------------------------------------------------------
+-- Gear stats ----------------------------------------------------------------------------------
+-- Each slot has a continuous stat curve over a "level" (1 = starter gear). Gear tiers map onto
+-- that curve: tier 40 (World 20 Pro) reaches the slot's max level, early tiers climb faster.
 
 local TRACKS = {}
 for _, track in Config.Upgrades do
@@ -1639,16 +1737,17 @@ local VALUE = {
 	end,
 	pack = function(level: number): number
 		local l = level - 1
-		return 4 + l + math.floor(0.07 * l * l)
+		return math.floor(4 + l + 0.07 * l * l)
 	end,
 	fins = function(level: number): number
-		return 15 + 0.8 * (level - 1)
+		return math.floor((15 + 0.8 * (level - 1)) * 10 + 0.5) / 10
 	end,
 	magnet = function(level: number): number
-		return 5 + 0.8 * (level - 1)
+		return math.floor((5 + 0.8 * (level - 1)) * 10 + 0.5) / 10
 	end,
 }
 
+-- Stat value at a (possibly fractional) level of a slot's curve.
 function Economy.upgradeValue(track: string, level: number): number
 	local fn = VALUE[track]
 	local def = TRACKS[track]
@@ -1658,13 +1757,111 @@ function Economy.upgradeValue(track: string, level: number): number
 	return fn(math.clamp(level, 1, def.max))
 end
 
--- Price to go from `level` to `level + 1`. Returns nil at max level.
-function Economy.upgradeCost(track: string, level: number): number?
-	local def = TRACKS[track]
-	if not def or level >= def.max then
+function Economy.gearLevel(slot: string, tier: number): number
+	local def = TRACKS[slot]
+	if not def or tier <= 0 then
+		return 1
+	end
+	return 1 + (def.max - 1) * (math.min(tier, Gear.Tiers) / Gear.Tiers) ^ Config.GearCurve
+end
+
+-- Stat a slot gives with the gear of `tier` equipped (0 = starter gear).
+function Economy.gearValue(slot: string, tier: number): number
+	return Economy.upgradeValue(slot, Economy.gearLevel(slot, tier))
+end
+
+function Economy.gearCost(key: string): number?
+	local item = Gear.byKey[key]
+	if not item then
 		return nil
 	end
-	return Economy.nice(def.base * def.growth ^ (level - 1))
+	local def = TRACKS[item.slot]
+	local level = Economy.gearLevel(item.slot, item.tier)
+	return Economy.nice(Config.GearPriceScale * def.base * def.growth ^ (level - 2))
+end
+
+-- Stat from a profile's equipped gear map ({ slot = gearKey }).
+function Economy.stat(equip: { [string]: string }?, slot: string): number
+	return Economy.gearValue(slot, Gear.tier(equip and equip[slot]))
+end
+
+-- Pet mutations ---------------------------------------------------------------------------------
+-- Mutations stack by adding their multipliers: Gold (x2) + Lava (x5) = x7 pet boost.
+
+local MUTATIONS = {}
+for _, mutation in Config.Mutations do
+	MUTATIONS[mutation.key] = mutation
+end
+Economy.Mutations = MUTATIONS
+
+function Economy.mutationMultiplier(list: { string }?): number
+	if not list or #list == 0 then
+		return 1
+	end
+	local sum = 0
+	for _, key in list do
+		local mutation = MUTATIONS[key]
+		if mutation then
+			sum += mutation.mult
+		end
+	end
+	return math.max(1, sum)
+end
+
+-- Boost of an owned pet entry, mutations included.
+function Economy.petPower(key: string, mutations: { string }?): number
+	return Economy.petBoost(key) * Economy.mutationMultiplier(mutations)
+end
+
+-- Price of the next enchant on a pet (nil once it carries every mutation).
+function Economy.mutateCost(key: string, mutations: { string }?): number?
+	local pet = Worlds.pets[key]
+	local count = if mutations then #mutations else 0
+	if not pet or count >= #Config.Mutations then
+		return nil
+	end
+	return Economy.nice(Economy.eggCost(pet.world) * Config.MutationCost[count + 1])
+end
+
+-- Weighted roll among the mutations the pet does not have yet, optionally limited to `pool`
+-- (Lucky Enchants). roll in [0, 1).
+function Economy.rollMutation(existing: { string }?, roll: number, pool: { string }?): string?
+	local total = 0
+	local options = {}
+	for _, mutation in Config.Mutations do
+		if not (existing and table.find(existing, mutation.key)) and (not pool or table.find(pool, mutation.key)) then
+			table.insert(options, mutation)
+			total += mutation.weight
+		end
+	end
+	if #options == 0 then
+		return nil
+	end
+	local target = roll * total
+	for _, mutation in options do
+		target -= mutation.weight
+		if target < 0 then
+			return mutation.key
+		end
+	end
+	return options[#options].key
+end
+
+-- Chance (0..1) of each still-missing mutation on the next enchant.
+function Economy.mutationChances(existing: { string }?): { { key: string, chance: number } }
+	local total = 0
+	for _, mutation in Config.Mutations do
+		if not (existing and table.find(existing, mutation.key)) then
+			total += mutation.weight
+		end
+	end
+	local out = {}
+	for _, mutation in Config.Mutations do
+		if not (existing and table.find(existing, mutation.key)) then
+			table.insert(out, { key = mutation.key, chance = mutation.weight / total })
+		end
+	end
+	return out
 end
 
 -- Relic rarity by depth ---------------------------------------------------------------------------
@@ -1753,7 +1950,7 @@ return Economy
 ]]></string>
         </Properties>
       </Item>
-      <Item class="ModuleScript" referent="15">
+      <Item class="ModuleScript" referent="16">
         <Properties>
           <string name="Name">Format</string>
           <string name="Source"><![CDATA[--!strict
@@ -1857,7 +2054,7 @@ return Format
 ]]></string>
         </Properties>
       </Item>
-      <Item class="ModuleScript" referent="16">
+      <Item class="ModuleScript" referent="17">
         <Properties>
           <string name="Name">Layout</string>
           <string name="Source"><![CDATA[--!strict
@@ -1937,6 +2134,7 @@ function Layout.dock(world: number)
 		pierEnd = Vector3.new(38, info.landY, r - 26),
 		sell = Vector3.new(-46, info.landY, r + 34),
 		board = Vector3.new(48, info.landY, r + 46),
+		enchant = Vector3.new(-24, info.landY, r + 54),
 		beachHalfWidth = 20,
 	}
 end
@@ -1992,11 +2190,11 @@ return Layout
 ]]></string>
         </Properties>
       </Item>
-      <Item class="Folder" referent="17">
+      <Item class="Folder" referent="18">
         <Properties>
           <string name="Name">Models</string>
         </Properties>
-        <Item class="ModuleScript" referent="18">
+        <Item class="ModuleScript" referent="19">
           <Properties>
             <string name="Name">Build</string>
             <string name="Source"><![CDATA[--!strict
@@ -2233,7 +2431,307 @@ return Build
 ]]></string>
           </Properties>
         </Item>
-        <Item class="ModuleScript" referent="19">
+        <Item class="ModuleScript" referent="20">
+          <Properties>
+            <string name="Name">GearModels</string>
+            <string name="Source"><![CDATA[--!strict
+-- Procedural diving gear: oxygen tanks (back), treasure bags (hip), flippers (feet) and
+-- treasure magnets (hand), tinted with each world's colours. Pro pieces get twin parts, neon
+-- trim and, in later worlds, a glow. `dress` welds the equipped set onto a character so every
+-- player sees it.
+
+local Color = require(script.Parent.Parent.Color)
+local Gear = require(script.Parent.Parent.Data.Gear)
+local Build = require(script.Parent.Build)
+
+local GearModels = {}
+
+local V = Vector3.new
+local cf = CFrame.new
+local ang = CFrame.Angles
+local rad = math.rad
+
+local METAL = Color3.fromRGB(214, 222, 232)
+local DARK = Color3.fromRGB(40, 46, 60)
+
+local function trim(part: BasePart, pro: boolean)
+	if pro then
+		part.Material = Enum.Material.Neon
+	end
+end
+
+local BUILDERS: { [string]: (Model, Gear.Item, Color3, Color3) -> () } = {}
+
+-- Upright tank(s) centred on the origin, valve on top.
+BUILDERS.tank = function(m, item, c1, c2)
+	local offsets: { number } = if item.pro then { -0.42, 0.42 } else { 0 }
+	for _, x in offsets do
+		Build.column(m, 1.8, 0.78, cf(x, 0, 0), c1)
+		Build.ball(m, 0.78, cf(x, 0.9, 0), c1)
+		Build.ball(m, 0.78, cf(x, -0.9, 0), c1)
+		for _, y in { -0.45, 0.45 } do
+			trim(Build.column(m, 0.14, 0.84, cf(x, y, 0), c2), item.pro)
+		end
+		Build.column(m, 0.3, 0.3, cf(x, 1.3, 0), METAL)
+		Build.cylinder(m, 0.4, 0.14, cf(x, 1.36, 0), METAL)
+	end
+	if item.pro then
+		Build.block(m, V(1.2, 0.2, 0.3), cf(0, 1.25, 0), METAL)
+	end
+	-- Harness plate that sits against the back.
+	Build.block(m, V(if item.pro then 1.5 else 0.9, 1.3, 0.12), cf(0, 0, -0.45), DARK)
+end
+
+-- Treasure pouch on the hip.
+BUILDERS.pack = function(m, item, c1, c2)
+	local sides: { number } = if item.pro then { -1, 1 } else { 1 }
+	for _, side in sides do
+		local x = side * 1.05
+		Build.block(m, V(0.5, 0.75, 0.85), cf(x, 0, 0), c1)
+		Build.wedge(m, V(0.54, 0.25, 0.89), cf(x, 0.45, 0) * ang(0, rad(side * 90), 0), c2)
+		local clasp = Build.ball(m, 0.22, cf(x + side * 0.26, 0.2, 0), if item.pro then c2 else Color3.fromRGB(255, 214, 90))
+		clasp.Material = Enum.Material.Neon
+	end
+	-- Belt.
+	Build.block(m, V(2.1, 0.22, 1.1), cf(0, 0.1, 0), DARK)
+	trim(Build.block(m, V(0.36, 0.3, 0.1), cf(0, 0.1, -0.56), Color3.fromRGB(255, 214, 90)), item.pro)
+end
+
+-- One flipper, foot at the origin, blade reaching forward (-Z).
+BUILDERS.fins = function(m, item, c1, c2)
+	local length = if item.pro then 2.3 else 1.8
+	Build.block(m, V(0.95, 0.35, 1.0), cf(0, 0, 0), c2)
+	Build.block(m, V(1.05, 0.12, length), cf(0, -0.12, -0.5 - length / 2), c1)
+	for _, x in { -0.5, 0.5 } do
+		trim(Build.block(m, V(0.1, 0.18, length), cf(x, -0.1, -0.5 - length / 2), c2), item.pro)
+	end
+	if item.pro then
+		Build.block(m, V(0.12, 0.16, length * 0.8), cf(0, -0.04, -0.5 - length * 0.45), c2)
+	end
+end
+
+-- Horseshoe magnet held in the hand, prongs pointing forward (-Z).
+BUILDERS.magnet = function(m, item, c1, c2)
+	for _, x in { -0.32, 0.32 } do
+		Build.block(m, V(0.26, 0.26, 0.9), cf(x, 0, -0.35), c1)
+		local tip = Build.block(m, V(0.28, 0.28, 0.24), cf(x, 0, -0.9), if item.pro then c2 else METAL)
+		trim(tip, item.pro)
+	end
+	Build.cylinder(m, 0.9, 0.3, cf(0, 0, 0.1), c1)
+	if item.pro then
+		local core = Build.ball(m, 0.3, cf(0, 0, -0.9), c2)
+		core.Material = Enum.Material.Neon
+		core.Transparency = 0.3
+	end
+end
+
+function GearModels.build(key: string, size: number?): Model
+	local item = Gear.get(key)
+	local model = Build.model("Gear_" .. key)
+	if not item then
+		return model
+	end
+	local c1, c2 = Color.hex(item.color), Color.hex(item.accent)
+	BUILDERS[item.slot](model, item, c1, c2)
+	local root = model.PrimaryPart
+	if root and item.pro and item.world >= 11 then
+		Build.light(root, c1, 6, 1)
+	end
+	if root and item.pro and item.world >= 15 then
+		Build.sparkles(root, c1, 3)
+	end
+	if size then
+		Build.fit(model, size)
+	end
+	model:SetAttribute("GearKey", key)
+	return model
+end
+
+-- Where each slot sits on the body: { R15 part, R6 part, offset in that part's space }.
+-- Characters face -Z, so the back is +Z.
+type Mount = { r15: string, r6: string, offset: CFrame, r6Offset: CFrame }
+local MOUNTS: { [string]: { Mount } } = {
+	tank = { { r15 = "UpperTorso", r6 = "Torso", offset = cf(0, 0, 0.98), r6Offset = cf(0, 0.1, 0.98) } },
+	pack = { { r15 = "LowerTorso", r6 = "Torso", offset = cf(0, 0, 0), r6Offset = cf(0, -0.8, 0) } },
+	fins = {
+		{ r15 = "LeftFoot", r6 = "Left Leg", offset = cf(0, -0.05, -0.1), r6Offset = cf(0, -0.85, -0.1) },
+		{ r15 = "RightFoot", r6 = "Right Leg", offset = cf(0, -0.05, -0.1), r6Offset = cf(0, -0.85, -0.1) },
+	},
+	magnet = { { r15 = "RightHand", r6 = "Right Arm", offset = cf(0, -0.25, -0.2), r6Offset = cf(0, -1.1, -0.2) } },
+}
+GearModels.Mounts = MOUNTS
+
+-- Rebuilds the worn gear on a character from an equip map ({ slot = gearKey }).
+function GearModels.dress(character: Model, equip: { [string]: string })
+	local old = character:FindFirstChild("DeepDiveGear")
+	if old then
+		old:Destroy()
+	end
+	local folder = Instance.new("Folder")
+	folder.Name = "DeepDiveGear"
+	for _, slot in Gear.Slots do
+		local key = equip[slot]
+		if not key or not Gear.get(key) then
+			continue
+		end
+		for _, mount in MOUNTS[slot] do
+			local r15 = character:FindFirstChild(mount.r15)
+			local bone = r15 or character:FindFirstChild(mount.r6)
+			if not bone or not bone:IsA("BasePart") then
+				continue
+			end
+			local model = GearModels.build(key)
+			model:PivotTo(bone.CFrame * (if r15 then mount.offset else mount.r6Offset))
+			for _, part in model:GetDescendants() do
+				if part:IsA("BasePart") then
+					part.Anchored = false
+					part.Massless = true
+					part.CanCollide = false
+					part.CanQuery = false
+					part.CanTouch = false
+					local weld = Instance.new("WeldConstraint")
+					weld.Part0 = bone
+					weld.Part1 = part
+					weld.Parent = part
+				end
+			end
+			model.Parent = folder
+		end
+	end
+	folder.Parent = character
+end
+
+return GearModels
+]]></string>
+          </Properties>
+        </Item>
+        <Item class="ModuleScript" referent="21">
+          <Properties>
+            <string name="Name">Mutations</string>
+            <string name="Source"><![CDATA[--!strict
+-- Pet mutation looks. A pet shows its strongest mutation: Gold (polished metal), Diamond (icy
+-- crystal), Galaxy (deep space with stars), Lava (cracked lava with embers) or GOAT (rainbow
+-- shimmer). Weaker mutations on the same pet still add their multiplier.
+
+local Color = require(script.Parent.Parent.Color)
+local Config = require(script.Parent.Parent.Config)
+local Build = require(script.Parent.Build)
+
+local Mutations = {}
+
+local RANK: { [string]: number } = {}
+for index, mutation in Config.Mutations do
+	RANK[mutation.key] = index
+end
+
+-- Strongest mutation in a list (nil for none).
+function Mutations.top(list: { string }?): string?
+	local best, bestRank = nil, 0
+	if list then
+		for _, key in list do
+			local rank = RANK[key] or 0
+			if rank > bestRank then
+				best, bestRank = key, rank
+			end
+		end
+	end
+	return best
+end
+
+function Mutations.color(key: string): Color3
+	for _, mutation in Config.Mutations do
+		if mutation.key == key then
+			return Color.hex(mutation.color)
+		end
+	end
+	return Color3.new(1, 1, 1)
+end
+
+-- Parses the replicated follower form "species|Gold,Lava".
+function Mutations.parse(text: string): (string, { string })
+	local bar = string.find(text, "|", 1, true)
+	if not bar then
+		return text, {}
+	end
+	local list = {}
+	for key in string.gmatch(string.sub(text, bar + 1), "[^,]+") do
+		table.insert(list, key)
+	end
+	return string.sub(text, 1, bar - 1), list
+end
+
+local function emitter(parent: BasePart, color: Color3, rate: number, size: number, texture: string?)
+	local e = Build.sparkles(parent, color, rate)
+	e.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, size), NumberSequenceKeypoint.new(1, 0) })
+	if texture then
+		e.Texture = texture
+	end
+	return e
+end
+
+function Mutations.apply(model: Model, list: { string }?)
+	local top = Mutations.top(list)
+	if not top then
+		return
+	end
+	local index = 0
+	for _, part in model:GetDescendants() do
+		if not part:IsA("BasePart") or part.Name == "Root" or part.Transparency >= 1 or part:GetAttribute("Eye") then
+			continue
+		end
+		index += 1
+		local accent = part:GetAttribute("Accent") == true
+		part.Transparency = 0
+		if top == "Gold" then
+			part.Color = if accent then Color3.fromRGB(255, 244, 170) else Color3.fromRGB(255, 196, 46)
+			part.Material = if accent then Enum.Material.Neon else Enum.Material.Metal
+			part.Reflectance = if accent then 0 else 0.25
+		elseif top == "Diamond" then
+			part.Color = if accent then Color3.fromRGB(255, 255, 255) else Color3.fromRGB(150, 236, 255)
+			part.Material = if accent then Enum.Material.Neon else Enum.Material.Ice
+			part.Reflectance = 0.3
+		elseif top == "Galaxy" then
+			part.Color = if accent then Color3.fromRGB(255, 110, 230) else Color3.fromRGB(58, 26, 120)
+			part.Material = if accent then Enum.Material.Neon else Enum.Material.SmoothPlastic
+			part.Reflectance = 0.1
+		elseif top == "Lava" then
+			part.Color = if accent then Color3.fromRGB(255, 140, 30) else Color3.fromRGB(255, 92, 30)
+			part.Material = if accent then Enum.Material.Neon else Enum.Material.CrackedLava
+			part.Reflectance = 0
+		elseif top == "GOAT" then
+			part.Color = Color.Rainbow[(index % #Color.Rainbow) + 1]
+			part.Material = if accent then Enum.Material.Neon else Enum.Material.Glass
+			part.Reflectance = 0.15
+		end
+	end
+	local root = model.PrimaryPart
+	if not root then
+		return
+	end
+	local color = Mutations.color(top)
+	Build.light(root, color, 9, if top == "Gold" then 1 else 1.6)
+	if top == "Gold" then
+		emitter(root, Color3.fromRGB(255, 226, 110), 5, 0.4)
+	elseif top == "Diamond" then
+		emitter(root, Color3.fromRGB(220, 250, 255), 7, 0.45)
+	elseif top == "Galaxy" then
+		emitter(root, Color3.fromRGB(200, 160, 255), 14, 0.35)
+		emitter(root, Color3.fromRGB(255, 120, 230), 4, 0.6)
+	elseif top == "Lava" then
+		local embers = emitter(root, Color3.fromRGB(255, 120, 30), 12, 0.3)
+		embers.Acceleration = Vector3.new(0, 3, 0)
+	elseif top == "GOAT" then
+		emitter(root, Color3.fromRGB(255, 255, 255), 10, 0.5)
+		emitter(root, Color3.fromRGB(255, 90, 220), 6, 0.55)
+	end
+	model:SetAttribute("Mutation", top)
+end
+
+return Mutations
+]]></string>
+          </Properties>
+        </Item>
+        <Item class="ModuleScript" referent="22">
           <Properties>
             <string name="Name">PetModels</string>
             <string name="Source"><![CDATA[--!strict
@@ -2724,7 +3222,7 @@ return PetModels
 ]]></string>
           </Properties>
         </Item>
-        <Item class="ModuleScript" referent="20">
+        <Item class="ModuleScript" referent="23">
           <Properties>
             <string name="Name">RelicModels</string>
             <string name="Source"><![CDATA[--!strict
@@ -3185,7 +3683,7 @@ return RelicModels
           </Properties>
         </Item>
       </Item>
-      <Item class="ModuleScript" referent="21">
+      <Item class="ModuleScript" referent="24">
         <Properties>
           <string name="Name">Profile</string>
           <string name="Source"><![CDATA[--!strict
@@ -3193,10 +3691,14 @@ return RelicModels
 
 local Config = if script then require(script.Parent.Config) else require("./Config")
 local Worlds = if script then require(script.Parent.Data.Worlds) else require("./Data/Worlds")
+local Gear = if script then require(script.Parent.Data.Gear) else require("./Data/Gear")
+local Economy = if script then require(script.Parent.Economy) else require("./Economy")
 
 local Profile = {}
 
-export type PetEntry = { s: string, l: boolean? }
+-- s = species key, l = locked, m = mutations (Config.Mutations keys, in the order gained)
+export type PetEntry = { s: string, l: boolean?, m: { string }? }
+export type GearData = { owned: { [string]: boolean }, equip: { [string]: string } }
 export type WorldProgress = { sold: number, cleared: boolean, best: number }
 export type Data = {
 	v: number,
@@ -3205,7 +3707,8 @@ export type Data = {
 	world: number,
 	unlocked: number,
 	worlds: { [string]: WorldProgress },
-	upgrades: { [string]: number },
+	gear: GearData,
+	enchants: number, -- Lucky Enchant tokens (developer product)
 	pets: { [string]: PetEntry },
 	equipped: { string },
 	petSeq: number,
@@ -3221,10 +3724,6 @@ export type Data = {
 }
 
 function Profile.new(now: number): Data
-	local upgrades = {}
-	for _, track in Config.Upgrades do
-		upgrades[track.id] = 1
-	end
 	return {
 		v = Config.SchemaVersion,
 		coins = 0,
@@ -3232,7 +3731,8 @@ function Profile.new(now: number): Data
 		world = 1,
 		unlocked = 1,
 		worlds = {},
-		upgrades = upgrades,
+		gear = { owned = {}, equip = {} },
+		enchants = 0,
 		pets = {},
 		equipped = {},
 		petSeq = 0,
@@ -3291,11 +3791,36 @@ function Profile.reconcile(raw: any, now: number): Data
 			end
 		end
 	end
-	if type(raw.upgrades) == "table" then
-		for _, track in Config.Upgrades do
-			data.upgrades[track.id] = math.floor(number(raw.upgrades[track.id], 1, 1, track.max))
+	if type(raw.gear) == "table" then
+		if type(raw.gear.owned) == "table" then
+			for key, value in raw.gear.owned do
+				if type(key) == "string" and Gear.byKey[key] and value == true then
+					data.gear.owned[key] = true
+				end
+			end
+		end
+		if type(raw.gear.equip) == "table" then
+			for _, slot in Gear.Slots do
+				local key = raw.gear.equip[slot]
+				local item = if type(key) == "string" then Gear.byKey[key] else nil
+				if item and item.slot == slot and data.gear.owned[key] then
+					data.gear.equip[slot] = key
+				end
+			end
+		end
+	elseif type(raw.upgrades) == "table" then
+		-- Saves from before gear: grant the best piece whose stat the old upgrade level covered.
+		for _, slot in Gear.Slots do
+			local level = number(raw.upgrades[slot], 1, 1)
+			for _, item in Gear.bySlot[slot] do
+				if Economy.gearLevel(slot, item.tier) <= level + 1e-6 then
+					data.gear.owned[item.key] = true
+					data.gear.equip[slot] = item.key
+				end
+			end
 		end
 	end
+	data.enchants = math.floor(number(raw.enchants, 0, 0, 9999))
 	local count = 0
 	if type(raw.pets) == "table" then
 		for id, entry in raw.pets do
@@ -3306,7 +3831,19 @@ function Profile.reconcile(raw: any, now: number): Data
 				and Worlds.pets[entry.s]
 				and count < Config.PetInventoryCap
 			then
-				data.pets[id] = { s = entry.s, l = entry.l == true }
+				local mutations: { string }? = nil
+				if type(entry.m) == "table" then
+					local list = {}
+					for _, key in entry.m do
+						if type(key) == "string" and Economy.Mutations[key] and not table.find(list, key) then
+							table.insert(list, key)
+						end
+					end
+					if #list > 0 then
+						mutations = list
+					end
+				end
+				data.pets[id] = { s = entry.s, l = entry.l == true, m = mutations }
 				count += 1
 			end
 		end
@@ -3396,7 +3933,7 @@ return Profile
 ]]></string>
         </Properties>
       </Item>
-      <Item class="ModuleScript" referent="22">
+      <Item class="ModuleScript" referent="25">
         <Properties>
           <string name="Name">Remotes</string>
           <string name="Source"><![CDATA[--!strict
@@ -3413,7 +3950,14 @@ Remotes.Board = "LeaderboardData" -- StringValue: JSON top divers for the global
 
 Remotes.Actions = {
 	Teleport = true,
-	BuyUpgrade = true,
+	BuyGear = true,
+	EquipGear = true,
+	Mutate = true,
+	TradeRequest = true,
+	TradeRespond = true,
+	TradeOffer = true,
+	TradeReady = true,
+	TradeCancel = true,
 	Hatch = true,
 	Equip = true,
 	EquipBest = true,
@@ -3430,7 +3974,7 @@ return Remotes
 ]]></string>
         </Properties>
       </Item>
-      <Item class="ModuleScript" referent="23">
+      <Item class="ModuleScript" referent="26">
         <Properties>
           <string name="Name">Signal</string>
           <string name="Source"><![CDATA[--!strict
@@ -3502,7 +4046,7 @@ return Signal
 ]]></string>
         </Properties>
       </Item>
-      <Item class="ModuleScript" referent="24">
+      <Item class="ModuleScript" referent="27">
         <Properties>
           <string name="Name">Strings</string>
           <string name="Source"><![CDATA[--!strict
@@ -3516,7 +4060,7 @@ local EN: { [string]: string } = {
 	title = "DEEP DIVE",
 	subtitle = "20 worlds of sunken treasure",
 	loading = "Diving in...",
-	studioSave = "Studio test - progress is not saved",
+	studioSave = "Studio test - saving is off (Game Settings > Security > API Services)",
 	coins = "Coins",
 	world = "World {n}",
 	treasure = "Treasure {a}/{b}",
@@ -3538,7 +4082,7 @@ local EN: { [string]: string } = {
 	newRelic = "New relic discovered!",
 
 	["menu.worlds"] = "Worlds",
-	["menu.upgrades"] = "Upgrades",
+	["menu.upgrades"] = "Gear",
 	["menu.pets"] = "Pets",
 	["menu.shop"] = "Shop",
 	["menu.settings"] = "Settings",
@@ -3646,14 +4190,14 @@ local EN: { [string]: string } = {
 	["tutorial.1"] = "Jump into the water to start diving!",
 	["tutorial.2"] = "Swim to the glowing treasure!",
 	["tutorial.3"] = "Sell your treasure on the gold pad at the Treasure Shop!",
-	["tutorial.4"] = "Buy an upgrade!",
+	["tutorial.4"] = "Buy new gear at the Gear Shop!",
 	["tutorial.5"] = "Hatch a pet at the egg!",
 	["tutorial.6"] = "Fill the treasure bar to reveal the Ancient Chest!",
 	controlsPc = "Look down + W to dive  -  Space: up  -  C: down  -  Shift: dash",
 	controlsTouch = "Point the camera down and push forward to dive",
 
 	["prompt.egg"] = "Hatch",
-	["prompt.upgrades"] = "Upgrades",
+	["prompt.upgrades"] = "Gear Shop",
 	["prompt.portal"] = "Travel",
 	["prompt.shop"] = "Shop",
 
@@ -3685,13 +4229,65 @@ local EN: { [string]: string } = {
 	boardLocal = "This server - lifetime coins",
 	boardEmpty = "No divers yet - be the first!",
 	you = "You",
+	["gear.tank"] = "{theme} Tank",
+	["gear.pack"] = "{theme} Bag",
+	["gear.fins"] = "{theme} Fins",
+	["gear.magnet"] = "{theme} Magnet",
+	gearPro = "{name} Pro",
+	gearWearing = "Wearing: {name}  -  {stat}",
+	gearStarter = "Starter gear",
+	gearBought = "{name} bought!",
+	gearOwned = "You already own that",
+	["equipped.short"] = "Wearing",
+	enchant = "Enchant",
+	enchantAltar = "Enchanting Altar",
+	lucky = "Lucky ({n})",
+	luckyGot = "+{n} Lucky Enchants!",
+	noMutations = "No mutations yet - Enchant it!",
+	["mutation.Gold"] = "Gold",
+	["mutation.Diamond"] = "Diamond",
+	["mutation.Galaxy"] = "Galaxy",
+	["mutation.Lava"] = "Lava",
+	["mutation.GOAT"] = "GOAT",
+	mutated = "{name} mutation! (x{x})",
+	mutateMax = "This pet has every mutation!",
+	noLucky = "No Lucky Enchants left",
+	tradeBusy = "Finish the current trade first",
+	tradeExpired = "That trade request expired",
+	tradeLocked = "Locked pets can't be traded",
+	tradeMax = "Too many pets in one trade",
+	tradeFull = "Not enough pet space for this trade",
+	tradeDeclined = "Trade request declined",
+	tradeTitle = "Trade",
+	tradeWith = "Trade with {name}",
+	tradeYours = "Your offer",
+	tradeTheirs = "{name}'s offer",
+	tradeReady = "Ready",
+	tradeWaiting = "Not ready",
+	tradeReadyButton = "Ready!",
+	tradeUnready = "Unready",
+	tradePick = "Tap your pets to add them (up to {n})",
+	tradeCountdown = "Trading in {n}...",
+	tradeWaitingFor = "Waiting for {name}...",
+	tradeHint = "Both players press Ready to trade",
+	tradeAsk = "{name} wants to trade!",
+	tradeDone = "Trade complete! +{n} pets",
+	tradeLeft = "{name} left the trade",
+	tradeCancelled = "Trade cancelled",
+	tradeSent = "Trade request sent!",
+	accept = "Accept",
+	decline = "Decline",
+	cancel = "Cancel",
+	saved = "Saved",
+	["product.LuckyEnchant"] = "Lucky Enchants x3",
+	["product.LuckyEnchant.desc"] = "Rolls only Galaxy, Lava or GOAT",
 }
 
 local KO: { [string]: string } = {
 	title = "딥 다이브",
 	subtitle = "20개 월드의 가라앉은 보물",
 	loading = "잠수 준비 중...",
-	studioSave = "스튜디오 테스트 - 진행 상황이 저장되지 않아요",
+	studioSave = "스튜디오 테스트 - 저장 꺼짐 (게임 설정 > 보안 > API 서비스 켜기)",
 	coins = "코인",
 	world = "월드 {n}",
 	treasure = "보물 {a}/{b}",
@@ -3713,7 +4309,7 @@ local KO: { [string]: string } = {
 	newRelic = "새 유물 발견!",
 
 	["menu.worlds"] = "월드",
-	["menu.upgrades"] = "강화",
+	["menu.upgrades"] = "장비",
 	["menu.pets"] = "펫",
 	["menu.shop"] = "상점",
 	["menu.settings"] = "설정",
@@ -3821,14 +4417,14 @@ local KO: { [string]: string } = {
 	["tutorial.1"] = "물속으로 뛰어들어 잠수를 시작하세요!",
 	["tutorial.2"] = "빛나는 보물로 헤엄쳐 가세요!",
 	["tutorial.3"] = "보물 상점의 금색 발판에서 보물을 팔아요!",
-	["tutorial.4"] = "업그레이드를 구매하세요!",
+	["tutorial.4"] = "장비 상점에서 새 장비를 사세요!",
 	["tutorial.5"] = "알을 부화시켜 펫을 얻어요!",
 	["tutorial.6"] = "보물 게이지를 채우면 고대 보물상자가 나타나요!",
 	controlsPc = "아래를 보고 W로 잠수  -  Space: 위로  -  C: 아래로  -  Shift: 대시",
 	controlsTouch = "카메라를 아래로 향하고 앞으로 밀면 잠수해요",
 
 	["prompt.egg"] = "부화",
-	["prompt.upgrades"] = "업그레이드",
+	["prompt.upgrades"] = "장비 상점",
 	["prompt.portal"] = "이동",
 	["prompt.shop"] = "상점",
 
@@ -3860,6 +4456,58 @@ local KO: { [string]: string } = {
 	boardLocal = "이 서버 - 누적 코인",
 	boardEmpty = "아직 기록이 없어요 - 첫 주인공이 되세요!",
 	you = "나",
+	["gear.tank"] = "{theme} 산소통",
+	["gear.pack"] = "{theme} 가방",
+	["gear.fins"] = "{theme} 오리발",
+	["gear.magnet"] = "{theme} 자석",
+	gearPro = "{name} 프로",
+	gearWearing = "착용 중: {name}  -  {stat}",
+	gearStarter = "기본 장비",
+	gearBought = "{name} 구매 완료!",
+	gearOwned = "이미 가지고 있어요",
+	["equipped.short"] = "착용 중",
+	enchant = "인첸트",
+	enchantAltar = "인첸트 제단",
+	lucky = "행운 ({n})",
+	luckyGot = "행운 인첸트 +{n}!",
+	noMutations = "아직 변이가 없어요 - 인첸트!",
+	["mutation.Gold"] = "골드",
+	["mutation.Diamond"] = "다이아",
+	["mutation.Galaxy"] = "갤럭시",
+	["mutation.Lava"] = "용암",
+	["mutation.GOAT"] = "GOAT",
+	mutated = "{name} 변이! (x{x})",
+	mutateMax = "모든 변이를 가진 펫이에요!",
+	noLucky = "행운 인첸트가 없어요",
+	tradeBusy = "진행 중인 거래를 먼저 끝내세요",
+	tradeExpired = "거래 요청이 만료됐어요",
+	tradeLocked = "잠긴 펫은 거래할 수 없어요",
+	tradeMax = "한 번에 거래할 수 있는 펫이 너무 많아요",
+	tradeFull = "펫 보관함 공간이 부족해요",
+	tradeDeclined = "거래 요청이 거절됐어요",
+	tradeTitle = "거래",
+	tradeWith = "{name}님과 거래",
+	tradeYours = "내 제안",
+	tradeTheirs = "{name}님의 제안",
+	tradeReady = "준비 완료",
+	tradeWaiting = "준비 중",
+	tradeReadyButton = "준비 완료!",
+	tradeUnready = "준비 취소",
+	tradePick = "내 펫을 눌러 추가하세요 (최대 {n}마리)",
+	tradeCountdown = "{n}초 후 거래...",
+	tradeWaitingFor = "{name}님을 기다리는 중...",
+	tradeHint = "두 사람 모두 준비 완료를 누르면 거래돼요",
+	tradeAsk = "{name}님이 거래를 원해요!",
+	tradeDone = "거래 완료! 펫 +{n}",
+	tradeLeft = "{name}님이 거래를 떠났어요",
+	tradeCancelled = "거래가 취소됐어요",
+	tradeSent = "거래 요청을 보냈어요!",
+	accept = "수락",
+	decline = "거절",
+	cancel = "취소",
+	saved = "저장됨",
+	["product.LuckyEnchant"] = "행운 인첸트 x3",
+	["product.LuckyEnchant.desc"] = "갤럭시·용암·GOAT만 나와요",
 }
 
 local TABLES = { en = EN, ko = KO }
@@ -3904,15 +4552,15 @@ return Strings
       </Item>
     </Item>
   </Item>
-  <Item class="ServerScriptService" referent="25">
+  <Item class="ServerScriptService" referent="28">
     <Properties>
       <string name="Name">ServerScriptService</string>
     </Properties>
-    <Item class="Folder" referent="26">
+    <Item class="Folder" referent="29">
       <Properties>
         <string name="Name">Server</string>
       </Properties>
-      <Item class="Script" referent="27">
+      <Item class="Script" referent="30">
         <Properties>
           <string name="Name">Main</string>
           <token name="RunContext">0</token>
@@ -3933,15 +4581,22 @@ local Sync = require(script.Parent.Sync)
 local WorldBuilder = require(script.Parent.World.WorldBuilder)
 local ActionService = require(script.Parent.Services.ActionService)
 local DiveService = require(script.Parent.Services.DiveService)
+local GearService = require(script.Parent.Services.GearService)
 local LeaderboardService = require(script.Parent.Services.LeaderboardService)
 local PetService = require(script.Parent.Services.PetService)
 local PurchaseService = require(script.Parent.Services.PurchaseService)
+local TradeService = require(script.Parent.Services.TradeService)
 
 Net.init()
 ProfileStore.init()
+ProfileStore.onSaved = function(player: Player)
+	Net.push(player, "saved")
+end
 WorldBuilder.init()
 DiveService.init()
 PetService.init()
+GearService.init()
+TradeService.init()
 ActionService.init()
 PurchaseService.init()
 LeaderboardService.init()
@@ -3968,6 +4623,11 @@ local function onCharacter(session: Sessions.Session, character: Model)
 	humanoid.WalkSpeed = 20
 	-- Clients draw their own nameplates (name + coins) above every diver.
 	humanoid.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None
+	-- Worn gear (tank, bag, flippers, magnet) once the body parts exist.
+	character:WaitForChild(if humanoid.RigType == Enum.HumanoidRigType.R15 then "UpperTorso" else "Torso", 10)
+	if Sessions.get(session.player) == session and session.player.Character == character then
+		GearService.dress(session)
+	end
 	humanoid.Died:Connect(function()
 		DiveService.onDied(session)
 		task.delay(2.5, function()
@@ -4017,6 +4677,7 @@ end
 local function onPlayerRemoving(player: Player)
 	local session = Sessions.get(player)
 	if session then
+		TradeService.onLeave(session)
 		DiveService.onLeave(session)
 		Sessions.remove(player)
 	end
@@ -4036,7 +4697,7 @@ WorldBuilder.buildRemaining()
 ]]></string>
         </Properties>
       </Item>
-      <Item class="ModuleScript" referent="28">
+      <Item class="ModuleScript" referent="31">
         <Properties>
           <string name="Name">Net</string>
           <string name="Source"><![CDATA[--!strict
@@ -4165,7 +4826,7 @@ return Net
 ]]></string>
         </Properties>
       </Item>
-      <Item class="ModuleScript" referent="29">
+      <Item class="ModuleScript" referent="32">
         <Properties>
           <string name="Name">ProfileStore</string>
           <string name="Source"><![CDATA[--!strict
@@ -4184,7 +4845,7 @@ local Profile = require(Shared.Profile)
 local ProfileStore = {}
 
 local LOCK_TIMEOUT = 240
-local AUTOSAVE_INTERVAL = 75
+local AUTOSAVE_INTERVAL = 60
 local jobId = if game.JobId ~= "" then game.JobId else "studio-" .. tostring(math.random(1, 1e9))
 
 type Entry = { data: Profile.Data, dirty: boolean, saving: boolean, released: boolean, lastSave: number }
@@ -4192,6 +4853,8 @@ type Entry = { data: Profile.Data, dirty: boolean, saving: boolean, released: bo
 local entries: { [Player]: Entry } = {}
 local store: DataStore? = nil
 ProfileStore.memoryMode = false
+-- Called after every successful DataStore write of a player's profile.
+ProfileStore.onSaved = nil :: ((Player) -> ())?
 
 local function key(userId: number): string
 	return "p_" .. tostring(userId)
@@ -4360,6 +5023,10 @@ function ProfileStore.save(player: Player, release: boolean?): boolean
 	if success then
 		entry.dirty = false
 		entry.lastSave = os.clock()
+		local onSaved = ProfileStore.onSaved
+		if onSaved and not release then
+			task.spawn(onSaved, player)
+		end
 	end
 	if release then
 		entry.released = true
@@ -4408,20 +5075,15 @@ return ProfileStore
 ]]></string>
         </Properties>
       </Item>
-      <Item class="Folder" referent="30">
+      <Item class="Folder" referent="33">
         <Properties>
           <string name="Name">Services</string>
         </Properties>
-        <Item class="ModuleScript" referent="31">
+        <Item class="ModuleScript" referent="34">
           <Properties>
             <string name="Name">ActionService</string>
             <string name="Source"><![CDATA[--!strict
--- Upgrades, travel, settings, tutorial progress and the client "Ready" handshake.
-
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
-
-local Shared = ReplicatedStorage:WaitForChild("Shared")
-local Economy = require(Shared.Economy)
+-- Selling, travel, settings, tutorial progress and the client "Ready" handshake.
 
 local Net = require(script.Parent.Parent.Net)
 local Sessions = require(script.Parent.Parent.Sessions)
@@ -4429,36 +5091,6 @@ local Sync = require(script.Parent.Parent.Sync)
 local DiveService = require(script.Parent.DiveService)
 
 local ActionService = {}
-
-local function buyUpgrade(player: Player, payload: any): (boolean, string?, any)
-	local session = Sessions.get(player)
-	if not session or not session.ready then
-		return false, "err.notReady"
-	end
-	if type(payload) ~= "table" or type(payload.track) ~= "string" or not Economy.Tracks[payload.track] then
-		return false, "err.generic"
-	end
-	local track = payload.track :: string
-	local profile = session.profile
-	local level = profile.upgrades[track] or 1
-	local cost = Economy.upgradeCost(track, level)
-	if not cost then
-		return false, "max"
-	end
-	if profile.coins < cost then
-		return false, "notEnough"
-	end
-	profile.coins -= cost
-	profile.upgrades[track] = level + 1
-	if profile.tutorial == 4 then
-		profile.tutorial = 5
-	end
-	if track == "tank" then
-		DiveService.refreshOxygen(session)
-	end
-	Sync.profile(session)
-	return true, nil, { level = level + 1 }
-end
 
 local function teleport(player: Player, payload: any): (boolean, string?, any)
 	local session = Sessions.get(player)
@@ -4524,7 +5156,6 @@ function ActionService.init()
 		end
 		return DiveService.sell(session, true)
 	end)
-	Net.on("BuyUpgrade", buyUpgrade)
 	Net.on("Teleport", teleport)
 	Net.on("Setting", setting)
 	Net.on("Tutorial", tutorial)
@@ -4535,7 +5166,7 @@ return ActionService
 ]]></string>
           </Properties>
         </Item>
-        <Item class="ModuleScript" referent="32">
+        <Item class="ModuleScript" referent="35">
           <Properties>
             <string name="Name">DiveService</string>
             <string name="Source"><![CDATA[--!strict
@@ -4582,11 +5213,11 @@ local function aliveHumanoid(player: Player): Humanoid?
 end
 
 local function capacity(session: Session): number
-	return Economy.upgradeValue("pack", session.profile.upgrades.pack)
+	return Economy.stat(session.profile.gear.equip, "pack")
 end
 
 local function magnet(session: Session): number
-	return Economy.upgradeValue("magnet", session.profile.upgrades.magnet)
+	return Economy.stat(session.profile.gear.equip, "magnet")
 end
 
 function DiveService.rollLayout(session: Session)
@@ -4623,7 +5254,7 @@ end
 local function startDive(session: Session)
 	local profile = session.profile
 	session.mode = "Diving"
-	session.oxygenMax = Economy.upgradeValue("tank", profile.upgrades.tank)
+	session.oxygenMax = Economy.stat(profile.gear.equip, "tank")
 	session.oxygen = session.oxygenMax
 	session.diveStart = #profile.backpack
 	session.surfacedFor = 0
@@ -4998,7 +5629,7 @@ end
 
 function DiveService.refreshOxygen(session: Session)
 	if session.mode ~= "Diving" then
-		session.oxygenMax = Economy.upgradeValue("tank", session.profile.upgrades.tank)
+		session.oxygenMax = Economy.stat(session.profile.gear.equip, "tank")
 		session.oxygen = session.oxygenMax
 	end
 end
@@ -5030,7 +5661,108 @@ return DiveService
 ]]></string>
           </Properties>
         </Item>
-        <Item class="ModuleScript" referent="33">
+        <Item class="ModuleScript" referent="36">
+          <Properties>
+            <string name="Name">GearService</string>
+            <string name="Source"><![CDATA[--!strict
+-- Diving gear shop: buying and equipping gear pieces, and dressing characters in their gear.
+-- Gear of a world can be bought once that world is unlocked; buying auto-equips the piece when
+-- it beats the one worn in that slot.
+
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local Shared = ReplicatedStorage:WaitForChild("Shared")
+local Economy = require(Shared.Economy)
+local Gear = require(Shared.Data.Gear)
+local GearModels = require(Shared.Models.GearModels)
+
+local Net = require(script.Parent.Parent.Net)
+local Sessions = require(script.Parent.Parent.Sessions)
+local Sync = require(script.Parent.Parent.Sync)
+local DiveService = require(script.Parent.DiveService)
+
+local GearService = {}
+
+type Session = Sessions.Session
+
+function GearService.dress(session: Session)
+	local character = session.player.Character
+	if character then
+		local ok, err = pcall(function()
+			GearModels.dress(character, session.profile.gear.equip)
+		end)
+		if not ok then
+			warn("[DeepDive] Could not dress gear: " .. tostring(err))
+		end
+	end
+end
+
+local function applied(session: Session, item: Gear.Item)
+	if item.slot == "tank" then
+		DiveService.refreshOxygen(session)
+	end
+	GearService.dress(session)
+	Sync.profile(session)
+end
+
+local function buy(player: Player, payload: any): (boolean, string?, any)
+	local session = Sessions.get(player)
+	if not session or not session.ready then
+		return false, "err.notReady"
+	end
+	local item = if type(payload) == "table" and type(payload.key) == "string" then Gear.get(payload.key) else nil
+	if not item then
+		return false, "err.generic"
+	end
+	local profile = session.profile
+	if item.world > profile.unlocked then
+		return false, "err.locked"
+	end
+	if profile.gear.owned[item.key] then
+		return false, "gearOwned"
+	end
+	local cost = Economy.gearCost(item.key) :: number
+	if profile.coins < cost then
+		return false, "notEnough"
+	end
+	profile.coins -= cost
+	profile.gear.owned[item.key] = true
+	local equipped = false
+	if item.tier > Gear.tier(profile.gear.equip[item.slot]) then
+		profile.gear.equip[item.slot] = item.key
+		equipped = true
+	end
+	if profile.tutorial == 4 then
+		profile.tutorial = 5
+	end
+	applied(session, item)
+	return true, nil, { key = item.key, equipped = equipped, cost = cost }
+end
+
+local function equip(player: Player, payload: any): (boolean, string?, any)
+	local session = Sessions.get(player)
+	if not session or not session.ready then
+		return false, "err.notReady"
+	end
+	local item = if type(payload) == "table" and type(payload.key) == "string" then Gear.get(payload.key) else nil
+	if not item or not session.profile.gear.owned[item.key] then
+		return false, "err.generic"
+	end
+	session.profile.gear.equip[item.slot] = item.key
+	applied(session, item)
+	return true
+end
+
+function GearService.init()
+	Net.on("BuyGear", buy)
+	Net.on("EquipGear", equip)
+end
+
+return GearService
+]]></string>
+          </Properties>
+        </Item>
+        <Item class="ModuleScript" referent="37">
           <Properties>
             <string name="Name">LeaderboardService</string>
             <string name="Source"><![CDATA[--!strict
@@ -5196,7 +5928,7 @@ return LeaderboardService
 ]]></string>
           </Properties>
         </Item>
-        <Item class="ModuleScript" referent="34">
+        <Item class="ModuleScript" referent="38">
           <Properties>
             <string name="Name">PetService</string>
             <string name="Source"><![CDATA[--!strict
@@ -5291,7 +6023,8 @@ local function sortedByBoost(profile: Profile.Data): { string }
 		table.insert(ids, id)
 	end
 	table.sort(ids, function(a, b)
-		local ba, bb = Economy.petBoost(profile.pets[a].s), Economy.petBoost(profile.pets[b].s)
+		local pa, pb = profile.pets[a], profile.pets[b]
+		local ba, bb = Economy.petPower(pa.s, pa.m), Economy.petPower(pb.s, pb.m)
 		if ba ~= bb then
 			return ba > bb
 		end
@@ -5379,6 +6112,9 @@ local function deletePet(player: Player, payload: any): (boolean, string?, any)
 	if not pet or pet.l then
 		return false, "err.generic"
 	end
+	if session.trade then
+		return false, "tradeBusy"
+	end
 	profile.pets[payload.id] = nil
 	local index = table.find(profile.equipped, payload.id)
 	if index then
@@ -5387,6 +6123,53 @@ local function deletePet(player: Player, payload: any): (boolean, string?, any)
 	end
 	Sync.profile(session)
 	return true
+end
+
+-- Enchanting: pay coins (or spend a Lucky Enchant) to add a random new mutation to a pet.
+local function mutate(player: Player, payload: any): (boolean, string?, any)
+	local session = Sessions.get(player)
+	if not session or not session.ready then
+		return false, "err.notReady"
+	end
+	if type(payload) ~= "table" or type(payload.id) ~= "string" then
+		return false, "err.generic"
+	end
+	local profile = session.profile
+	local pet = profile.pets[payload.id]
+	if not pet then
+		return false, "err.generic"
+	end
+	if session.trade then
+		return false, "tradeBusy"
+	end
+	local list = pet.m or {}
+	if #list >= #Config.Mutations then
+		return false, "mutateMax"
+	end
+	local key: string?
+	local cost = 0
+	if payload.lucky == true then
+		if profile.enchants < 1 then
+			return false, "noLucky"
+		end
+		key = Economy.rollMutation(list, session.rng:NextNumber(), Config.LuckyMutations) or Economy.rollMutation(list, session.rng:NextNumber())
+		profile.enchants -= 1
+	else
+		cost = Economy.mutateCost(pet.s, pet.m) :: number
+		if profile.coins < cost then
+			return false, "notEnough"
+		end
+		profile.coins -= cost
+		key = Economy.rollMutation(list, session.rng:NextNumber())
+	end
+	assert(key, "a mutation is always available below the cap")
+	table.insert(list, key)
+	pet.m = list
+	if table.find(profile.equipped, payload.id) then
+		Sessions.publishPets(session)
+	end
+	Sync.profile(session)
+	return true, nil, { mutation = key, cost = cost, count = #list }
 end
 
 -- Trims equipped pets after a pass change or load.
@@ -5405,13 +6188,14 @@ function PetService.init()
 	Net.on("UnequipAll", unequipAll)
 	Net.on("SetLock", setLock)
 	Net.on("DeletePet", deletePet)
+	Net.on("Mutate", mutate)
 end
 
 return PetService
 ]]></string>
           </Properties>
         </Item>
-        <Item class="ModuleScript" referent="35">
+        <Item class="ModuleScript" referent="39">
           <Properties>
             <string name="Name">PurchaseService</string>
             <string name="Source"><![CDATA[--!strict
@@ -5465,9 +6249,11 @@ local function processReceipt(receipt: any): Enum.ProductPurchaseDecision
 	if table.find(profile.receipts, receiptId) then
 		return Enum.ProductPurchaseDecision.PurchaseGranted
 	end
-	local coins = Economy.productCoins(product.dives, profile.unlocked)
+	local coins = if product.dives > 0 then Economy.productCoins(product.dives, profile.unlocked) else 0
+	local enchants = product.enchants or 0
 	profile.coins += coins
 	profile.lifetime += coins
+	profile.enchants += enchants
 	table.insert(profile.receipts, receiptId)
 	while #profile.receipts > 50 do
 		table.remove(profile.receipts, 1)
@@ -5476,6 +6262,7 @@ local function processReceipt(receipt: any): Enum.ProductPurchaseDecision
 	if not ProfileStore.save(player, false) then
 		profile.coins -= coins
 		profile.lifetime -= coins
+		profile.enchants -= enchants
 		local index = table.find(profile.receipts, receiptId)
 		if index then
 			table.remove(profile.receipts, index)
@@ -5484,7 +6271,7 @@ local function processReceipt(receipt: any): Enum.ProductPurchaseDecision
 	end
 	Sync.profile(session)
 	Net.push(player, "toast", { key = "thanks", kind = "gold" })
-	Net.push(player, "purchase", { coins = coins })
+	Net.push(player, "purchase", { coins = coins, enchants = enchants })
 	return Enum.ProductPurchaseDecision.PurchaseGranted
 end
 
@@ -5518,8 +6305,336 @@ return PurchaseService
 ]]></string>
           </Properties>
         </Item>
+        <Item class="ModuleScript" referent="40">
+          <Properties>
+            <string name="Name">TradeService</string>
+            <string name="Source"><![CDATA[--!strict
+-- Pet trading between two players on the same server.
+--   1. A sends a request; B accepts (or both request each other).
+--   2. Each side picks up to Config.TradeMaxPets pets. Any change clears both "ready" flags.
+--   3. When both are ready a short countdown runs; the swap happens only if nothing changed.
+-- The swap re-validates ownership and inventory space, moves the pets (with their mutations)
+-- under fresh ids, and saves both profiles immediately.
+
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local Shared = ReplicatedStorage:WaitForChild("Shared")
+local Config = require(Shared.Config)
+local Profile = require(Shared.Profile)
+
+local Net = require(script.Parent.Parent.Net)
+local ProfileStore = require(script.Parent.Parent.ProfileStore)
+local Sessions = require(script.Parent.Parent.Sessions)
+local Sync = require(script.Parent.Parent.Sync)
+
+local TradeService = {}
+
+type Session = Sessions.Session
+export type Trade = {
+	a: Session,
+	b: Session,
+	offers: { [Player]: { string } },
+	ready: { [Player]: boolean },
+	token: number,
+	countdownEnds: number?,
+	closed: boolean,
+}
+
+-- requests[target][from] = expiry (os.clock)
+local requests: { [Player]: { [Player]: number } } = {}
+local lastRequest: { [Player]: number } = {}
+
+local function partnerOf(trade: Trade, player: Player): Session
+	return if trade.a.player == player then trade.b else trade.a
+end
+
+local function petList(profile: Profile.Data, ids: { string }): { any }
+	local out = {}
+	for _, id in ids do
+		local pet = profile.pets[id]
+		if pet then
+			table.insert(out, { id = id, s = pet.s, m = pet.m })
+		end
+	end
+	return out
+end
+
+local function view(trade: Trade, player: Player): any
+	local me = if trade.a.player == player then trade.a else trade.b
+	local other = partnerOf(trade, player)
+	return {
+		partner = { userId = other.player.UserId, name = other.player.DisplayName },
+		mine = petList(me.profile, trade.offers[player]),
+		theirs = petList(other.profile, trade.offers[other.player]),
+		myReady = trade.ready[player] == true,
+		theirReady = trade.ready[other.player] == true,
+		countdown = if trade.countdownEnds then math.max(0, trade.countdownEnds - os.clock()) else nil,
+	}
+end
+
+local function broadcast(trade: Trade)
+	for _, session in { trade.a, trade.b } do
+		Net.push(session.player, "trade", view(trade, session.player))
+	end
+end
+
+local function close(trade: Trade, reason: string, extra: { [Player]: any }?)
+	if trade.closed then
+		return
+	end
+	trade.closed = true
+	trade.token += 1
+	for _, session in { trade.a, trade.b } do
+		if session.trade == trade then
+			session.trade = nil
+		end
+		local payload = { reason = reason, partner = partnerOf(trade, session.player).player.DisplayName }
+		if extra and extra[session.player] then
+			for key, value in extra[session.player] do
+				(payload :: any)[key] = value
+			end
+		end
+		Net.push(session.player, "tradeClosed", payload)
+	end
+end
+
+local function changed(trade: Trade)
+	trade.token += 1
+	trade.ready = {}
+	trade.countdownEnds = nil
+end
+
+-- Moves the listed pets from one profile to another under fresh ids.
+local function move(from: Session, to: Session, ids: { string })
+	for _, id in ids do
+		local pet = from.profile.pets[id]
+		from.profile.pets[id] = nil
+		local index = table.find(from.profile.equipped, id)
+		if index then
+			table.remove(from.profile.equipped, index)
+		end
+		to.profile.petSeq += 1
+		local newId = "P" .. tostring(to.profile.petSeq)
+		to.profile.pets[newId] = { s = pet.s, l = false, m = if pet.m then table.clone(pet.m) else nil }
+		to.profile.index[pet.s] = true
+	end
+end
+
+local function valid(session: Session, ids: { string }): boolean
+	for _, id in ids do
+		local pet = session.profile.pets[id]
+		if not pet or pet.l then
+			return false
+		end
+	end
+	return true
+end
+
+local function finalize(trade: Trade)
+	local a, b = trade.a, trade.b
+	local giveA, giveB = trade.offers[a.player], trade.offers[b.player]
+	if not valid(a, giveA) or not valid(b, giveB) then
+		changed(trade)
+		broadcast(trade)
+		return
+	end
+	if
+		Profile.petCount(a.profile) - #giveA + #giveB > Config.PetInventoryCap
+		or Profile.petCount(b.profile) - #giveB + #giveA > Config.PetInventoryCap
+	then
+		changed(trade)
+		for _, session in { a, b } do
+			Net.push(session.player, "toast", { key = "tradeFull", kind = "bad" })
+		end
+		broadcast(trade)
+		return
+	end
+	if #giveA == 0 and #giveB == 0 then
+		close(trade, "cancelled")
+		return
+	end
+	move(a, b, giveA)
+	move(b, a, giveB)
+	close(trade, "done", { [a.player] = { got = #giveB, gave = #giveA }, [b.player] = { got = #giveA, gave = #giveB } })
+	for _, session in { a, b } do
+		Sessions.publishPets(session)
+		Sync.profile(session)
+		task.spawn(ProfileStore.save, session.player, false)
+	end
+end
+
+local function start(a: Session, b: Session)
+	local trade: Trade = {
+		a = a,
+		b = b,
+		offers = { [a.player] = {}, [b.player] = {} },
+		ready = {},
+		token = 0,
+		countdownEnds = nil,
+		closed = false,
+	}
+	a.trade = trade
+	b.trade = trade
+	broadcast(trade)
+end
+
+local function sessionOf(player: Player): Session?
+	local session = Sessions.get(player)
+	if session and session.ready then
+		return session
+	end
+	return nil
+end
+
+local function targetFrom(payload: any): Player?
+	local userId = if type(payload) == "table" then tonumber(payload.userId) else nil
+	return if userId then Players:GetPlayerByUserId(userId) else nil
+end
+
+local function request(player: Player, payload: any): (boolean, string?, any)
+	local session = sessionOf(player)
+	local target = targetFrom(payload)
+	local other = target and sessionOf(target)
+	if not session or not target or not other or target == player then
+		return false, "err.generic"
+	end
+	if session.trade or other.trade then
+		return false, "tradeBusy"
+	end
+	-- They already asked us: accepting by asking back.
+	local incoming = requests[player]
+	if incoming and incoming[target] and incoming[target] > os.clock() then
+		incoming[target] = nil
+		start(session, other)
+		return true, nil, { started = true }
+	end
+	local now = os.clock()
+	if lastRequest[player] and now - lastRequest[player] < 3 then
+		return false, "err.busy"
+	end
+	lastRequest[player] = now
+	local pending = requests[target] or {}
+	requests[target] = pending
+	pending[player] = now + Config.TradeRequestSeconds
+	Net.push(target, "tradeRequest", { userId = player.UserId, name = player.DisplayName, seconds = Config.TradeRequestSeconds })
+	return true, nil, { started = false }
+end
+
+local function respond(player: Player, payload: any): (boolean, string?, any)
+	local session = sessionOf(player)
+	local from = targetFrom(payload)
+	local pending = requests[player]
+	if not session or not from or not pending or not pending[from] then
+		return false, "tradeExpired"
+	end
+	local expired = pending[from] < os.clock()
+	pending[from] = nil
+	if expired then
+		return false, "tradeExpired"
+	end
+	if payload.accept ~= true then
+		Net.push(from, "toast", { key = "tradeDeclined", kind = "bad" })
+		return true
+	end
+	local other = sessionOf(from)
+	if not other then
+		return false, "tradeExpired"
+	end
+	if session.trade or other.trade then
+		return false, "tradeBusy"
+	end
+	start(other, session)
+	return true
+end
+
+local function offer(player: Player, payload: any): (boolean, string?, any)
+	local session = sessionOf(player)
+	local trade: Trade? = session and session.trade
+	if not session or not trade or type(payload) ~= "table" or type(payload.ids) ~= "table" then
+		return false, "err.generic"
+	end
+	local ids: { string } = {}
+	for _, id in payload.ids do
+		if type(id) ~= "string" or table.find(ids, id) then
+			return false, "err.generic"
+		end
+		local pet = session.profile.pets[id]
+		if not pet then
+			return false, "err.generic"
+		end
+		if pet.l then
+			return false, "tradeLocked"
+		end
+		table.insert(ids, id)
+	end
+	if #ids > Config.TradeMaxPets then
+		return false, "tradeMax"
+	end
+	trade.offers[player] = ids
+	changed(trade)
+	broadcast(trade)
+	return true
+end
+
+local function ready(player: Player, payload: any): (boolean, string?, any)
+	local session = sessionOf(player)
+	local trade: Trade? = session and session.trade
+	if not session or not trade or type(payload) ~= "table" or type(payload.ready) ~= "boolean" then
+		return false, "err.generic"
+	end
+	trade.ready[player] = payload.ready
+	trade.token += 1
+	trade.countdownEnds = nil
+	local other = partnerOf(trade, player)
+	if trade.ready[player] and trade.ready[other.player] then
+		local token = trade.token
+		trade.countdownEnds = os.clock() + Config.TradeCountdown
+		task.delay(Config.TradeCountdown, function()
+			if not trade.closed and trade.token == token then
+				finalize(trade)
+			end
+		end)
+	end
+	broadcast(trade)
+	return true
+end
+
+local function cancel(player: Player): (boolean, string?, any)
+	local session = sessionOf(player)
+	local trade: Trade? = session and session.trade
+	if trade then
+		close(trade, "cancelled")
+	end
+	return true
+end
+
+function TradeService.onLeave(session: Session)
+	local trade: Trade? = session.trade
+	if trade then
+		close(trade, "left")
+	end
+	requests[session.player] = nil
+	lastRequest[session.player] = nil
+	for _, pending in requests do
+		pending[session.player] = nil
+	end
+end
+
+function TradeService.init()
+	Net.on("TradeRequest", request)
+	Net.on("TradeRespond", respond)
+	Net.on("TradeOffer", offer)
+	Net.on("TradeReady", ready)
+	Net.on("TradeCancel", cancel)
+end
+
+return TradeService
+]]></string>
+          </Properties>
+        </Item>
       </Item>
-      <Item class="ModuleScript" referent="36">
+      <Item class="ModuleScript" referent="41">
         <Properties>
           <string name="Name">Sessions</string>
           <string name="Source"><![CDATA[--!strict
@@ -5556,6 +6671,7 @@ export type Session = {
 	passes: { [string]: boolean },
 	rng: Random,
 	busy: boolean,
+	trade: any?, -- the open trade this player is in (TradeService)
 }
 
 local sessions: { [Player]: Session } = {}
@@ -5582,8 +6698,9 @@ function Sessions.create(player: Player, profile: Profile.Data): Session
 		passes = {},
 		rng = Random.new(),
 		busy = false,
+		trade = nil,
 	}
-	session.oxygenMax = Economy.upgradeValue("tank", profile.upgrades.tank)
+	session.oxygenMax = Economy.stat(profile.gear.equip, "tank")
 	session.oxygen = session.oxygenMax
 	sessions[player] = session
 	return session
@@ -5610,7 +6727,7 @@ function Sessions.boostSum(session: Session): number
 	for _, id in session.profile.equipped do
 		local pet = session.profile.pets[id]
 		if pet then
-			sum += Economy.petBoost(pet.s)
+			sum += Economy.petPower(pet.s, pet.m)
 		end
 	end
 	return sum
@@ -5620,13 +6737,14 @@ function Sessions.multiplier(session: Session): number
 	return Economy.coinMultiplier(Sessions.boostSum(session), session.passes.DoubleCoins == true)
 end
 
--- Equipped pet species as JSON, replicated so every client can render followers.
+-- Equipped pets as JSON ("species" or "species|Gold,Lava" with mutations), replicated so every
+-- client can render followers.
 function Sessions.publishPets(session: Session)
 	local keys = {}
 	for _, id in session.profile.equipped do
 		local pet = session.profile.pets[id]
 		if pet then
-			table.insert(keys, pet.s)
+			table.insert(keys, if pet.m and #pet.m > 0 then pet.s .. "|" .. table.concat(pet.m, ",") else pet.s)
 		end
 	end
 	session.player:SetAttribute("Pets", HttpService:JSONEncode(keys))
@@ -5636,7 +6754,7 @@ return Sessions
 ]]></string>
         </Properties>
       </Item>
-      <Item class="ModuleScript" referent="37">
+      <Item class="ModuleScript" referent="42">
         <Properties>
           <string name="Name">Sync</string>
           <string name="Source"><![CDATA[--!strict
@@ -5707,11 +6825,11 @@ return Sync
 ]]></string>
         </Properties>
       </Item>
-      <Item class="Folder" referent="38">
+      <Item class="Folder" referent="43">
         <Properties>
           <string name="Name">World</string>
         </Properties>
-        <Item class="ModuleScript" referent="39">
+        <Item class="ModuleScript" referent="44">
           <Properties>
             <string name="Name">Decor</string>
             <string name="Source"><![CDATA[--!strict
@@ -6782,7 +7900,7 @@ return Decor
 ]]></string>
           </Properties>
         </Item>
-        <Item class="ModuleScript" referent="40">
+        <Item class="ModuleScript" referent="45">
           <Properties>
             <string name="Name">Dock</string>
             <string name="Source"><![CDATA[--!strict
@@ -6973,7 +8091,7 @@ function Dock.build(world: number, parent: Instance): SpawnLocation
 	kioskSign.Name = "KioskSign"
 	kioskSign:SetAttribute("World", world)
 	local kioskAnchor = anchorPart(folder, "KioskAnchor", kiosk * cf(0, 3, -2), V(8, 4, 3))
-	prompt(kioskAnchor, "Kiosk", world, "Upgrades", "Dive Shop", 12)
+	prompt(kioskAnchor, "Kiosk", world, "Gear", "Gear Shop", 12)
 
 	-- Travel portal behind the spawn.
 	local portalPosition = o + V(dock.portal.X, landY, dock.portal.Z)
@@ -7066,6 +8184,36 @@ function Dock.build(world: number, parent: Instance): SpawnLocation
 	local crown = Build.block(folder, V(6, 1.6, 0.9), boardAt * cf(0, 17.8, 0.4), GOLD)
 	crown.Material = Enum.Material.Neon
 
+	-- Enchanting altar: a rune circle with a floating crystal (opens pet enchanting).
+	local altarPosition = o + V(dock.enchant.X, landY, dock.enchant.Z)
+	local altar = CFrame.lookAt(altarPosition, spawnFlat)
+	local PURPLE = Color3.fromRGB(170, 90, 255)
+	local STONE = Color3.fromRGB(70, 64, 92)
+	solid(Build.column(folder, 1, 11, altar * cf(0, 0.5, 0), STONE))
+	local runeRing = Build.column(folder, 0.2, 9.4, altar * cf(0, 1.05, 0), PURPLE)
+	runeRing.Material = Enum.Material.Neon
+	solid(Build.column(folder, 0.3, 8.4, altar * cf(0, 1.1, 0), STONE))
+	solid(Build.column(folder, 3, 2.4, altar * cf(0, 2.6, 0), STONE))
+	local bowl = Build.column(folder, 0.5, 3.4, altar * cf(0, 4.3, 0), Color3.fromRGB(255, 208, 72))
+	bowl.Material = Enum.Material.Metal
+	local crystal = Build.ball(folder, 2.2, altar * cf(0, 6.2, 0), PURPLE)
+	crystal.Name = "EnchantCrystal"
+	crystal.Material = Enum.Material.Neon
+	crystal.Transparency = 0.15
+	Build.light(crystal, PURPLE, 18, 2)
+	Build.sparkles(crystal, Color3.fromRGB(230, 190, 255), 12)
+	for i = 0, 3 do
+		local a = i * math.pi / 2 + math.pi / 4
+		local pillarAt = altar * cf(math.cos(a) * 4.4, 0, math.sin(a) * 4.4)
+		solid(Build.column(folder, 4, 0.9, pillarAt * cf(0, 3, 0), STONE))
+		local gem = Build.block(folder, V(0.7, 1, 0.7), pillarAt * cf(0, 5.6, 0) * ang(0, math.pi / 4, 0), PURPLE)
+		gem.Material = Enum.Material.Neon
+	end
+	local enchantSign = Build.block(folder, V(7, 2, 0.3), altar * cf(0, 9.4, 0), Color3.fromRGB(40, 30, 64))
+	enchantSign.Name = "EnchantSign"
+	local enchantAnchor = anchorPart(folder, "EnchantAnchor", altar * cf(0, 3, 0), V(6, 5, 6))
+	prompt(enchantAnchor, "Enchant", world, "Enchant", "Enchanting Altar", 14)
+
 	-- Invisible boundary around the island so divers stay home.
 	local walls = Instance.new("Folder")
 	walls.Name = "Boundary"
@@ -7094,7 +8242,7 @@ return Dock
 ]]></string>
           </Properties>
         </Item>
-        <Item class="ModuleScript" referent="41">
+        <Item class="ModuleScript" referent="46">
           <Properties>
             <string name="Name">Terrain</string>
             <string name="Source"><![CDATA[--!strict
@@ -7289,7 +8437,7 @@ return TerrainBuilder
 ]]></string>
           </Properties>
         </Item>
-        <Item class="ModuleScript" referent="42">
+        <Item class="ModuleScript" referent="47">
           <Properties>
             <string name="Name">WorldBuilder</string>
             <string name="Source"><![CDATA[--!strict
@@ -7580,21 +8728,21 @@ return WorldBuilder
       </Item>
     </Item>
   </Item>
-  <Item class="SoundService" referent="43">
+  <Item class="SoundService" referent="48">
     <Properties>
       <string name="Name">SoundService</string>
       <token name="AmbientReverb">0</token>
       <bool name="RespectFilteringEnabled">true</bool>
     </Properties>
   </Item>
-  <Item class="StarterGui" referent="44">
+  <Item class="StarterGui" referent="49">
     <Properties>
       <string name="Name">StarterGui</string>
       <bool name="ResetPlayerGuiOnSpawn">false</bool>
       <bool name="ShowDevelopmentGui">true</bool>
     </Properties>
   </Item>
-  <Item class="StarterPlayer" referent="45">
+  <Item class="StarterPlayer" referent="50">
     <Properties>
       <string name="Name">StarterPlayer</string>
       <bool name="AutoJumpEnabled">false</bool>
@@ -7609,20 +8757,20 @@ return WorldBuilder
       <bool name="LoadCharacterAppearance">true</bool>
       <float name="NameDisplayDistance">60</float>
     </Properties>
-    <Item class="StarterCharacterScripts" referent="46">
+    <Item class="StarterCharacterScripts" referent="51">
       <Properties>
         <string name="Name">StarterCharacterScripts</string>
       </Properties>
     </Item>
-    <Item class="StarterPlayerScripts" referent="47">
+    <Item class="StarterPlayerScripts" referent="52">
       <Properties>
         <string name="Name">StarterPlayerScripts</string>
       </Properties>
-      <Item class="Folder" referent="48">
+      <Item class="Folder" referent="53">
         <Properties>
           <string name="Name">Client</string>
         </Properties>
-        <Item class="ModuleScript" referent="49">
+        <Item class="ModuleScript" referent="54">
           <Properties>
             <string name="Name">ClientNet</string>
             <string name="Source"><![CDATA[--!strict
@@ -7688,11 +8836,11 @@ return ClientNet
 ]]></string>
           </Properties>
         </Item>
-        <Item class="Folder" referent="50">
+        <Item class="Folder" referent="55">
           <Properties>
             <string name="Name">Controllers</string>
           </Properties>
-          <Item class="ModuleScript" referent="51">
+          <Item class="ModuleScript" referent="56">
             <Properties>
               <string name="Name">Ambience</string>
               <string name="Source"><![CDATA[--!strict
@@ -7949,7 +9097,7 @@ return Ambience
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="52">
+          <Item class="ModuleScript" referent="57">
             <Properties>
               <string name="Name">Board</string>
               <string name="Source"><![CDATA[--!strict
@@ -8096,7 +9244,7 @@ return Board
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="53">
+          <Item class="ModuleScript" referent="58">
             <Properties>
               <string name="Name">Dive</string>
               <string name="Source"><![CDATA[--!strict
@@ -8266,7 +9414,16 @@ function Dive.init(app: any)
 		app.Toasts.show(Strings.get(payload.key), payload.kind or "info")
 	end)
 
+	Net.on("saved", function()
+		app.Hud.showSaved()
+	end)
+
 	Net.on("purchase", function(payload: any)
+		if (payload.coins or 0) <= 0 then
+			app.Sfx.play("Legendary")
+			app.Toasts.show(Strings.get("luckyGot", { n = payload.enchants or 0 }), "gold", utf8.char(0x2728))
+			return
+		end
 		app.Effects.coinBurst(24, Vector2.new(0.5, 0.5), app.Hud.coinTarget, function()
 			app.Sfx.play("Coin", 1.1)
 		end)
@@ -8312,7 +9469,7 @@ return Dive
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="54">
+          <Item class="ModuleScript" referent="59">
             <Properties>
               <string name="Name">Fish</string>
               <string name="Source"><![CDATA[--!strict
@@ -8457,7 +9614,7 @@ return Fish
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="55">
+          <Item class="ModuleScript" referent="60">
             <Properties>
               <string name="Name">Hazards</string>
               <string name="Source"><![CDATA[--!strict
@@ -8606,7 +9763,7 @@ return Hazards
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="56">
+          <Item class="ModuleScript" referent="61">
             <Properties>
               <string name="Name">Nameplates</string>
               <string name="Source"><![CDATA[--!strict
@@ -8709,7 +9866,7 @@ return Nameplates
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="57">
+          <Item class="ModuleScript" referent="62">
             <Properties>
               <string name="Name">Pets</string>
               <string name="Source"><![CDATA[--!strict
@@ -8722,6 +9879,7 @@ local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
+local Mutations = require(Shared.Models.Mutations)
 local PetModels = require(Shared.Models.PetModels)
 
 local Pets = {}
@@ -8740,11 +9898,15 @@ function Pets.init(app: any)
 	local owners: { [Player]: Owner } = {}
 	local templates: { [string]: Model } = {}
 
-	local function template(key: string): Model
-		local model = templates[key]
+	-- `entry` is "species" or "species|Gold,Lava" (see Sessions.publishPets).
+	local function template(entry: string): Model
+		local model = templates[entry]
 		if not model then
-			model = PetModels.build(key)
-			templates[key] = model
+			local key, mutations = Mutations.parse(entry)
+			local built = PetModels.build(key)
+			Mutations.apply(built, mutations)
+			templates[entry] = built
+			return built:Clone()
 		end
 		return model:Clone()
 	end
@@ -8850,7 +10012,7 @@ return Pets
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="58">
+          <Item class="ModuleScript" referent="63">
             <Properties>
               <string name="Name">Prompts</string>
               <string name="Source"><![CDATA[--!strict
@@ -8867,8 +10029,8 @@ local Worlds = require(Shared.Data.Worlds)
 
 local Prompts = {}
 
-local KIND_TEXT = { Egg = "prompt.egg", Kiosk = "prompt.upgrades", Portal = "prompt.portal", Sell = "sellAction" }
-local KIND_PALETTE = { Egg = "Purple", Kiosk = "Orange", Portal = "Blue", Sell = "Gold" }
+local KIND_TEXT = { Egg = "prompt.egg", Kiosk = "prompt.upgrades", Portal = "prompt.portal", Sell = "sellAction", Enchant = "enchant" }
+local KIND_PALETTE = { Egg = "Purple", Kiosk = "Orange", Portal = "Blue", Sell = "Gold", Enchant = "Purple" }
 
 function Prompts.init(app: any)
 	local Kit = app.Kit
@@ -8886,6 +10048,8 @@ function Prompts.init(app: any)
 			return Strings.get("menu.worlds")
 		elseif kind == "Sell" then
 			return Strings.get("sellShop")
+		elseif kind == "Enchant" then
+			return Strings.get("enchantAltar")
 		end
 		return prompt.ObjectText
 	end
@@ -8975,6 +10139,8 @@ function Prompts.init(app: any)
 			app.openWorlds()
 		elseif kind == "Sell" then
 			app.sell()
+		elseif kind == "Enchant" then
+			app.openPets()
 		end
 	end)
 end
@@ -8983,7 +10149,7 @@ return Prompts
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="59">
+          <Item class="ModuleScript" referent="64">
             <Properties>
               <string name="Name">Relics</string>
               <string name="Source"><![CDATA[--!strict
@@ -9316,7 +10482,7 @@ return Relics
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="60">
+          <Item class="ModuleScript" referent="65">
             <Properties>
               <string name="Name">Swim</string>
               <string name="Source"><![CDATA[--!strict
@@ -9818,7 +10984,7 @@ return Swim
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="61">
+          <Item class="ModuleScript" referent="66">
             <Properties>
               <string name="Name">WorldProps</string>
               <string name="Source"><![CDATA[--!strict
@@ -9912,6 +11078,11 @@ function WorldProps.init(app: any)
 					descendant,
 					{ { text = utf8.char(0x1F93F) .. " " .. Strings.get("menu.upgrades"), size = 52, color = Color3.fromRGB(255, 226, 120) } }
 				)
+			elseif descendant.Name == "EnchantSign" and descendant:IsA("BasePart") then
+				signGui(
+					descendant,
+					{ { text = utf8.char(0x2728) .. " " .. Strings.get("enchantAltar"), size = 46, color = Color3.fromRGB(226, 180, 255) } }
+				)
 			elseif descendant.Name == "SellSign" and descendant:IsA("BasePart") then
 				signGui(
 					descendant,
@@ -9996,7 +11167,7 @@ return WorldProps
             </Properties>
           </Item>
         </Item>
-        <Item class="LocalScript" referent="62">
+        <Item class="LocalScript" referent="67">
           <Properties>
             <string name="Name">Main</string>
             <string name="Source"><![CDATA[--!strict
@@ -10031,10 +11202,11 @@ local Tutorial = require(UI.Tutorial)
 local EggPanel = require(UI.Panels.Egg)
 local IndexPanel = require(UI.Panels.Index)
 local PlayerList = require(UI.PlayerList)
+local Trade = require(UI.Trade)
 local PetsPanel = require(UI.Panels.Pets)
 local SettingsPanel = require(UI.Panels.Settings)
 local ShopPanel = require(UI.Panels.Shop)
-local UpgradesPanel = require(UI.Panels.Upgrades)
+local GearPanel = require(UI.Panels.Gear)
 local WorldsPanel = require(UI.Panels.Worlds)
 
 local ClientNet = require(script.Parent.ClientNet)
@@ -10187,7 +11359,7 @@ Hud.init({
 })
 
 panels.worlds = WorldsPanel.new(app)
-panels.upgrades = UpgradesPanel.new(app)
+panels.upgrades = GearPanel.new(app)
 panels.pets = PetsPanel.new(app)
 panels.shop = ShopPanel.new(app)
 panels.settings = SettingsPanel.new(app)
@@ -10215,7 +11387,13 @@ Prompts.init(app)
 Tutorial.init(app)
 Nameplates.init(app)
 Board.init(app)
-app.PlayerList = PlayerList.init()
+app.Trade = Trade.init(app)
+app.PlayerList = PlayerList.init(function(player)
+	app.requestTrade(player.UserId)
+end)
+State.languageChanged:Connect(function()
+	task.defer(app.PlayerList.refresh)
+end)
 
 -- Handshake: wait until the server has loaded our profile and world.
 local view = nil
@@ -10248,7 +11426,7 @@ task.spawn(function()
 	while true do
 		local p = State.profile
 		if p then
-			Hud.setBadge("upgrades", UpgradesPanel.anyAffordable(p))
+			Hud.setBadge("upgrades", GearPanel.anyAffordable(p))
 			Hud.setBadge("pets", p.coins >= Economy.eggCost(State.world) and next(p.pets) == nil)
 		end
 		task.wait(0.5)
@@ -10257,7 +11435,7 @@ end)
 ]]></string>
           </Properties>
         </Item>
-        <Item class="ModuleScript" referent="63">
+        <Item class="ModuleScript" referent="68">
           <Properties>
             <string name="Name">Sfx</string>
             <string name="Source"><![CDATA[--!strict
@@ -10439,7 +11617,7 @@ return Sfx
 ]]></string>
           </Properties>
         </Item>
-        <Item class="ModuleScript" referent="64">
+        <Item class="ModuleScript" referent="69">
           <Properties>
             <string name="Name">State</string>
             <string name="Source"><![CDATA[--!strict
@@ -10520,9 +11698,10 @@ function State.applyView(view: any)
 	end
 end
 
+-- Stat from the equipped gear in a slot ("tank", "pack", "fins", "magnet").
 function State.upgrade(track: string): number
 	local profile = State.profile
-	return Economy.upgradeValue(track, if profile then profile.upgrades[track] or 1 else 1)
+	return Economy.stat(if profile then profile.gear.equip else nil, track)
 end
 
 function State.capacity(): number
@@ -10542,7 +11721,7 @@ function State.boostSum(): number
 	for _, id in profile.equipped do
 		local pet = profile.pets[id]
 		if pet then
-			sum += Economy.petBoost(pet.s)
+			sum += Economy.petPower(pet.s, pet.m)
 		end
 	end
 	return sum
@@ -10577,11 +11756,11 @@ return State
 ]]></string>
           </Properties>
         </Item>
-        <Item class="Folder" referent="65">
+        <Item class="Folder" referent="70">
           <Properties>
             <string name="Name">UI</string>
           </Properties>
-          <Item class="ModuleScript" referent="66">
+          <Item class="ModuleScript" referent="71">
             <Properties>
               <string name="Name">Anim</string>
               <string name="Source"><![CDATA[--!strict
@@ -10664,7 +11843,7 @@ return Anim
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="67">
+          <Item class="ModuleScript" referent="72">
             <Properties>
               <string name="Name">Clear</string>
               <string name="Source"><![CDATA[--!strict
@@ -10838,7 +12017,7 @@ return Clear
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="68">
+          <Item class="ModuleScript" referent="73">
             <Properties>
               <string name="Name">Effects</string>
               <string name="Source"><![CDATA[--!strict
@@ -11006,7 +12185,7 @@ return Effects
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="69">
+          <Item class="ModuleScript" referent="74">
             <Properties>
               <string name="Name">Gui</string>
               <string name="Source"><![CDATA[--!strict
@@ -11102,6 +12281,9 @@ end
 
 Gui.world = layer("DeepDiveWorldFx", 1, true) -- vignettes, underwater tint
 Gui.hud = layer("DeepDiveHud", 5, false)
+-- Same level as the HUD but drawn from the very top of the screen (the player list sits in the
+-- Roblox top-bar row, which is empty on the right).
+Gui.hudTop = layer("DeepDiveHudTop", 6, true)
 Gui.panels = layer("DeepDivePanels", 10, false)
 Gui.overlay = layer("DeepDiveOverlay", 20, true)
 Gui.top = layer("DeepDiveTop", 30, true) -- loading screen, transitions
@@ -11124,7 +12306,7 @@ return Gui
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="70">
+          <Item class="ModuleScript" referent="75">
             <Properties>
               <string name="Name">Hatch</string>
               <string name="Source"><![CDATA[--!strict
@@ -11361,7 +12543,7 @@ return Hatch
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="71">
+          <Item class="ModuleScript" referent="76">
             <Properties>
               <string name="Name">Hud</string>
               <string name="Source"><![CDATA[--!strict
@@ -11789,7 +12971,9 @@ function Hud.init(actions: Actions)
 		touchButtons.dash.setText(Strings.get("dash"))
 		touchButtons.up.setText(Strings.get("up"))
 		touchButtons.down.setText(Strings.get("down"))
-		memoryLabel.Text = if State.memory then Strings.get("studioSave") else ""
+		if State.memory then
+			memoryLabel.Text = Strings.get("studioSave")
+		end
 		refreshBanner()
 	end)
 
@@ -11806,11 +12990,37 @@ function Hud.init(actions: Actions)
 		end
 		shownCoins = profile.coins
 		boostLabel.Text = utf8.char(0x1F43E) .. " " .. Format.multiplier(State.multiplier())
-		memoryLabel.Text = if State.memory then Strings.get("studioSave") else ""
+		if State.memory then
+			memoryLabel.Text = Strings.get("studioSave")
+		end
 		refreshBanner()
 	end)
 	State.worldChanged:Connect(refreshBanner)
 	State.languageChanged:Connect(Hud.refresh)
+end
+
+-- Brief "Saved" note where the Studio notice lives (the server pushes "saved" after each save).
+local savedToken = 0
+function Hud.showSaved()
+	if State.memory then
+		return
+	end
+	savedToken += 1
+	local token = savedToken
+	memoryLabel.Text = utf8.char(0x1F4BE) .. " " .. Strings.get("saved")
+	memoryLabel.TextColor3 = Color.hex("#a8ffbf")
+	memoryLabel.TextTransparency = 0
+	task.delay(2.5, function()
+		if token == savedToken then
+			Anim.tween(memoryLabel, 0.6, { TextTransparency = 1 })
+		end
+	end)
+	task.delay(3.2, function()
+		if token == savedToken then
+			memoryLabel.Text = ""
+			memoryLabel.TextTransparency = 0
+		end
+	end)
 end
 
 function Hud.bumpCargo()
@@ -11889,7 +13099,7 @@ return Hud
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="72">
+          <Item class="ModuleScript" referent="77">
             <Properties>
               <string name="Name">Kit</string>
               <string name="Source"><![CDATA[--!strict
@@ -12451,12 +13661,12 @@ return Kit
 ]]></string>
             </Properties>
           </Item>
-          <Item class="Folder" referent="73">
+          <Item class="Folder" referent="78">
             <Properties>
               <string name="Name">Overlays</string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="74">
+          <Item class="ModuleScript" referent="79">
             <Properties>
               <string name="Name">Panel</string>
               <string name="Source"><![CDATA[--!strict
@@ -12700,11 +13910,11 @@ return Panel
 ]]></string>
             </Properties>
           </Item>
-          <Item class="Folder" referent="75">
+          <Item class="Folder" referent="80">
             <Properties>
               <string name="Name">Panels</string>
             </Properties>
-            <Item class="ModuleScript" referent="76">
+            <Item class="ModuleScript" referent="81">
               <Properties>
                 <string name="Name">Egg</string>
                 <string name="Source"><![CDATA[--!strict
@@ -13018,7 +14228,372 @@ return EggPanel
 ]]></string>
               </Properties>
             </Item>
-            <Item class="ModuleScript" referent="77">
+            <Item class="ModuleScript" referent="82">
+              <Properties>
+                <string name="Name">Gear</string>
+                <string name="Source"><![CDATA[--!strict
+-- Gear shop: four slots (oxygen tank, treasure bag, flippers, magnet), each with two pieces per
+-- world. Buying a piece equips it when it beats the one you wear, and it shows on your avatar.
+
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local Shared = ReplicatedStorage:WaitForChild("Shared")
+local Color = require(Shared.Color)
+local Economy = require(Shared.Economy)
+local Format = require(Shared.Format)
+local Gear = require(Shared.Data.Gear)
+local Strings = require(Shared.Strings)
+
+local Anim = require(script.Parent.Parent.Anim)
+local Kit = require(script.Parent.Parent.Kit)
+local Panel = require(script.Parent.Parent.Panel)
+local Theme = require(script.Parent.Parent.Theme)
+local Viewport = require(script.Parent.Parent.Viewport)
+
+local GearPanel = {}
+
+local C = Theme.C
+
+local SLOT_ICON = {
+	tank = utf8.char(0x1F4A8),
+	pack = utf8.char(0x1F392),
+	fins = utf8.char(0x1F9BF),
+	magnet = utf8.char(0x1F9F2),
+}
+local SLOT_PALETTE = { tank = "Cyan", pack = "Orange", fins = "Green", magnet = "Red" }
+
+function GearPanel.statText(slot: string, value: number): string
+	local shown = if slot == "fins" or slot == "magnet" then string.format("%.1f", value) else tostring(math.floor(value))
+	return Strings.get("upgrade." .. slot .. ".value", { n = shown })
+end
+
+function GearPanel.itemName(item: Gear.Item): string
+	local name = Strings.get("gear." .. item.slot, { theme = Strings.name(item.theme) })
+	return if item.pro then Strings.get("gearPro", { name = name }) else name
+end
+
+type Card = {
+	frame: Frame,
+	gradient: UIGradient,
+	border: UIStroke,
+	view: Viewport.ViewApi,
+	name: TextLabel,
+	stat: TextLabel,
+	pro: Frame,
+	worldTag: TextLabel,
+	button: Kit.ButtonApi,
+	coin: Frame,
+	key: string,
+}
+
+function GearPanel.new(app: any): Panel.PanelApi
+	local panel = Panel.new({
+		Parent = app.Gui.panels,
+		Title = Strings.get("menu.upgrades"),
+		Icon = utf8.char(0x1F93F),
+		Palette = "Orange",
+		Size = Vector2.new(920, 580),
+	})
+	local body = panel.body
+	local slot = "tank"
+
+	-- Slot tabs ------------------------------------------------------------------------------------
+	local tabs = Kit.new("Frame", { BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 62), Position = UDim2.fromOffset(0, 20), Parent = body })
+	Kit.list(tabs, Enum.FillDirection.Horizontal, 10, Enum.HorizontalAlignment.Center)
+	local tabButtons: { [string]: Kit.ButtonApi } = {}
+
+	-- Current gear strip --------------------------------------------------------------------------
+	local strip = Kit.new("Frame", {
+		BackgroundColor3 = C.Navy,
+		BackgroundTransparency = 0.1,
+		Size = UDim2.new(1, 0, 0, 34),
+		Position = UDim2.fromOffset(0, 90),
+		Parent = body,
+	})
+	Kit.round(strip)
+	local stripText = Kit.text({ Text = "", TextSize = 18, Size = UDim2.new(1, -24, 1, 0), Position = UDim2.fromOffset(12, 0), Parent = strip })
+
+	-- Grid ----------------------------------------------------------------------------------------
+	local grid = Kit.new("ScrollingFrame", {
+		BackgroundColor3 = C.PanelAlt,
+		BackgroundTransparency = 0.2,
+		Size = UDim2.new(1, 0, 1, -140),
+		Position = UDim2.fromOffset(0, 134),
+		CanvasSize = UDim2.new(),
+		AutomaticCanvasSize = Enum.AutomaticSize.Y,
+		ScrollBarThickness = 10,
+		ScrollBarImageColor3 = C.NavySoft,
+		BorderSizePixel = 0,
+		Parent = body,
+	}) :: ScrollingFrame
+	Kit.corner(grid, 16)
+	Kit.padding(grid, 10, 16, 10, 10)
+	Kit.new("UIGridLayout", {
+		CellSize = UDim2.fromOffset(154, 206),
+		CellPadding = UDim2.fromOffset(10, 10),
+		SortOrder = Enum.SortOrder.LayoutOrder,
+		Parent = grid,
+	})
+
+	local cards: { Card } = {}
+	local refresh: () -> ()
+
+	local function onCardClick(card: Card)
+		local profile = app.State.profile
+		local item = Gear.get(card.key)
+		if not profile or not item then
+			return
+		end
+		if profile.gear.owned[item.key] then
+			if profile.gear.equip[item.slot] == item.key then
+				return
+			end
+			local result = app.Net.invoke("EquipGear", { key = item.key })
+			app.Sfx.play(if result.ok then "Upgrade" else "Error")
+			if result.ok then
+				Anim.pop(card.frame, 0.06)
+			end
+			return
+		end
+		local result = app.Net.invoke("BuyGear", { key = item.key })
+		if result.ok then
+			app.Sfx.play("Upgrade")
+			Anim.pop(card.frame, 0.08)
+			app.Toasts.show(Strings.get("gearBought", { name = GearPanel.itemName(item) }), "good", SLOT_ICON[item.slot])
+		else
+			app.Sfx.play("Error")
+			Anim.shake(card.frame, 6)
+			if result.err then
+				app.Toasts.show(Strings.get(result.err), "bad")
+			end
+		end
+	end
+
+	for index = 1, Gear.Tiers do
+		local frame = Kit.new("Frame", { BackgroundColor3 = Color3.new(1, 1, 1), LayoutOrder = index, Parent = grid }) :: Frame
+		Kit.corner(frame, 16)
+		local gradient = Kit.gradient(frame, Color3.new(1, 1, 1), Color3.new(1, 1, 1), 90)
+		local border = Kit.stroke(frame, C.Outline, 3)
+		local view = Viewport.new(frame, UDim2.fromOffset(120, 84), UDim2.new(0.5, 0, 0, 8), Vector2.new(0.5, 0))
+		local pro = Kit.new("Frame", {
+			BackgroundColor3 = Color3.new(1, 1, 1),
+			Size = UDim2.fromOffset(46, 22),
+			Position = UDim2.fromOffset(6, 6),
+			ZIndex = 3,
+			Parent = frame,
+		}) :: Frame
+		Kit.round(pro)
+		Kit.gradient(pro, Theme.Buttons.Gold[1], Theme.Buttons.Gold[2])
+		Kit.stroke(pro, Theme.Buttons.Gold[3], 2)
+		Kit.text({ Text = "PRO", TextSize = 14, Size = UDim2.fromScale(1, 1), StrokeColor = Theme.Buttons.Gold[3], ZIndex = 4, Parent = pro })
+		local worldTag = Kit.text({
+			Text = "",
+			TextSize = 14,
+			Size = UDim2.fromOffset(44, 20),
+			Position = UDim2.new(1, -6, 0, 6),
+			AnchorPoint = Vector2.new(1, 0),
+			XAlign = Enum.TextXAlignment.Right,
+			ZIndex = 3,
+			Parent = frame,
+		})
+		local name = Kit.text({
+			Text = "",
+			TextSize = 16,
+			Wrapped = true,
+			Size = UDim2.new(1, -12, 0, 38),
+			Position = UDim2.new(0.5, 0, 0, 92),
+			AnchorPoint = Vector2.new(0.5, 0),
+			Parent = frame,
+		})
+		local stat = Kit.text({
+			Text = "",
+			TextSize = 15,
+			Color = C.Ink,
+			Stroke = 0,
+			Size = UDim2.new(1, -12, 0, 20),
+			Position = UDim2.new(0.5, 0, 0, 130),
+			AnchorPoint = Vector2.new(0.5, 0),
+			Parent = frame,
+		})
+		local card: Card
+		local button = Kit.button({
+			Text = "",
+			TextSize = 17,
+			Palette = "Green",
+			Size = UDim2.new(1, -16, 0, 42),
+			Position = UDim2.new(0.5, 0, 1, -8),
+			AnchorPoint = Vector2.new(0.5, 1),
+			Parent = frame,
+			OnClick = function()
+				onCardClick(card)
+			end,
+		})
+		local coin = Kit.Icons.coin(22, button.button:FindFirstChild("Content") :: Instance)
+		coin.LayoutOrder = 0
+		card = {
+			frame = frame,
+			gradient = gradient,
+			border = border,
+			view = view,
+			name = name,
+			stat = stat,
+			pro = pro,
+			worldTag = worldTag,
+			button = button,
+			coin = coin,
+			key = "",
+		}
+		frame.MouseEnter:Connect(function()
+			view.setSpin(true)
+		end)
+		frame.MouseLeave:Connect(function()
+			view.setSpin(false)
+		end)
+		table.insert(cards, card)
+	end
+
+	local function selectSlot(newSlot: string, scroll: boolean)
+		slot = newSlot
+		for id, tab in tabButtons do
+			tab.setPalette(if id == slot then SLOT_PALETTE[id] else "Navy")
+		end
+		refresh()
+		if scroll then
+			-- Jump to the first piece you do not own yet.
+			local profile = app.State.profile
+			local first = 1
+			if profile then
+				for index, item in Gear.bySlot[slot] do
+					if not profile.gear.owned[item.key] then
+						first = index
+						break
+					end
+				end
+			end
+			local row = math.floor((first - 1) / 5)
+			grid.CanvasPosition = Vector2.new(0, row * 216)
+		end
+	end
+
+	for order, id in Gear.Slots do
+		local api = Kit.button({
+			Text = "",
+			Icon = SLOT_ICON[id],
+			IconSize = 26,
+			TextSize = 19,
+			Palette = "Navy",
+			Size = UDim2.fromOffset(206, 56),
+			LayoutOrder = order,
+			Parent = tabs,
+			OnClick = function()
+				app.Sfx.play("Click")
+				selectSlot(id, true)
+			end,
+		})
+		tabButtons[id] = api
+	end
+
+	refresh = function()
+		local profile = app.State.profile
+		if not profile then
+			return
+		end
+		panel.setTitle(Strings.get("menu.upgrades"))
+		for id, tab in tabButtons do
+			tab.setText(Strings.get("upgrade." .. id))
+		end
+		local equippedKey = profile.gear.equip[slot]
+		local equippedItem = Gear.get(equippedKey)
+		local currentTier = Gear.tier(equippedKey)
+		local currentValue = Economy.gearValue(slot, currentTier)
+		stripText.Text = Strings.get("gearWearing", {
+			name = if equippedItem then GearPanel.itemName(equippedItem) else Strings.get("gearStarter"),
+			stat = GearPanel.statText(slot, currentValue),
+		})
+		for index, item in Gear.bySlot[slot] do
+			local card = cards[index]
+			local c1, c2 = Color.hex(item.color), Color.hex(item.accent)
+			if card.key ~= item.key then
+				card.key = item.key
+				card.view.setModel(Viewport.gear(item.key))
+			end
+			card.gradient.Color = ColorSequence.new(c1:Lerp(Color3.new(1, 1, 1), 0.7), c1:Lerp(Color3.new(1, 1, 1), 0.25))
+			card.name.Text = GearPanel.itemName(item)
+			local nameStroke = card.name:FindFirstChildOfClass("UIStroke")
+			if nameStroke then
+				nameStroke.Color = c2:Lerp(Color3.new(0, 0, 0), 0.55)
+			end
+			card.pro.Visible = item.pro
+			card.worldTag.Text = "W" .. item.world
+			local value = Economy.gearValue(slot, item.tier)
+			local owned = profile.gear.owned[item.key] == true
+			local wearing = equippedKey == item.key
+			local locked = item.world > profile.unlocked
+			card.stat.Text = GearPanel.statText(slot, value)
+			card.stat.TextColor3 = if value > currentValue then C.GreenDark elseif value < currentValue then C.Muted else C.Ink
+			card.border.Color = if wearing then C.Gold elseif owned then C.GreenDark else C.Outline
+			card.border.Thickness = if wearing then 5 else 3
+			card.coin.Visible = false
+			if wearing then
+				card.button.setText(utf8.char(0x2714) .. " " .. Strings.get("equipped.short"))
+				card.button.setPalette("Gold")
+				card.button.setEnabled(false)
+			elseif owned then
+				card.button.setText(Strings.get("equip"))
+				card.button.setPalette("Blue")
+				card.button.setEnabled(true)
+			elseif locked then
+				card.button.setText(utf8.char(0x1F512) .. " " .. Strings.get("world", { n = item.world }))
+				card.button.setPalette("Gray")
+				card.button.setEnabled(false)
+			else
+				local cost = Economy.gearCost(item.key) :: number
+				card.coin.Visible = true
+				card.button.setText(Format.short(cost))
+				card.button.setPalette(if profile.coins >= cost then "Green" else "Gray")
+				card.button.setEnabled(true)
+			end
+		end
+	end
+
+	panel.onOpen = function()
+		app.Sfx.play("Open")
+		selectSlot(slot, true)
+	end
+	app.State.profileChanged:Connect(function()
+		if panel.isOpen then
+			refresh()
+		end
+	end)
+	app.State.languageChanged:Connect(refresh)
+	selectSlot(slot, false)
+	return panel
+end
+
+-- True when a better piece than the one worn is affordable in some slot (HUD badge).
+function GearPanel.anyAffordable(profile: any): boolean
+	if not profile then
+		return false
+	end
+	for _, slot in Gear.Slots do
+		local current = Gear.tier(profile.gear.equip[slot])
+		for _, item in Gear.bySlot[slot] do
+			if item.tier > current and item.world <= profile.unlocked and not profile.gear.owned[item.key] then
+				local cost = Economy.gearCost(item.key)
+				if cost and profile.coins >= cost then
+					return true
+				end
+			end
+		end
+	end
+	return false
+end
+
+return GearPanel
+]]></string>
+              </Properties>
+            </Item>
+            <Item class="ModuleScript" referent="83">
               <Properties>
                 <string name="Name">Index</string>
                 <string name="Source"><![CDATA[--!strict
@@ -13324,12 +14899,14 @@ return IndexPanel
 ]]></string>
               </Properties>
             </Item>
-            <Item class="ModuleScript" referent="78">
+            <Item class="ModuleScript" referent="84">
               <Properties>
                 <string name="Name">Pets</string>
                 <string name="Source"><![CDATA[--!strict
 -- Pet inventory: 3D pet cards by rarity, equip/lock/delete, equip best and total boost.
 
+local MarketplaceService = game:GetService("MarketplaceService")
+local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
@@ -13338,6 +14915,7 @@ local Economy = require(Shared.Economy)
 local Format = require(Shared.Format)
 local Strings = require(Shared.Strings)
 local Worlds = require(Shared.Data.Worlds)
+local Mutations = require(Shared.Models.Mutations)
 
 local Anim = require(script.Parent.Parent.Anim)
 local Kit = require(script.Parent.Parent.Kit)
@@ -13349,8 +14927,15 @@ local PetsPanel = {}
 
 local C = Theme.C
 
-function PetsPanel.boostText(key: string): string
-	return Format.multiplier(1 + Economy.petBoost(key))
+function PetsPanel.boostText(key: string, mutations: { string }?): string
+	return Format.multiplier(1 + Economy.petPower(key, mutations))
+end
+
+local LUCKY_PRODUCT = nil :: any
+for _, product in Config.Products do
+	if product.enchants > 0 then
+		LUCKY_PRODUCT = product
+	end
 end
 
 function PetsPanel.new(app: any): Panel.PanelApi
@@ -13359,7 +14944,7 @@ function PetsPanel.new(app: any): Panel.PanelApi
 		Title = Strings.get("petsTitle"),
 		Icon = utf8.char(0x1F43E),
 		Palette = "Pink",
-		Size = Vector2.new(900, 560),
+		Size = Vector2.new(940, 620),
 	})
 	local body = panel.body
 
@@ -13432,22 +15017,22 @@ function PetsPanel.new(app: any): Panel.PanelApi
 	Kit.corner(detail, 18)
 	Kit.stroke(detail, C.PanelLine, 3)
 	local detailGradient = Kit.gradient(detail, Color3.fromRGB(255, 255, 255), Color3.fromRGB(220, 240, 255))
-	-- Vertical budget (detail is ~384 tall): preview 4-140, name, rarity, origin, boost up to ~262,
-	-- then the action grid (96) pinned to the bottom.
-	local bigView = Viewport.new(detail, UDim2.fromOffset(200, 136), UDim2.new(0.5, 0, 0, 4), Vector2.new(0.5, 0))
+	-- Vertical budget (detail is ~468 tall): preview 4-136, name, rarity, origin, boost, mutation
+	-- chips up to ~290, then the action grid (3 rows, 148) pinned to the bottom.
+	local bigView = Viewport.new(detail, UDim2.fromOffset(200, 132), UDim2.new(0.5, 0, 0, 4), Vector2.new(0.5, 0))
 	bigView.setSpin(true)
 	local detailName = Kit.text({
 		Text = "",
 		TextSize = 28,
 		Size = UDim2.new(1, -16, 0, 32),
-		Position = UDim2.new(0.5, 0, 0, 142),
+		Position = UDim2.new(0.5, 0, 0, 138),
 		AnchorPoint = Vector2.new(0.5, 0),
 		Parent = detail,
 	})
 	local rarityChip = Kit.new("Frame", {
 		BackgroundColor3 = C.Gray,
 		Size = UDim2.fromOffset(150, 28),
-		Position = UDim2.new(0.5, 0, 0, 178),
+		Position = UDim2.new(0.5, 0, 0, 174),
 		AnchorPoint = Vector2.new(0.5, 0),
 		Parent = detail,
 	})
@@ -13460,7 +15045,7 @@ function PetsPanel.new(app: any): Panel.PanelApi
 		Color = C.Muted,
 		Stroke = 0,
 		Size = UDim2.new(1, -16, 0, 20),
-		Position = UDim2.new(0.5, 0, 0, 210),
+		Position = UDim2.new(0.5, 0, 0, 206),
 		AnchorPoint = Vector2.new(0.5, 0),
 		Parent = detail,
 	})
@@ -13470,13 +15055,65 @@ function PetsPanel.new(app: any): Panel.PanelApi
 		Color = C.Gold,
 		StrokeColor = C.GoldDark,
 		Size = UDim2.new(1, -16, 0, 30),
-		Position = UDim2.new(0.5, 0, 0, 232),
+		Position = UDim2.new(0.5, 0, 0, 228),
 		AnchorPoint = Vector2.new(0.5, 0),
 		Parent = detail,
 	})
+	-- Mutation chips (Gold x2, Lava x5, ...) or a hint when the pet has none.
+	local mutationRow = Kit.new("Frame", {
+		BackgroundTransparency = 1,
+		Size = UDim2.new(1, -12, 0, 26),
+		Position = UDim2.new(0.5, 0, 0, 264),
+		AnchorPoint = Vector2.new(0.5, 0),
+		Parent = detail,
+	})
+	Kit.list(mutationRow, Enum.FillDirection.Horizontal, 4)
+	local mutationHint = Kit.text({
+		Text = "",
+		TextSize = 15,
+		Color = C.Muted,
+		Stroke = 0,
+		Size = UDim2.fromScale(1, 1),
+		LayoutOrder = 99,
+		Parent = mutationRow,
+	})
+	local mutationChips: { Frame } = {}
+	local function setMutations(list: { string }?)
+		for _, chip in mutationChips do
+			chip:Destroy()
+		end
+		table.clear(mutationChips)
+		mutationHint.Visible = not list or #list == 0
+		mutationHint.Text = Strings.get("noMutations")
+		if not list then
+			return
+		end
+		for order, key in list do
+			local color = Mutations.color(key)
+			local chip = Kit.new("Frame", {
+				BackgroundColor3 = color,
+				Size = UDim2.fromOffset(0, 24),
+				AutomaticSize = Enum.AutomaticSize.X,
+				LayoutOrder = order,
+				Parent = mutationRow,
+			}) :: Frame
+			Kit.round(chip)
+			Kit.stroke(chip, color:Lerp(Color3.new(0, 0, 0), 0.55), 2)
+			Kit.padding(chip, 0, 7, 0, 7)
+			Kit.text({
+				Text = Strings.get("mutation." .. key) .. " x" .. Economy.Mutations[key].mult,
+				TextSize = 13,
+				AutoX = true,
+				Size = UDim2.new(0, 0, 1, 0),
+				StrokeColor = color:Lerp(Color3.new(0, 0, 0), 0.6),
+				Parent = chip,
+			})
+			table.insert(mutationChips, chip)
+		end
+	end
 	local actions = Kit.new("Frame", {
 		BackgroundTransparency = 1,
-		Size = UDim2.new(1, -20, 0, 96),
+		Size = UDim2.new(1, -20, 0, 148),
 		Position = UDim2.new(0.5, 0, 1, -8),
 		AnchorPoint = Vector2.new(0.5, 1),
 		Parent = detail,
@@ -13491,11 +15128,14 @@ function PetsPanel.new(app: any): Panel.PanelApi
 
 	local selected: string? = nil
 	local deleteArmed = false
-	local cards: { [string]: { frame: TextButton, view: Viewport.ViewApi, key: string } } = {}
+	local cards: { [string]: { frame: TextButton, view: Viewport.ViewApi, key: string, look: string } } = {}
 
 	local equipButton: Kit.ButtonApi
 	local lockButton: Kit.ButtonApi
 	local deleteButton: Kit.ButtonApi
+	local enchantButton: Kit.ButtonApi
+	local luckyButton: Kit.ButtonApi
+	local enchantCoin: Frame
 
 	local function refreshDetail()
 		local profile = app.State.profile
@@ -13518,7 +15158,24 @@ function PetsPanel.new(app: any): Panel.PanelApi
 		rarityChip.BackgroundColor3 = color
 		rarityLabel.Text = Strings.get("rarity." .. rarity)
 		originLabel.Text = Strings.get("world", { n = data.world }) .. "  -  " .. Strings.name(Worlds.get(data.world).egg.name)
-		boostDetail.Text = Strings.get("boost", { x = PetsPanel.boostText(pet.s) })
+		boostDetail.Text = Strings.get("boost", { x = PetsPanel.boostText(pet.s, pet.m) })
+		setMutations(pet.m)
+		local cost = Economy.mutateCost(pet.s, pet.m)
+		if cost then
+			enchantButton.setText(Format.short(cost))
+			enchantButton.setPalette(if profile.coins >= cost then "Purple" else "Gray")
+			enchantButton.setEnabled(true)
+			enchantCoin.Visible = true
+			luckyButton.setText(utf8.char(0x2728) .. " " .. Strings.get("lucky", { n = profile.enchants }))
+			luckyButton.setEnabled(true)
+		else
+			enchantButton.setText(Strings.get("max"))
+			enchantButton.setPalette("Gold")
+			enchantButton.setEnabled(false)
+			enchantCoin.Visible = false
+			luckyButton.setText(Strings.get("max"))
+			luckyButton.setEnabled(false)
+		end
 		detailGradient.Color = ColorSequence.new(Color3.fromRGB(255, 255, 255), color:Lerp(Color3.new(1, 1, 1), 0.7))
 		local equipped = table.find(profile.equipped, selected) ~= nil
 		equipButton.setText(Strings.get(if equipped then "unequip" else "equip"))
@@ -13559,11 +15216,66 @@ function PetsPanel.new(app: any): Panel.PanelApi
 			end
 		end,
 	})
+	local function enchant(lucky: boolean)
+		local profile = app.State.profile
+		if not profile or not selected then
+			return
+		end
+		if lucky and profile.enchants < 1 then
+			if LUCKY_PRODUCT and LUCKY_PRODUCT.id > 0 then
+				MarketplaceService:PromptProductPurchase(Players.LocalPlayer, LUCKY_PRODUCT.id)
+			else
+				app.Toasts.show(Strings.get("comingSoon"), "info")
+			end
+			return
+		end
+		local result = app.Net.invoke("Mutate", { id = selected, lucky = lucky })
+		if not result.ok then
+			app.Sfx.play("Error")
+			Anim.shake(detail, 6)
+			if result.err then
+				app.Toasts.show(Strings.get(result.err), "bad")
+			end
+			return
+		end
+		local key = result.data.mutation :: string
+		local def = Economy.Mutations[key]
+		local color = Mutations.color(key)
+		app.Sfx.play(if def.mult >= 5 then "Legendary" elseif def.mult >= 4 then "Reveal" else "Upgrade")
+		app.Effects.flash(color, if def.mult >= 5 then 0.55 else 0.35, 0.5)
+		if def.mult >= 5 then
+			app.Effects.confetti(40)
+		end
+		Anim.pop(detail, 0.08)
+		app.Toasts.show(Strings.get("mutated", { name = Strings.get("mutation." .. key), x = def.mult }), "gold", utf8.char(0x2728))
+	end
+	enchantButton = Kit.button({
+		Text = "",
+		TextSize = 19,
+		Palette = "Purple",
+		LayoutOrder = 3,
+		Parent = actions,
+		OnClick = function()
+			enchant(false)
+		end,
+	})
+	enchantCoin = Kit.Icons.coin(22, enchantButton.button:FindFirstChild("Content") :: Instance)
+	enchantCoin.LayoutOrder = 0
+	luckyButton = Kit.button({
+		Text = "",
+		TextSize = 17,
+		Palette = "Pink",
+		LayoutOrder = 4,
+		Parent = actions,
+		OnClick = function()
+			enchant(true)
+		end,
+	})
 	deleteButton = Kit.button({
 		Text = "",
 		TextSize = 18,
 		Palette = "Red",
-		LayoutOrder = 3,
+		LayoutOrder = 5,
 		Parent = actions,
 		OnClick = function()
 			if not selected then
@@ -13592,7 +15304,7 @@ function PetsPanel.new(app: any): Panel.PanelApi
 		local profile = app.State.profile
 		local pet = profile and id and profile.pets[id]
 		if pet then
-			bigView.setModel(Viewport.pet(pet.s))
+			bigView.setModel(Viewport.pet(pet.s, pet.m))
 		else
 			bigView.setModel(nil)
 		end
@@ -13607,7 +15319,7 @@ function PetsPanel.new(app: any): Panel.PanelApi
 		refreshDetail()
 	end
 
-	local function buildCard(id: string, key: string, order: number): TextButton
+	local function buildCard(id: string, key: string, mutations: { string }?, order: number): TextButton
 		local data = Worlds.pets[key]
 		local rarity = Config.Rarities[data.rarity]
 		local color = Theme.Rarity[rarity]
@@ -13622,10 +15334,34 @@ function PetsPanel.new(app: any): Panel.PanelApi
 		border.Name = "Border"
 		frame:SetAttribute("BorderColor", border.Color)
 		local view = Viewport.new(frame, UDim2.fromOffset(92, 86), UDim2.new(0.5, 0, 0, 4), Vector2.new(0.5, 0))
-		view.setModel(Viewport.pet(key))
+		view.setModel(Viewport.pet(key, mutations))
+		local top = Mutations.top(mutations)
+		if top then
+			local tag = Kit.new("Frame", {
+				Name = "Mutation",
+				BackgroundColor3 = Mutations.color(top),
+				Size = UDim2.fromOffset(0, 20),
+				AutomaticSize = Enum.AutomaticSize.X,
+				Position = UDim2.new(0.5, 0, 1, -48),
+				AnchorPoint = Vector2.new(0.5, 0),
+				ZIndex = 4,
+				Parent = frame,
+			})
+			Kit.round(tag)
+			Kit.padding(tag, 0, 6, 0, 6)
+			Kit.stroke(tag, Mutations.color(top):Lerp(Color3.new(0, 0, 0), 0.55), 2)
+			Kit.text({
+				Text = Strings.get("mutation." .. top) .. (if mutations and #mutations > 1 then " +" .. (#mutations - 1) else ""),
+				TextSize = 12,
+				AutoX = true,
+				Size = UDim2.new(0, 0, 1, 0),
+				ZIndex = 5,
+				Parent = tag,
+			})
+		end
 		Kit.text({
 			Name = "Boost",
-			Text = PetsPanel.boostText(key),
+			Text = PetsPanel.boostText(key, mutations),
 			TextSize = 18,
 			Size = UDim2.new(1, 0, 0, 24),
 			Position = UDim2.new(0, 0, 1, -28),
@@ -13667,7 +15403,7 @@ function PetsPanel.new(app: any): Panel.PanelApi
 			select(id)
 			Anim.pop(frame, 0.1)
 		end)
-		cards[id] = { frame = frame, view = view, key = key }
+		cards[id] = { frame = frame, view = view, key = key, look = key .. table.concat(mutations or {}, ",") }
 		return frame
 	end
 
@@ -13697,22 +15433,27 @@ function PetsPanel.new(app: any): Panel.PanelApi
 			if ea ~= eb then
 				return ea
 			end
-			local ba, bb = Economy.petBoost(profile.pets[a].s), Economy.petBoost(profile.pets[b].s)
+			local pa, pb = profile.pets[a], profile.pets[b]
+			local ba, bb = Economy.petPower(pa.s, pa.m), Economy.petPower(pb.s, pb.m)
 			if ba ~= bb then
 				return ba > bb
 			end
 			return a < b
 		end)
 		local keep = {}
+		local rebuiltSelected = false
 		for order, id in ids do
 			keep[id] = true
 			local card = cards[id]
-			if not card or card.key ~= profile.pets[id].s then
+			local pet = profile.pets[id]
+			local look = pet.s .. table.concat(pet.m or {}, ",")
+			if not card or card.look ~= look then
 				if card then
 					card.frame:Destroy()
 				end
-				buildCard(id, profile.pets[id].s, order)
+				buildCard(id, pet.s, pet.m, order)
 				card = cards[id]
+				rebuiltSelected = rebuiltSelected or id == selected
 			end
 			card.frame.LayoutOrder = order
 			local equippedBadge = card.frame:FindFirstChild("Equipped") :: Frame?
@@ -13735,6 +15476,8 @@ function PetsPanel.new(app: any): Panel.PanelApi
 		end
 		if not selected and ids[1] then
 			select(ids[1])
+		elseif rebuiltSelected then
+			select(selected)
 		else
 			refreshDetail()
 		end
@@ -13757,7 +15500,7 @@ return PetsPanel
 ]]></string>
               </Properties>
             </Item>
-            <Item class="ModuleScript" referent="79">
+            <Item class="ModuleScript" referent="85">
               <Properties>
                 <string name="Name">Settings</string>
                 <string name="Source"><![CDATA[--!strict
@@ -13905,7 +15648,7 @@ return SettingsPanel
 ]]></string>
               </Properties>
             </Item>
-            <Item class="ModuleScript" referent="80">
+            <Item class="ModuleScript" referent="86">
               <Properties>
                 <string name="Name">Shop</string>
                 <string name="Source"><![CDATA[--!strict
@@ -13938,6 +15681,7 @@ local ICONS = {
 	CoinsSmall = utf8.char(0x1FA99),
 	CoinsMedium = utf8.char(0x1F4B0),
 	CoinsLarge = utf8.char(0x1F451),
+	LuckyEnchant = utf8.char(0x2728),
 }
 
 type Card = { key: string, kind: string, name: TextLabel, desc: TextLabel, buy: Kit.ButtonApi, def: any }
@@ -14077,7 +15821,9 @@ function ShopPanel.new(app: any): Panel.PanelApi
 				c.desc.Text = Strings.get("pass." .. c.key .. ".desc")
 			else
 				c.name.Text = Strings.get("product." .. c.key)
-				c.desc.Text = Strings.get("product.desc", { n = Format.short(Economy.productCoins(c.def.dives, unlocked)) })
+				c.desc.Text = if c.def.enchants > 0
+					then Strings.get("product." .. c.key .. ".desc")
+					else Strings.get("product.desc", { n = Format.short(Economy.productCoins(c.def.dives, unlocked)) })
 			end
 			if c.kind == "pass" and app.State.passes[c.key] then
 				c.buy.setText(Strings.get("owned"))
@@ -14109,236 +15855,7 @@ return ShopPanel
 ]]></string>
               </Properties>
             </Item>
-            <Item class="ModuleScript" referent="81">
-              <Properties>
-                <string name="Name">Upgrades</string>
-                <string name="Source"><![CDATA[--!strict
--- Dive shop: oxygen tank, backpack, flippers and treasure magnet upgrades.
-
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
-
-local Shared = ReplicatedStorage:WaitForChild("Shared")
-local Color = require(Shared.Color)
-local Config = require(Shared.Config)
-local Economy = require(Shared.Economy)
-local Format = require(Shared.Format)
-local Strings = require(Shared.Strings)
-
-local Anim = require(script.Parent.Parent.Anim)
-local Kit = require(script.Parent.Parent.Kit)
-local Panel = require(script.Parent.Parent.Panel)
-local Theme = require(script.Parent.Parent.Theme)
-
-local UpgradesPanel = {}
-
-local C = Theme.C
-
-type Row = {
-	frame: Frame,
-	name: TextLabel,
-	desc: TextLabel,
-	level: TextLabel,
-	value: TextLabel,
-	bar: Kit.ProgressApi,
-	buy: Kit.ButtonApi,
-}
-
-local function formatValue(track: string, value: number): string
-	if track == "fins" or track == "magnet" then
-		return string.format("%.1f", value)
-	end
-	return tostring(math.floor(value))
-end
-
-function UpgradesPanel.new(app: any): Panel.PanelApi
-	local panel = Panel.new({
-		Parent = app.Gui.panels,
-		Title = Strings.get("menu.upgrades"),
-		Icon = utf8.char(0x1F93F),
-		Palette = "Orange",
-		Size = Vector2.new(780, 520),
-	})
-	local list =
-		Kit.new("Frame", { BackgroundTransparency = 1, Size = UDim2.new(1, 0, 1, -16), Position = UDim2.fromOffset(0, 20), Parent = panel.body })
-	Kit.list(list, Enum.FillDirection.Vertical, 12, Enum.HorizontalAlignment.Center, Enum.VerticalAlignment.Top)
-
-	local rows: { [string]: Row } = {}
-	for order, def in Config.Upgrades do
-		local color = Color.hex(def.color)
-		local frame =
-			Kit.new("Frame", { BackgroundColor3 = Color3.new(1, 1, 1), Size = UDim2.new(1, -8, 0, 98), LayoutOrder = order, Parent = list }) :: Frame
-		Kit.corner(frame, 18)
-		Kit.gradient(frame, Color3.fromRGB(255, 255, 255), Color3.fromRGB(226, 242, 255))
-		Kit.stroke(frame, C.PanelLine, 3)
-		local iconBack = Kit.new("Frame", {
-			BackgroundColor3 = color,
-			Size = UDim2.fromOffset(76, 76),
-			Position = UDim2.new(0, 12, 0.5, 0),
-			AnchorPoint = Vector2.new(0, 0.5),
-			Parent = frame,
-		})
-		Kit.round(iconBack)
-		Kit.gradient(iconBack, Color.lighten(color, 0.35), color)
-		Kit.stroke(iconBack, Color.darken(color, 0.5), 3)
-		local icon: GuiObject
-		if def.id == "tank" then
-			icon = Kit.Icons.bubble(50, iconBack)
-		elseif def.id == "pack" then
-			icon = Kit.Icons.bag(50, iconBack)
-		elseif def.id == "fins" then
-			icon = Kit.Icons.emoji(utf8.char(0x1F42C), 40, iconBack)
-		else
-			icon = Kit.Icons.emoji(utf8.char(0x1F9F2), 40, iconBack)
-		end
-		icon.AnchorPoint = Vector2.new(0.5, 0.5)
-		icon.Position = UDim2.fromScale(0.5, 0.5)
-
-		local name = Kit.text({
-			Text = "",
-			TextSize = 26,
-			Size = UDim2.fromOffset(330, 30),
-			Position = UDim2.fromOffset(102, 10),
-			XAlign = Enum.TextXAlignment.Left,
-			StrokeColor = Color.darken(color, 0.55),
-			Parent = frame,
-		})
-		local desc = Kit.text({
-			Text = "",
-			TextSize = 16,
-			Color = C.Muted,
-			Stroke = 0,
-			Size = UDim2.fromOffset(330, 20),
-			Position = UDim2.fromOffset(104, 40),
-			XAlign = Enum.TextXAlignment.Left,
-			Parent = frame,
-		})
-		local bar = Kit.progress({
-			Size = UDim2.fromOffset(250, 20),
-			Position = UDim2.fromOffset(104, 66),
-			Colors = { Color.lighten(color, 0.3), color },
-			TextSize = 14,
-			Parent = frame,
-		})
-		local level = Kit.text({
-			Text = "",
-			TextSize = 18,
-			Size = UDim2.fromOffset(90, 22),
-			Position = UDim2.fromOffset(362, 65),
-			XAlign = Enum.TextXAlignment.Left,
-			StrokeColor = Color.darken(color, 0.55),
-			Parent = frame,
-		})
-		local value = Kit.text({
-			Text = "",
-			TextSize = 22,
-			Size = UDim2.fromOffset(170, 30),
-			Position = UDim2.new(1, -196, 0.5, 0),
-			AnchorPoint = Vector2.new(1, 0.5),
-			Color = C.Ink,
-			Stroke = 0,
-			Parent = frame,
-		})
-		local buy = Kit.button({
-			Text = "",
-			Icon = nil,
-			TextSize = 22,
-			Palette = "Green",
-			Size = UDim2.fromOffset(170, 62),
-			Position = UDim2.new(1, -14, 0.5, 0),
-			AnchorPoint = Vector2.new(1, 0.5),
-			Parent = frame,
-			OnClick = function()
-				local result = app.Net.invoke("BuyUpgrade", { track = def.id })
-				if result.ok then
-					app.Sfx.play("Upgrade")
-					Anim.pop(frame, 0.05)
-					Anim.pop(iconBack, 0.35)
-					app.Toasts.show(Strings.get("upgraded", { name = Strings.get("upgrade." .. def.id) }), "good", utf8.char(0x2B06))
-				else
-					app.Sfx.play("Error")
-					Anim.shake(frame, 6)
-					if result.err then
-						app.Toasts.show(Strings.get(result.err), "bad")
-					end
-				end
-			end,
-		})
-		local coin = Kit.Icons.coin(28, buy.button:FindFirstChild("Content") :: Instance)
-		coin.LayoutOrder = 0
-		rows[def.id] = { frame = frame, name = name, desc = desc, level = level, value = value, bar = bar, buy = buy }
-	end
-
-	local function refresh()
-		local profile = app.State.profile
-		if not profile then
-			return
-		end
-		panel.setTitle(Strings.get("menu.upgrades"))
-		for _, def in Config.Upgrades do
-			local row = rows[def.id]
-			local lvl = profile.upgrades[def.id] or 1
-			local current = Economy.upgradeValue(def.id, lvl)
-			local cost = Economy.upgradeCost(def.id, lvl)
-			row.name.Text = Strings.get("upgrade." .. def.id)
-			row.desc.Text = Strings.get("upgrade." .. def.id .. ".desc")
-			row.level.Text = Strings.get("level", { n = lvl })
-			row.bar.set(lvl / def.max, "")
-			local coinIcon = row.buy.button:FindFirstChild("Content")
-				and (row.buy.button:FindFirstChild("Content") :: Instance):FindFirstChild("Coin")
-			if cost then
-				local nextValue = Economy.upgradeValue(def.id, lvl + 1)
-				row.value.Text = formatValue(def.id, current) .. "  >  " .. formatValue(def.id, nextValue)
-				row.buy.setText(Format.short(cost))
-				local affordable = profile.coins >= cost
-				row.buy.setPalette(if affordable then "Green" else "Gray")
-				row.buy.setEnabled(true)
-				if coinIcon then
-					(coinIcon :: Frame).Visible = true
-				end
-			else
-				row.value.Text = formatValue(def.id, current)
-				row.buy.setText(Strings.get("max"))
-				row.buy.setPalette("Gold")
-				row.buy.setEnabled(false)
-				if coinIcon then
-					(coinIcon :: Frame).Visible = false
-				end
-			end
-		end
-	end
-
-	panel.onOpen = function()
-		app.Sfx.play("Open")
-		refresh()
-	end
-	app.State.profileChanged:Connect(function()
-		if panel.isOpen then
-			refresh()
-		end
-	end)
-	app.State.languageChanged:Connect(refresh)
-	return panel
-end
-
--- True when at least one upgrade is affordable (drives the HUD badge).
-function UpgradesPanel.anyAffordable(profile: any): boolean
-	if not profile then
-		return false
-	end
-	for _, def in Config.Upgrades do
-		local cost = Economy.upgradeCost(def.id, profile.upgrades[def.id] or 1)
-		if cost and profile.coins >= cost then
-			return true
-		end
-	end
-	return false
-end
-
-return UpgradesPanel
-]]></string>
-              </Properties>
-            </Item>
-            <Item class="ModuleScript" referent="82">
+            <Item class="ModuleScript" referent="87">
               <Properties>
                 <string name="Name">Worlds</string>
                 <string name="Source"><![CDATA[--!strict
@@ -14619,7 +16136,7 @@ return WorldsPanel
               </Properties>
             </Item>
           </Item>
-          <Item class="ModuleScript" referent="83">
+          <Item class="ModuleScript" referent="88">
             <Properties>
               <string name="Name">PlayerList</string>
               <string name="Source"><![CDATA[--!strict
@@ -14643,15 +16160,16 @@ local Theme = require(script.Parent.Theme)
 local PlayerList = {}
 
 local C = Theme.C
-local WIDTH = 360
+local WIDTH = 392
 local ROW = 38
--- Columns start after the avatar (42) and must end inside the padded row (WIDTH - 16) with an
--- 8px right margin: 42 + 146 + 82 + 66 = 336 = 360 - 16 - 8.
-local NAME_W, COIN_W, RELIC_W = 146, 82, 66
+-- Columns start after the avatar (42); the trade button (34) follows the relic column and the
+-- row keeps an 8px right margin: 42 + 136 + 80 + 62 + 6 + 34 + 8 = 368 = 392 - 16 - 8.
+local NAME_W, COIN_W, RELIC_W = 136, 80, 62
+local TRADE_X = 42 + NAME_W + COIN_W + RELIC_W + 6
 
 type Row = { frame: Frame, name: TextLabel, coins: TextLabel, relics: TextLabel, stroke: UIStroke }
 
-function PlayerList.init()
+function PlayerList.init(onTrade: ((Player) -> ())?)
 	pcall(function()
 		StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.PlayerList, false)
 	end)
@@ -14663,9 +16181,9 @@ function PlayerList.init()
 		BackgroundTransparency = 0.18,
 		Size = UDim2.fromOffset(WIDTH, 0),
 		AutomaticSize = Enum.AutomaticSize.Y,
-		Position = UDim2.new(1, -16, 0, 12),
+		Position = UDim2.new(1, -16, 0, 10),
 		AnchorPoint = Vector2.new(1, 0),
-		Parent = Gui.hud,
+		Parent = Gui.hudTop,
 	}) :: Frame
 	Kit.corner(panel, 14)
 	Kit.stroke(panel, C.Outline, 2.5)
@@ -14755,6 +16273,24 @@ function PlayerList.init()
 		end
 		coins.TextColor3 = Color3.fromRGB(255, 222, 92)
 		relics.TextColor3 = Color3.fromRGB(150, 230, 255)
+		if player ~= localPlayer and onTrade then
+			Kit.button({
+				Name = "Trade",
+				Text = "",
+				Icon = utf8.char(0x1F91D),
+				IconSize = 17,
+				Palette = "Cyan",
+				Size = UDim2.fromOffset(34, 30),
+				Position = UDim2.new(0, TRADE_X, 0.5, 0),
+				AnchorPoint = Vector2.new(0, 0.5),
+				Radius = 10,
+				Stroke = 2,
+				Parent = frame,
+				OnClick = function()
+					onTrade(player)
+				end,
+			})
+		end
 		local row = { frame = frame, name = name, coins = coins, relics = relics, stroke = stroke }
 		rows[player] = row
 		return row
@@ -14827,16 +16363,16 @@ function PlayerList.init()
 			IconSize = 24,
 			Palette = "Purple",
 			Size = UDim2.fromOffset(52, 52),
-			Position = UDim2.new(1, -16, 0, 12),
+			Position = UDim2.new(1, -16, 0, 6),
 			AnchorPoint = Vector2.new(1, 0),
 			Radius = 26,
 			Stroke = 2.5,
-			Parent = Gui.hud,
+			Parent = Gui.hudTop,
 			OnClick = function()
 				setOpen(not panel.Visible)
 			end,
 		})
-		panel.Position = UDim2.new(1, -16, 0, 72)
+		panel.Position = UDim2.new(1, -16, 0, 64)
 		local _ = toggle
 	end
 	refresh()
@@ -14847,7 +16383,7 @@ return PlayerList
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="84">
+          <Item class="ModuleScript" referent="89">
             <Properties>
               <string name="Name">Screens</string>
               <string name="Source"><![CDATA[--!strict
@@ -15174,7 +16710,7 @@ return Screens
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="85">
+          <Item class="ModuleScript" referent="90">
             <Properties>
               <string name="Name">Theme</string>
               <string name="Source"><![CDATA[--!strict
@@ -15251,7 +16787,7 @@ return Theme
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="86">
+          <Item class="ModuleScript" referent="91">
             <Properties>
               <string name="Name">Toasts</string>
               <string name="Source"><![CDATA[--!strict
@@ -15341,7 +16877,485 @@ return Toasts
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="87">
+          <Item class="ModuleScript" referent="92">
+            <Properties>
+              <string name="Name">Trade</string>
+              <string name="Source"><![CDATA[--!strict
+-- Pet trading UI: an incoming-request popup and the trade window (both offers side by side,
+-- your pets underneath to add or remove, Ready / Cancel and the final countdown).
+
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
+
+local Shared = ReplicatedStorage:WaitForChild("Shared")
+local Config = require(Shared.Config)
+local Economy = require(Shared.Economy)
+local Format = require(Shared.Format)
+local Strings = require(Shared.Strings)
+local Worlds = require(Shared.Data.Worlds)
+local Mutations = require(Shared.Models.Mutations)
+
+local Anim = require(script.Parent.Anim)
+local Kit = require(script.Parent.Kit)
+local Panel = require(script.Parent.Panel)
+local Theme = require(script.Parent.Theme)
+local Viewport = require(script.Parent.Viewport)
+
+local Trade = {}
+
+local C = Theme.C
+
+type PetInfo = { id: string, s: string, m: { string }? }
+
+local function petCell(parent: Instance, info: PetInfo, order: number, onClick: (() -> ())?): TextButton
+	local data = Worlds.pets[info.s]
+	local rarity = Config.Rarities[if data then data.rarity else 1]
+	local color = Theme.Rarity[rarity]
+	local cell = Kit.new("TextButton", {
+		Name = info.id,
+		Text = "",
+		AutoButtonColor = false,
+		BackgroundColor3 = Color3.new(1, 1, 1),
+		LayoutOrder = order,
+		Parent = parent,
+	}) :: TextButton
+	Kit.corner(cell, 14)
+	Kit.gradient(cell, color:Lerp(Color3.new(1, 1, 1), 0.55), color, 90)
+	Kit.stroke(cell, color:Lerp(Color3.new(0, 0, 0), 0.5), 3)
+	local view = Viewport.new(cell, UDim2.new(1, -8, 1, -30), UDim2.new(0.5, 0, 0, 3), Vector2.new(0.5, 0))
+	view.setModel(Viewport.pet(info.s, info.m))
+	local top = Mutations.top(info.m)
+	if top then
+		local dot = Kit.new("Frame", {
+			BackgroundColor3 = Mutations.color(top),
+			Size = UDim2.fromOffset(16, 16),
+			Position = UDim2.fromOffset(5, 5),
+			ZIndex = 4,
+			Parent = cell,
+		})
+		Kit.round(dot)
+		Kit.stroke(dot, C.Outline, 2)
+	end
+	Kit.text({
+		Text = Format.multiplier(1 + Economy.petPower(info.s, info.m)),
+		TextSize = 15,
+		Size = UDim2.new(1, 0, 0, 22),
+		Position = UDim2.new(0, 0, 1, -25),
+		StrokeColor = color:Lerp(Color3.new(0, 0, 0), 0.6),
+		Parent = cell,
+	})
+	if onClick then
+		cell.Activated:Connect(onClick)
+	end
+	return cell
+end
+
+local function clearCells(container: Instance)
+	for _, child in container:GetChildren() do
+		if child:IsA("TextButton") then
+			child:Destroy()
+		end
+	end
+end
+
+function Trade.init(app: any)
+	local current: any = nil -- latest trade view from the server
+	local offered: { string } = {}
+
+	-- Incoming request popup -----------------------------------------------------------------------
+	local popup = Kit.new("Frame", {
+		Name = "TradeRequest",
+		BackgroundColor3 = Color3.new(1, 1, 1),
+		Size = UDim2.fromOffset(420, 124),
+		Position = UDim2.new(0.5, 0, 0, 132),
+		AnchorPoint = Vector2.new(0.5, 0),
+		Visible = false,
+		ZIndex = 30,
+		Parent = app.Gui.hud,
+	}) :: Frame
+	Kit.corner(popup, 20)
+	Kit.gradient(popup, Theme.Buttons.Cyan[1], Theme.Buttons.Blue[2])
+	Kit.stroke(popup, C.Outline, 3)
+	local popupText = Kit.text({
+		Text = "",
+		TextSize = 22,
+		Size = UDim2.new(1, -20, 0, 34),
+		Position = UDim2.fromOffset(10, 8),
+		ZIndex = 31,
+		Parent = popup,
+	})
+	local popupTimer = Kit.progress({
+		Size = UDim2.new(1, -40, 0, 10),
+		Position = UDim2.fromOffset(20, 46),
+		Colors = { Color3.fromRGB(255, 255, 255), Color3.fromRGB(200, 240, 255) },
+		TextSize = 1,
+		Parent = popup,
+	})
+	local popupButtons = Kit.new("Frame", {
+		BackgroundTransparency = 1,
+		Size = UDim2.new(1, -20, 0, 50),
+		Position = UDim2.new(0.5, 0, 1, -10),
+		AnchorPoint = Vector2.new(0.5, 1),
+		ZIndex = 31,
+		Parent = popup,
+	})
+	Kit.list(popupButtons, Enum.FillDirection.Horizontal, 12, Enum.HorizontalAlignment.Center)
+	local pending: { userId: number, expires: number, seconds: number }? = nil
+	local function respond(accept: boolean)
+		local request = pending
+		pending = nil
+		popup.Visible = false
+		if not request then
+			return
+		end
+		local result = app.Net.invoke("TradeRespond", { userId = request.userId, accept = accept })
+		if not result.ok and result.err then
+			app.Toasts.show(Strings.get(result.err), "bad")
+		end
+	end
+	local acceptButton = Kit.button({
+		Text = "",
+		TextSize = 20,
+		Palette = "Green",
+		Size = UDim2.fromOffset(170, 46),
+		LayoutOrder = 1,
+		ZIndex = 32,
+		Parent = popupButtons,
+		OnClick = function()
+			respond(true)
+		end,
+	})
+	local declineButton = Kit.button({
+		Text = "",
+		TextSize = 20,
+		Palette = "Red",
+		Size = UDim2.fromOffset(170, 46),
+		LayoutOrder = 2,
+		ZIndex = 32,
+		Parent = popupButtons,
+		OnClick = function()
+			respond(false)
+		end,
+	})
+	RunService.Heartbeat:Connect(function()
+		local request = pending
+		if request then
+			local left = request.expires - os.clock()
+			if left <= 0 then
+				pending = nil
+				popup.Visible = false
+			else
+				popupTimer.set(left / request.seconds, "")
+			end
+		end
+	end)
+
+	-- Trade window ---------------------------------------------------------------------------------
+	local panel = Panel.new({
+		Parent = app.Gui.panels,
+		Title = Strings.get("tradeTitle"),
+		Icon = utf8.char(0x1F91D),
+		Palette = "Cyan",
+		Size = Vector2.new(940, 610),
+	})
+	local body = panel.body
+
+	local function offerBox(x: number, anchor: number): (TextLabel, Frame, Frame)
+		local box = Kit.new("Frame", {
+			BackgroundColor3 = C.PanelAlt,
+			Size = UDim2.new(0.5, -8, 0, 262),
+			Position = UDim2.new(x, 0, 0, 20),
+			AnchorPoint = Vector2.new(anchor, 0),
+			Parent = body,
+		}) :: Frame
+		Kit.corner(box, 16)
+		local stroke = Kit.stroke(box, C.PanelLine, 3)
+		stroke.Name = "Border"
+		local title = Kit.text({
+			Text = "",
+			TextSize = 20,
+			Size = UDim2.new(1, -120, 0, 34),
+			Position = UDim2.fromOffset(12, 4),
+			XAlign = Enum.TextXAlignment.Left,
+			StrokeColor = C.Navy,
+			Parent = box,
+		})
+		local readyChip = Kit.new("Frame", {
+			BackgroundColor3 = C.Gray,
+			Size = UDim2.fromOffset(104, 28),
+			Position = UDim2.new(1, -10, 0, 7),
+			AnchorPoint = Vector2.new(1, 0),
+			Parent = box,
+		}) :: Frame
+		Kit.round(readyChip)
+		Kit.stroke(readyChip, C.Outline, 2)
+		Kit.text({ Name = "Label", Text = "", TextSize = 15, Size = UDim2.fromScale(1, 1), Parent = readyChip })
+		local grid = Kit.new("Frame", {
+			BackgroundTransparency = 1,
+			Size = UDim2.new(1, -20, 1, -48),
+			Position = UDim2.fromOffset(10, 42),
+			Parent = box,
+		}) :: Frame
+		Kit.new("UIGridLayout", {
+			CellSize = UDim2.fromOffset(98, 100),
+			CellPadding = UDim2.fromOffset(8, 8),
+			SortOrder = Enum.SortOrder.LayoutOrder,
+			HorizontalAlignment = Enum.HorizontalAlignment.Center,
+			Parent = grid,
+		})
+		return title, readyChip, grid
+	end
+	local myTitle, myReady, myGrid = offerBox(0, 0)
+	local theirTitle, theirReady, theirGrid = offerBox(1, 1)
+
+	local status = Kit.text({
+		Text = "",
+		TextSize = 22,
+		Color = C.Ink,
+		Stroke = 0,
+		Size = UDim2.new(1, 0, 0, 30),
+		Position = UDim2.fromOffset(0, 288),
+		Parent = body,
+	})
+	local inventoryLabel = Kit.text({
+		Text = "",
+		TextSize = 17,
+		Color = C.Muted,
+		Stroke = 0,
+		Size = UDim2.new(1, 0, 0, 22),
+		Position = UDim2.fromOffset(4, 320),
+		XAlign = Enum.TextXAlignment.Left,
+		Parent = body,
+	})
+	local inventory = Kit.new("ScrollingFrame", {
+		BackgroundColor3 = C.PanelAlt,
+		BackgroundTransparency = 0.2,
+		Size = UDim2.new(1, 0, 0, 124),
+		Position = UDim2.fromOffset(0, 344),
+		CanvasSize = UDim2.new(),
+		AutomaticCanvasSize = Enum.AutomaticSize.X,
+		ScrollingDirection = Enum.ScrollingDirection.X,
+		ScrollBarThickness = 8,
+		ScrollBarImageColor3 = C.NavySoft,
+		BorderSizePixel = 0,
+		Parent = body,
+	}) :: ScrollingFrame
+	Kit.corner(inventory, 14)
+	Kit.padding(inventory, 8, 8, 12, 8)
+	Kit.list(inventory, Enum.FillDirection.Horizontal, 8, Enum.HorizontalAlignment.Left, Enum.VerticalAlignment.Top)
+
+	local buttons = Kit.new("Frame", {
+		BackgroundTransparency = 1,
+		Size = UDim2.new(1, 0, 0, 56),
+		Position = UDim2.new(0, 0, 1, -4),
+		AnchorPoint = Vector2.new(0, 1),
+		Parent = body,
+	})
+	Kit.list(buttons, Enum.FillDirection.Horizontal, 16, Enum.HorizontalAlignment.Center)
+	local readyButton = Kit.button({
+		Text = "",
+		TextSize = 22,
+		Palette = "Green",
+		Size = UDim2.fromOffset(240, 54),
+		LayoutOrder = 1,
+		Parent = buttons,
+		OnClick = function()
+			if current then
+				local result = app.Net.invoke("TradeReady", { ready = not current.myReady })
+				app.Sfx.play(if result.ok then "Click" else "Error")
+			end
+		end,
+	})
+	local cancelButton = Kit.button({
+		Text = "",
+		TextSize = 22,
+		Palette = "Red",
+		Size = UDim2.fromOffset(200, 54),
+		LayoutOrder = 2,
+		Parent = buttons,
+		OnClick = function()
+			panel.close()
+		end,
+	})
+
+	local function setReady(chip: Frame, ready: boolean)
+		chip.BackgroundColor3 = if ready then C.Green else C.Gray
+		local label = chip:FindFirstChild("Label") :: TextLabel?
+		if label then
+			label.Text = if ready then utf8.char(0x2714) .. " " .. Strings.get("tradeReady") else Strings.get("tradeWaiting")
+		end
+	end
+
+	local function sendOffer(ids: { string })
+		local result = app.Net.invoke("TradeOffer", { ids = ids })
+		if not result.ok then
+			app.Sfx.play("Error")
+			if result.err then
+				app.Toasts.show(Strings.get(result.err), "bad")
+			end
+		else
+			app.Sfx.play("Click")
+		end
+	end
+
+	local function render()
+		local view = current
+		if not view then
+			return
+		end
+		panel.setTitle(Strings.get("tradeWith", { name = view.partner.name }))
+		myTitle.Text = Strings.get("tradeYours")
+		theirTitle.Text = Strings.get("tradeTheirs", { name = view.partner.name })
+		setReady(myReady, view.myReady)
+		setReady(theirReady, view.theirReady)
+		readyButton.setText(if view.myReady then Strings.get("tradeUnready") else Strings.get("tradeReadyButton"))
+		readyButton.setPalette(if view.myReady then "Gray" else "Green")
+		cancelButton.setText(Strings.get("cancel"))
+		inventoryLabel.Text = Strings.get("tradePick", { n = Config.TradeMaxPets })
+
+		offered = {}
+		clearCells(myGrid)
+		for order, info in view.mine do
+			table.insert(offered, info.id)
+			petCell(myGrid, info, order, function()
+				local ids = table.clone(offered)
+				local index = table.find(ids, info.id)
+				if index then
+					table.remove(ids, index)
+				end
+				sendOffer(ids)
+			end)
+		end
+		clearCells(theirGrid)
+		for order, info in view.theirs do
+			petCell(theirGrid, info, order)
+		end
+
+		clearCells(inventory)
+		local profile = app.State.profile
+		if profile then
+			local ids = {}
+			for id, pet in profile.pets do
+				if not table.find(offered, id) and not pet.l then
+					table.insert(ids, id)
+				end
+			end
+			table.sort(ids, function(a, b)
+				local pa, pb = profile.pets[a], profile.pets[b]
+				return Economy.petPower(pa.s, pa.m) > Economy.petPower(pb.s, pb.m)
+			end)
+			for order, id in ids do
+				local pet = profile.pets[id]
+				local cell = petCell(inventory, { id = id, s = pet.s, m = pet.m }, order, function()
+					local next = table.clone(offered)
+					table.insert(next, id)
+					sendOffer(next)
+				end)
+				cell.Size = UDim2.fromOffset(92, 100)
+			end
+		end
+	end
+
+	RunService.Heartbeat:Connect(function()
+		local view = current
+		if not view or not panel.isOpen then
+			return
+		end
+		if view.countdownEnds then
+			local left = math.max(0, view.countdownEnds - os.clock())
+			status.Text = Strings.get("tradeCountdown", { n = math.ceil(left) })
+			status.TextColor3 = C.GreenDark
+		elseif view.myReady and not view.theirReady then
+			status.Text = Strings.get("tradeWaitingFor", { name = view.partner.name })
+			status.TextColor3 = C.Muted
+		else
+			status.Text = Strings.get("tradeHint")
+			status.TextColor3 = C.Muted
+		end
+	end)
+
+	panel.onClose = function()
+		if current then
+			current = nil
+			app.Net.invoke("TradeCancel")
+		end
+	end
+
+	app.Net.on("tradeRequest", function(payload: any)
+		if current then
+			return
+		end
+		pending = { userId = payload.userId, expires = os.clock() + (payload.seconds or 20), seconds = payload.seconds or 20 }
+		popupText.Text = Strings.get("tradeAsk", { name = payload.name })
+		acceptButton.setText(Strings.get("accept"))
+		declineButton.setText(Strings.get("decline"))
+		popup.Visible = true
+		Anim.pop(popup, 0.12)
+		app.Sfx.play("Open")
+	end)
+
+	app.Net.on("trade", function(payload: any)
+		local first = current == nil
+		current = payload
+		if payload.countdown then
+			payload.countdownEnds = os.clock() + payload.countdown
+		end
+		pending = nil
+		popup.Visible = false
+		if first then
+			app.closePanels()
+			panel.open()
+			app.Sfx.play("Open")
+		end
+		render()
+	end)
+
+	app.Net.on("tradeClosed", function(payload: any)
+		current = nil
+		if panel.isOpen then
+			panel.close()
+		end
+		if payload.reason == "done" then
+			app.Sfx.play("Legendary")
+			app.Effects.confetti(50)
+			app.Toasts.show(Strings.get("tradeDone", { n = payload.got or 0 }), "gold", utf8.char(0x1F91D))
+		elseif payload.reason == "left" then
+			app.Toasts.show(Strings.get("tradeLeft", { name = payload.partner or "" }), "bad")
+		else
+			app.Toasts.show(Strings.get("tradeCancelled"), "info")
+		end
+	end)
+
+	app.State.profileChanged:Connect(function()
+		if panel.isOpen then
+			render()
+		end
+	end)
+	app.State.languageChanged:Connect(render)
+
+	-- Sends a trade request (from the player list).
+	function app.requestTrade(userId: number)
+		local result = app.Net.invoke("TradeRequest", { userId = userId })
+		if result.ok then
+			if not (result.data and result.data.started) then
+				app.Toasts.show(Strings.get("tradeSent"), "info", utf8.char(0x1F91D))
+			end
+		else
+			app.Sfx.play("Error")
+			if result.err then
+				app.Toasts.show(Strings.get(result.err), "bad")
+			end
+		end
+	end
+
+	return { panel = panel }
+end
+
+return Trade
+]]></string>
+            </Properties>
+          </Item>
+          <Item class="ModuleScript" referent="93">
             <Properties>
               <string name="Name">Tutorial</string>
               <string name="Source"><![CDATA[--!strict
@@ -15500,7 +17514,7 @@ return Tutorial
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="88">
+          <Item class="ModuleScript" referent="94">
             <Properties>
               <string name="Name">Viewport</string>
               <string name="Source"><![CDATA[--!strict
@@ -15510,6 +17524,8 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
+local GearModels = require(Shared.Models.GearModels)
+local Mutations = require(Shared.Models.Mutations)
 local PetModels = require(Shared.Models.PetModels)
 local RelicModels = require(Shared.Models.RelicModels)
 
@@ -15531,9 +17547,18 @@ local function cached(key: string, build: () -> Model): Model
 	return model:Clone()
 end
 
-function Viewport.pet(key: string): Model
-	return cached("pet:" .. key, function()
-		return PetModels.build(key, 3)
+function Viewport.pet(key: string, mutations: { string }?): Model
+	local top = Mutations.top(mutations)
+	return cached("pet:" .. key .. ":" .. (top or ""), function()
+		local model = PetModels.build(key, 3)
+		Mutations.apply(model, mutations)
+		return model
+	end)
+end
+
+function Viewport.gear(key: string): Model
+	return cached("gear:" .. key, function()
+		return GearModels.build(key, 3)
 	end)
 end
 
@@ -15634,7 +17659,7 @@ return Viewport
             </Properties>
           </Item>
         </Item>
-        <Item class="ModuleScript" referent="89">
+        <Item class="ModuleScript" referent="95">
           <Properties>
             <string name="Name">WorldFx</string>
             <string name="Source"><![CDATA[--!strict
@@ -15788,7 +17813,7 @@ return WorldFx
       </Item>
     </Item>
   </Item>
-  <Item class="Workspace" referent="90">
+  <Item class="Workspace" referent="96">
     <Properties>
       <string name="Name">Workspace</string>
       <float name="FallenPartsDestroyHeight">-1200</float>

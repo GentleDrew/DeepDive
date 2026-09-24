@@ -81,10 +81,11 @@ end
 
 -- Some progress so the HUD and panels have content.
 session.profile.coins = 48250
-session.profile.upgrades.tank = 6
-session.profile.upgrades.pack = 5
-session.profile.upgrades.fins = 4
-session.profile.upgrades.magnet = 3
+for _, key in { "tank1a", "tank1b", "tank2a", "pack1a", "pack1b", "fins1a", "magnet1a" } do
+	session.profile.gear.owned[key] = true
+end
+session.profile.gear.equip = { tank = "tank2a", pack = "pack1b", fins = "fins1a", magnet = "magnet1a" }
+session.profile.unlocked = 3
 session.profile.worlds["1"].sold = 9
 session.profile.tutorial = 7
 Sync.profile(session)
@@ -146,6 +147,19 @@ for _ = 1, 3 do
 	Engine.wait(3.4)
 end
 session.profile.coins = 48250
+-- Mutations on a few pets and some Lucky Enchants.
+local mutated = 0
+for _, pet in session.profile.pets do
+	mutated += 1
+	if mutated == 1 then
+		pet.m = { "Gold", "Lava" }
+	elseif mutated == 2 then
+		pet.m = { "Galaxy" }
+	elseif mutated == 3 then
+		pet.m = { "GOAT", "Diamond", "Gold" }
+	end
+end
+session.profile.enchants = 2
 Sync.profile(session)
 Engine.wait(0.5)
 
@@ -220,6 +234,34 @@ session.oxygen = 0.05
 Engine.wait(0.9)
 snap("14_blackout")
 Engine.wait(3)
+
+-- Trading: an incoming request, then the trade window with offers on both sides.
+local friend = Engine.addPlayer("Buddy", 1002)
+local friendSession
+for _ = 1, 100 do
+	friendSession = Sessions.get(friend)
+	if friendSession and friendSession.ready then
+		break
+	end
+	Engine.wait(0.2)
+end
+friendSession.profile.pets = { P1 = { s = "p2.4", l = false, m = { "Diamond" } }, P2 = { s = "p1.5", l = false } }
+Engine.invokeAs(friend, "TradeRequest", { userId = player.UserId })
+Engine.wait(0.8)
+snap("15_trade_request")
+ClientNet.invoke("TradeRespond", { userId = 1002, accept = true })
+Engine.wait(0.6)
+local offer = {}
+for id in session.profile.pets do
+	if #offer < 2 then
+		table.insert(offer, id)
+	end
+end
+ClientNet.invoke("TradeOffer", { ids = offer })
+Engine.invokeAs(friend, "TradeOffer", { ids = { "P1", "P2" } })
+Engine.invokeAs(friend, "TradeReady", { ready = true })
+Engine.wait(0.9)
+snap("16_trade")
 
 Engine.running = false
 process.exit(0)

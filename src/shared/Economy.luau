@@ -3,6 +3,7 @@
 
 local Config = if script then require(script.Parent.Config) else require("./Config")
 local Worlds = if script then require(script.Parent.Data.Worlds) else require("./Data/Worlds")
+local Gear = if script then require(script.Parent.Data.Gear) else require("./Data/Gear")
 
 local Economy = {}
 
@@ -73,7 +74,9 @@ function Economy.displayMeters(world: number, depth: number): number
 	return math.max(0, math.floor(depth / Economy.depthStuds(world) * data.meters + 0.5))
 end
 
--- Upgrade tracks -------------------------------------------------------------------------------
+-- Gear stats ----------------------------------------------------------------------------------
+-- Each slot has a continuous stat curve over a "level" (1 = starter gear). Gear tiers map onto
+-- that curve: tier 40 (World 20 Pro) reaches the slot's max level, early tiers climb faster.
 
 local TRACKS = {}
 for _, track in Config.Upgrades do
@@ -88,16 +91,17 @@ local VALUE = {
 	end,
 	pack = function(level: number): number
 		local l = level - 1
-		return 4 + l + math.floor(0.07 * l * l)
+		return math.floor(4 + l + 0.07 * l * l)
 	end,
 	fins = function(level: number): number
-		return 15 + 0.8 * (level - 1)
+		return math.floor((15 + 0.8 * (level - 1)) * 10 + 0.5) / 10
 	end,
 	magnet = function(level: number): number
-		return 5 + 0.8 * (level - 1)
+		return math.floor((5 + 0.8 * (level - 1)) * 10 + 0.5) / 10
 	end,
 }
 
+-- Stat value at a (possibly fractional) level of a slot's curve.
 function Economy.upgradeValue(track: string, level: number): number
 	local fn = VALUE[track]
 	local def = TRACKS[track]
@@ -107,13 +111,111 @@ function Economy.upgradeValue(track: string, level: number): number
 	return fn(math.clamp(level, 1, def.max))
 end
 
--- Price to go from `level` to `level + 1`. Returns nil at max level.
-function Economy.upgradeCost(track: string, level: number): number?
-	local def = TRACKS[track]
-	if not def or level >= def.max then
+function Economy.gearLevel(slot: string, tier: number): number
+	local def = TRACKS[slot]
+	if not def or tier <= 0 then
+		return 1
+	end
+	return 1 + (def.max - 1) * (math.min(tier, Gear.Tiers) / Gear.Tiers) ^ Config.GearCurve
+end
+
+-- Stat a slot gives with the gear of `tier` equipped (0 = starter gear).
+function Economy.gearValue(slot: string, tier: number): number
+	return Economy.upgradeValue(slot, Economy.gearLevel(slot, tier))
+end
+
+function Economy.gearCost(key: string): number?
+	local item = Gear.byKey[key]
+	if not item then
 		return nil
 	end
-	return Economy.nice(def.base * def.growth ^ (level - 1))
+	local def = TRACKS[item.slot]
+	local level = Economy.gearLevel(item.slot, item.tier)
+	return Economy.nice(Config.GearPriceScale * def.base * def.growth ^ (level - 2))
+end
+
+-- Stat from a profile's equipped gear map ({ slot = gearKey }).
+function Economy.stat(equip: { [string]: string }?, slot: string): number
+	return Economy.gearValue(slot, Gear.tier(equip and equip[slot]))
+end
+
+-- Pet mutations ---------------------------------------------------------------------------------
+-- Mutations stack by adding their multipliers: Gold (x2) + Lava (x5) = x7 pet boost.
+
+local MUTATIONS = {}
+for _, mutation in Config.Mutations do
+	MUTATIONS[mutation.key] = mutation
+end
+Economy.Mutations = MUTATIONS
+
+function Economy.mutationMultiplier(list: { string }?): number
+	if not list or #list == 0 then
+		return 1
+	end
+	local sum = 0
+	for _, key in list do
+		local mutation = MUTATIONS[key]
+		if mutation then
+			sum += mutation.mult
+		end
+	end
+	return math.max(1, sum)
+end
+
+-- Boost of an owned pet entry, mutations included.
+function Economy.petPower(key: string, mutations: { string }?): number
+	return Economy.petBoost(key) * Economy.mutationMultiplier(mutations)
+end
+
+-- Price of the next enchant on a pet (nil once it carries every mutation).
+function Economy.mutateCost(key: string, mutations: { string }?): number?
+	local pet = Worlds.pets[key]
+	local count = if mutations then #mutations else 0
+	if not pet or count >= #Config.Mutations then
+		return nil
+	end
+	return Economy.nice(Economy.eggCost(pet.world) * Config.MutationCost[count + 1])
+end
+
+-- Weighted roll among the mutations the pet does not have yet, optionally limited to `pool`
+-- (Lucky Enchants). roll in [0, 1).
+function Economy.rollMutation(existing: { string }?, roll: number, pool: { string }?): string?
+	local total = 0
+	local options = {}
+	for _, mutation in Config.Mutations do
+		if not (existing and table.find(existing, mutation.key)) and (not pool or table.find(pool, mutation.key)) then
+			table.insert(options, mutation)
+			total += mutation.weight
+		end
+	end
+	if #options == 0 then
+		return nil
+	end
+	local target = roll * total
+	for _, mutation in options do
+		target -= mutation.weight
+		if target < 0 then
+			return mutation.key
+		end
+	end
+	return options[#options].key
+end
+
+-- Chance (0..1) of each still-missing mutation on the next enchant.
+function Economy.mutationChances(existing: { string }?): { { key: string, chance: number } }
+	local total = 0
+	for _, mutation in Config.Mutations do
+		if not (existing and table.find(existing, mutation.key)) then
+			total += mutation.weight
+		end
+	end
+	local out = {}
+	for _, mutation in Config.Mutations do
+		if not (existing and table.find(existing, mutation.key)) then
+			table.insert(out, { key = mutation.key, chance = mutation.weight / total })
+		end
+	end
+	return out
 end
 
 -- Relic rarity by depth ---------------------------------------------------------------------------

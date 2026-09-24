@@ -42,11 +42,11 @@ local function aliveHumanoid(player: Player): Humanoid?
 end
 
 local function capacity(session: Session): number
-	return Economy.upgradeValue("pack", session.profile.upgrades.pack)
+	return Economy.stat(session.profile.gear.equip, "pack")
 end
 
 local function magnet(session: Session): number
-	return Economy.upgradeValue("magnet", session.profile.upgrades.magnet)
+	return Economy.stat(session.profile.gear.equip, "magnet")
 end
 
 function DiveService.rollLayout(session: Session)
@@ -83,7 +83,7 @@ end
 local function startDive(session: Session)
 	local profile = session.profile
 	session.mode = "Diving"
-	session.oxygenMax = Economy.upgradeValue("tank", profile.upgrades.tank)
+	session.oxygenMax = Economy.stat(profile.gear.equip, "tank")
 	session.oxygen = session.oxygenMax
 	session.diveStart = #profile.backpack
 	session.surfacedFor = 0
@@ -458,7 +458,7 @@ end
 
 function DiveService.refreshOxygen(session: Session)
 	if session.mode ~= "Diving" then
-		session.oxygenMax = Economy.upgradeValue("tank", session.profile.upgrades.tank)
+		session.oxygenMax = Economy.stat(session.profile.gear.equip, "tank")
 		session.oxygen = session.oxygenMax
 	end
 end

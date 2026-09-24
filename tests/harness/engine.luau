@@ -1074,6 +1074,10 @@ function Engine.spawnCharacter(playerProxy)
 	part("UpperTorso", Vector3.new(2, 1.6, 1), Vector3.new(0, 0.4, 0))
 	part("LowerTorso", Vector3.new(2, 0.4, 1), Vector3.new(0, -0.8, 0))
 	part("Head", Vector3.new(1.2, 1.2, 1.2), Vector3.new(0, 1.8, 0))
+	part("LeftHand", Vector3.new(0.6, 0.3, 0.6), Vector3.new(-1.5, -0.7, 0))
+	part("RightHand", Vector3.new(0.6, 0.3, 0.6), Vector3.new(1.5, -0.7, 0))
+	part("LeftFoot", Vector3.new(0.8, 0.3, 1), Vector3.new(-0.5, -2.85, 0))
+	part("RightFoot", Vector3.new(0.8, 0.3, 1), Vector3.new(0.5, -2.85, 0))
 	local humanoid = roblox.Instance.new("Humanoid")
 	humanoid.RigType = Enum.HumanoidRigType.R15
 	humanoid.HipHeight = 2
@@ -2055,8 +2059,8 @@ end)
 ---------------------------------------------------------------------------------------------------
 -- Remotes
 
-local function logTraffic(direction: string, remote, args)
-	table.insert(Engine.traffic, { t = os.clock(), dir = direction, remote = proxyToRaw[remote].Name, args = args })
+local function logTraffic(direction: string, remote, args, to)
+	table.insert(Engine.traffic, { t = os.clock(), dir = direction, remote = proxyToRaw[remote].Name, args = args, to = to })
 end
 
 local function sendToServer(self, ...)
@@ -2072,7 +2076,7 @@ local function sendToClient(self, player, ...)
 		error("FireClient: player argument must be a Player", 2)
 	end
 	local args = copyArgs(table.pack(...), proxyToRaw[self].Name .. ":FireClient")
-	logTraffic("s2c", self, args)
+	logTraffic("s2c", self, args, player)
 	if player ~= Engine.localPlayer then
 		return
 	end
@@ -2769,19 +2773,36 @@ function Engine.waitFor(predicate: () -> any, timeout: number, label: string): b
 end
 
 -- Traffic entries after `since` that match a remote/kind.
-function Engine.pushes(kind: string, since: number?)
+function Engine.pushes(kind: string, since: number?, player: any?)
 	local out = {}
 	for _, entry in Engine.traffic do
-		if entry.dir == "s2c" and entry.args[1] == kind and (not since or entry.t >= since) then
+		if
+			entry.dir == "s2c"
+			and entry.args[1] == kind
+			and (not since or entry.t >= since)
+			and (entry.to == nil or entry.to == (player or Engine.localPlayer))
+		then
 			table.insert(out, entry.args[2])
 		end
 	end
 	return out
 end
 
-function Engine.lastPush(kind: string, since: number?)
-	local list = Engine.pushes(kind, since)
+function Engine.lastPush(kind: string, since: number?, player: any?)
+	local list = Engine.pushes(kind, since, player)
 	return list[#list]
+end
+
+-- Calls the server's Invoke remote as another (script-less) player, with wire checks.
+function Engine.invokeAs(playerProxy, ...)
+	local remote = Engine.service("ReplicatedStorage"):FindFirstChild("Remotes"):FindFirstChild("Invoke")
+	local args = copyArgs(table.pack(...), "Invoke:InvokeServer (as " .. unwrap(playerProxy).Name .. ")")
+	local callback = Engine.callback(remote, "OnServerInvoke")
+	local ok, result = pcall(callback, playerProxy, table.unpack(args, 1, args.n))
+	if not ok then
+		error(result, 2)
+	end
+	return wireCopy(result, "Invoke return (as " .. unwrap(playerProxy).Name .. ")", "remote")
 end
 
 function Engine.gui()

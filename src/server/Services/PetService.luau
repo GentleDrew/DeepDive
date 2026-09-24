@@ -90,7 +90,8 @@ local function sortedByBoost(profile: Profile.Data): { string }
 		table.insert(ids, id)
 	end
 	table.sort(ids, function(a, b)
-		local ba, bb = Economy.petBoost(profile.pets[a].s), Economy.petBoost(profile.pets[b].s)
+		local pa, pb = profile.pets[a], profile.pets[b]
+		local ba, bb = Economy.petPower(pa.s, pa.m), Economy.petPower(pb.s, pb.m)
 		if ba ~= bb then
 			return ba > bb
 		end
@@ -178,6 +179,9 @@ local function deletePet(player: Player, payload: any): (boolean, string?, any)
 	if not pet or pet.l then
 		return false, "err.generic"
 	end
+	if session.trade then
+		return false, "tradeBusy"
+	end
 	profile.pets[payload.id] = nil
 	local index = table.find(profile.equipped, payload.id)
 	if index then
@@ -186,6 +190,53 @@ local function deletePet(player: Player, payload: any): (boolean, string?, any)
 	end
 	Sync.profile(session)
 	return true
+end
+
+-- Enchanting: pay coins (or spend a Lucky Enchant) to add a random new mutation to a pet.
+local function mutate(player: Player, payload: any): (boolean, string?, any)
+	local session = Sessions.get(player)
+	if not session or not session.ready then
+		return false, "err.notReady"
+	end
+	if type(payload) ~= "table" or type(payload.id) ~= "string" then
+		return false, "err.generic"
+	end
+	local profile = session.profile
+	local pet = profile.pets[payload.id]
+	if not pet then
+		return false, "err.generic"
+	end
+	if session.trade then
+		return false, "tradeBusy"
+	end
+	local list = pet.m or {}
+	if #list >= #Config.Mutations then
+		return false, "mutateMax"
+	end
+	local key: string?
+	local cost = 0
+	if payload.lucky == true then
+		if profile.enchants < 1 then
+			return false, "noLucky"
+		end
+		key = Economy.rollMutation(list, session.rng:NextNumber(), Config.LuckyMutations) or Economy.rollMutation(list, session.rng:NextNumber())
+		profile.enchants -= 1
+	else
+		cost = Economy.mutateCost(pet.s, pet.m) :: number
+		if profile.coins < cost then
+			return false, "notEnough"
+		end
+		profile.coins -= cost
+		key = Economy.rollMutation(list, session.rng:NextNumber())
+	end
+	assert(key, "a mutation is always available below the cap")
+	table.insert(list, key)
+	pet.m = list
+	if table.find(profile.equipped, payload.id) then
+		Sessions.publishPets(session)
+	end
+	Sync.profile(session)
+	return true, nil, { mutation = key, cost = cost, count = #list }
 end
 
 -- Trims equipped pets after a pass change or load.
@@ -204,6 +255,7 @@ function PetService.init()
 	Net.on("UnequipAll", unequipAll)
 	Net.on("SetLock", setLock)
 	Net.on("DeletePet", deletePet)
+	Net.on("Mutate", mutate)
 end
 
 return PetService

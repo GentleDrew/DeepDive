@@ -89,6 +89,11 @@ function WorldProps.init(app: any)
 					descendant,
 					{ { text = utf8.char(0x1F93F) .. " " .. Strings.get("menu.upgrades"), size = 52, color = Color3.fromRGB(255, 226, 120) } }
 				)
+			elseif descendant.Name == "EnchantSign" and descendant:IsA("BasePart") then
+				signGui(
+					descendant,
+					{ { text = utf8.char(0x2728) .. " " .. Strings.get("enchantAltar"), size = 46, color = Color3.fromRGB(226, 180, 255) } }
+				)
 			elseif descendant.Name == "SellSign" and descendant:IsA("BasePart") then
 				signGui(
 					descendant,

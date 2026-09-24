@@ -1,6 +1,8 @@
 --!strict
 -- Pet inventory: 3D pet cards by rarity, equip/lock/delete, equip best and total boost.
 
+local MarketplaceService = game:GetService("MarketplaceService")
+local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
@@ -9,6 +11,7 @@ local Economy = require(Shared.Economy)
 local Format = require(Shared.Format)
 local Strings = require(Shared.Strings)
 local Worlds = require(Shared.Data.Worlds)
+local Mutations = require(Shared.Models.Mutations)
 
 local Anim = require(script.Parent.Parent.Anim)
 local Kit = require(script.Parent.Parent.Kit)
@@ -20,8 +23,15 @@ local PetsPanel = {}
 
 local C = Theme.C
 
-function PetsPanel.boostText(key: string): string
-	return Format.multiplier(1 + Economy.petBoost(key))
+function PetsPanel.boostText(key: string, mutations: { string }?): string
+	return Format.multiplier(1 + Economy.petPower(key, mutations))
+end
+
+local LUCKY_PRODUCT = nil :: any
+for _, product in Config.Products do
+	if product.enchants > 0 then
+		LUCKY_PRODUCT = product
+	end
 end
 
 function PetsPanel.new(app: any): Panel.PanelApi
@@ -30,7 +40,7 @@ function PetsPanel.new(app: any): Panel.PanelApi
 		Title = Strings.get("petsTitle"),
 		Icon = utf8.char(0x1F43E),
 		Palette = "Pink",
-		Size = Vector2.new(900, 560),
+		Size = Vector2.new(940, 620),
 	})
 	local body = panel.body
 
@@ -103,22 +113,22 @@ function PetsPanel.new(app: any): Panel.PanelApi
 	Kit.corner(detail, 18)
 	Kit.stroke(detail, C.PanelLine, 3)
 	local detailGradient = Kit.gradient(detail, Color3.fromRGB(255, 255, 255), Color3.fromRGB(220, 240, 255))
-	-- Vertical budget (detail is ~384 tall): preview 4-140, name, rarity, origin, boost up to ~262,
-	-- then the action grid (96) pinned to the bottom.
-	local bigView = Viewport.new(detail, UDim2.fromOffset(200, 136), UDim2.new(0.5, 0, 0, 4), Vector2.new(0.5, 0))
+	-- Vertical budget (detail is ~468 tall): preview 4-136, name, rarity, origin, boost, mutation
+	-- chips up to ~290, then the action grid (3 rows, 148) pinned to the bottom.
+	local bigView = Viewport.new(detail, UDim2.fromOffset(200, 132), UDim2.new(0.5, 0, 0, 4), Vector2.new(0.5, 0))
 	bigView.setSpin(true)
 	local detailName = Kit.text({
 		Text = "",
 		TextSize = 28,
 		Size = UDim2.new(1, -16, 0, 32),
-		Position = UDim2.new(0.5, 0, 0, 142),
+		Position = UDim2.new(0.5, 0, 0, 138),
 		AnchorPoint = Vector2.new(0.5, 0),
 		Parent = detail,
 	})
 	local rarityChip = Kit.new("Frame", {
 		BackgroundColor3 = C.Gray,
 		Size = UDim2.fromOffset(150, 28),
-		Position = UDim2.new(0.5, 0, 0, 178),
+		Position = UDim2.new(0.5, 0, 0, 174),
 		AnchorPoint = Vector2.new(0.5, 0),
 		Parent = detail,
 	})
@@ -131,7 +141,7 @@ function PetsPanel.new(app: any): Panel.PanelApi
 		Color = C.Muted,
 		Stroke = 0,
 		Size = UDim2.new(1, -16, 0, 20),
-		Position = UDim2.new(0.5, 0, 0, 210),
+		Position = UDim2.new(0.5, 0, 0, 206),
 		AnchorPoint = Vector2.new(0.5, 0),
 		Parent = detail,
 	})
@@ -141,13 +151,65 @@ function PetsPanel.new(app: any): Panel.PanelApi
 		Color = C.Gold,
 		StrokeColor = C.GoldDark,
 		Size = UDim2.new(1, -16, 0, 30),
-		Position = UDim2.new(0.5, 0, 0, 232),
+		Position = UDim2.new(0.5, 0, 0, 228),
 		AnchorPoint = Vector2.new(0.5, 0),
 		Parent = detail,
 	})
+	-- Mutation chips (Gold x2, Lava x5, ...) or a hint when the pet has none.
+	local mutationRow = Kit.new("Frame", {
+		BackgroundTransparency = 1,
+		Size = UDim2.new(1, -12, 0, 26),
+		Position = UDim2.new(0.5, 0, 0, 264),
+		AnchorPoint = Vector2.new(0.5, 0),
+		Parent = detail,
+	})
+	Kit.list(mutationRow, Enum.FillDirection.Horizontal, 4)
+	local mutationHint = Kit.text({
+		Text = "",
+		TextSize = 15,
+		Color = C.Muted,
+		Stroke = 0,
+		Size = UDim2.fromScale(1, 1),
+		LayoutOrder = 99,
+		Parent = mutationRow,
+	})
+	local mutationChips: { Frame } = {}
+	local function setMutations(list: { string }?)
+		for _, chip in mutationChips do
+			chip:Destroy()
+		end
+		table.clear(mutationChips)
+		mutationHint.Visible = not list or #list == 0
+		mutationHint.Text = Strings.get("noMutations")
+		if not list then
+			return
+		end
+		for order, key in list do
+			local color = Mutations.color(key)
+			local chip = Kit.new("Frame", {
+				BackgroundColor3 = color,
+				Size = UDim2.fromOffset(0, 24),
+				AutomaticSize = Enum.AutomaticSize.X,
+				LayoutOrder = order,
+				Parent = mutationRow,
+			}) :: Frame
+			Kit.round(chip)
+			Kit.stroke(chip, color:Lerp(Color3.new(0, 0, 0), 0.55), 2)
+			Kit.padding(chip, 0, 7, 0, 7)
+			Kit.text({
+				Text = Strings.get("mutation." .. key) .. " x" .. Economy.Mutations[key].mult,
+				TextSize = 13,
+				AutoX = true,
+				Size = UDim2.new(0, 0, 1, 0),
+				StrokeColor = color:Lerp(Color3.new(0, 0, 0), 0.6),
+				Parent = chip,
+			})
+			table.insert(mutationChips, chip)
+		end
+	end
 	local actions = Kit.new("Frame", {
 		BackgroundTransparency = 1,
-		Size = UDim2.new(1, -20, 0, 96),
+		Size = UDim2.new(1, -20, 0, 148),
 		Position = UDim2.new(0.5, 0, 1, -8),
 		AnchorPoint = Vector2.new(0.5, 1),
 		Parent = detail,
@@ -162,11 +224,14 @@ function PetsPanel.new(app: any): Panel.PanelApi
 
 	local selected: string? = nil
 	local deleteArmed = false
-	local cards: { [string]: { frame: TextButton, view: Viewport.ViewApi, key: string } } = {}
+	local cards: { [string]: { frame: TextButton, view: Viewport.ViewApi, key: string, look: string } } = {}
 
 	local equipButton: Kit.ButtonApi
 	local lockButton: Kit.ButtonApi
 	local deleteButton: Kit.ButtonApi
+	local enchantButton: Kit.ButtonApi
+	local luckyButton: Kit.ButtonApi
+	local enchantCoin: Frame
 
 	local function refreshDetail()
 		local profile = app.State.profile
@@ -189,7 +254,24 @@ function PetsPanel.new(app: any): Panel.PanelApi
 		rarityChip.BackgroundColor3 = color
 		rarityLabel.Text = Strings.get("rarity." .. rarity)
 		originLabel.Text = Strings.get("world", { n = data.world }) .. "  -  " .. Strings.name(Worlds.get(data.world).egg.name)
-		boostDetail.Text = Strings.get("boost", { x = PetsPanel.boostText(pet.s) })
+		boostDetail.Text = Strings.get("boost", { x = PetsPanel.boostText(pet.s, pet.m) })
+		setMutations(pet.m)
+		local cost = Economy.mutateCost(pet.s, pet.m)
+		if cost then
+			enchantButton.setText(Format.short(cost))
+			enchantButton.setPalette(if profile.coins >= cost then "Purple" else "Gray")
+			enchantButton.setEnabled(true)
+			enchantCoin.Visible = true
+			luckyButton.setText(utf8.char(0x2728) .. " " .. Strings.get("lucky", { n = profile.enchants }))
+			luckyButton.setEnabled(true)
+		else
+			enchantButton.setText(Strings.get("max"))
+			enchantButton.setPalette("Gold")
+			enchantButton.setEnabled(false)
+			enchantCoin.Visible = false
+			luckyButton.setText(Strings.get("max"))
+			luckyButton.setEnabled(false)
+		end
 		detailGradient.Color = ColorSequence.new(Color3.fromRGB(255, 255, 255), color:Lerp(Color3.new(1, 1, 1), 0.7))
 		local equipped = table.find(profile.equipped, selected) ~= nil
 		equipButton.setText(Strings.get(if equipped then "unequip" else "equip"))
@@ -230,11 +312,66 @@ function PetsPanel.new(app: any): Panel.PanelApi
 			end
 		end,
 	})
+	local function enchant(lucky: boolean)
+		local profile = app.State.profile
+		if not profile or not selected then
+			return
+		end
+		if lucky and profile.enchants < 1 then
+			if LUCKY_PRODUCT and LUCKY_PRODUCT.id > 0 then
+				MarketplaceService:PromptProductPurchase(Players.LocalPlayer, LUCKY_PRODUCT.id)
+			else
+				app.Toasts.show(Strings.get("comingSoon"), "info")
+			end
+			return
+		end
+		local result = app.Net.invoke("Mutate", { id = selected, lucky = lucky })
+		if not result.ok then
+			app.Sfx.play("Error")
+			Anim.shake(detail, 6)
+			if result.err then
+				app.Toasts.show(Strings.get(result.err), "bad")
+			end
+			return
+		end
+		local key = result.data.mutation :: string
+		local def = Economy.Mutations[key]
+		local color = Mutations.color(key)
+		app.Sfx.play(if def.mult >= 5 then "Legendary" elseif def.mult >= 4 then "Reveal" else "Upgrade")
+		app.Effects.flash(color, if def.mult >= 5 then 0.55 else 0.35, 0.5)
+		if def.mult >= 5 then
+			app.Effects.confetti(40)
+		end
+		Anim.pop(detail, 0.08)
+		app.Toasts.show(Strings.get("mutated", { name = Strings.get("mutation." .. key), x = def.mult }), "gold", utf8.char(0x2728))
+	end
+	enchantButton = Kit.button({
+		Text = "",
+		TextSize = 19,
+		Palette = "Purple",
+		LayoutOrder = 3,
+		Parent = actions,
+		OnClick = function()
+			enchant(false)
+		end,
+	})
+	enchantCoin = Kit.Icons.coin(22, enchantButton.button:FindFirstChild("Content") :: Instance)
+	enchantCoin.LayoutOrder = 0
+	luckyButton = Kit.button({
+		Text = "",
+		TextSize = 17,
+		Palette = "Pink",
+		LayoutOrder = 4,
+		Parent = actions,
+		OnClick = function()
+			enchant(true)
+		end,
+	})
 	deleteButton = Kit.button({
 		Text = "",
 		TextSize = 18,
 		Palette = "Red",
-		LayoutOrder = 3,
+		LayoutOrder = 5,
 		Parent = actions,
 		OnClick = function()
 			if not selected then
@@ -263,7 +400,7 @@ function PetsPanel.new(app: any): Panel.PanelApi
 		local profile = app.State.profile
 		local pet = profile and id and profile.pets[id]
 		if pet then
-			bigView.setModel(Viewport.pet(pet.s))
+			bigView.setModel(Viewport.pet(pet.s, pet.m))
 		else
 			bigView.setModel(nil)
 		end
@@ -278,7 +415,7 @@ function PetsPanel.new(app: any): Panel.PanelApi
 		refreshDetail()
 	end
 
-	local function buildCard(id: string, key: string, order: number): TextButton
+	local function buildCard(id: string, key: string, mutations: { string }?, order: number): TextButton
 		local data = Worlds.pets[key]
 		local rarity = Config.Rarities[data.rarity]
 		local color = Theme.Rarity[rarity]
@@ -293,10 +430,34 @@ function PetsPanel.new(app: any): Panel.PanelApi
 		border.Name = "Border"
 		frame:SetAttribute("BorderColor", border.Color)
 		local view = Viewport.new(frame, UDim2.fromOffset(92, 86), UDim2.new(0.5, 0, 0, 4), Vector2.new(0.5, 0))
-		view.setModel(Viewport.pet(key))
+		view.setModel(Viewport.pet(key, mutations))
+		local top = Mutations.top(mutations)
+		if top then
+			local tag = Kit.new("Frame", {
+				Name = "Mutation",
+				BackgroundColor3 = Mutations.color(top),
+				Size = UDim2.fromOffset(0, 20),
+				AutomaticSize = Enum.AutomaticSize.X,
+				Position = UDim2.new(0.5, 0, 1, -48),
+				AnchorPoint = Vector2.new(0.5, 0),
+				ZIndex = 4,
+				Parent = frame,
+			})
+			Kit.round(tag)
+			Kit.padding(tag, 0, 6, 0, 6)
+			Kit.stroke(tag, Mutations.color(top):Lerp(Color3.new(0, 0, 0), 0.55), 2)
+			Kit.text({
+				Text = Strings.get("mutation." .. top) .. (if mutations and #mutations > 1 then " +" .. (#mutations - 1) else ""),
+				TextSize = 12,
+				AutoX = true,
+				Size = UDim2.new(0, 0, 1, 0),
+				ZIndex = 5,
+				Parent = tag,
+			})
+		end
 		Kit.text({
 			Name = "Boost",
-			Text = PetsPanel.boostText(key),
+			Text = PetsPanel.boostText(key, mutations),
 			TextSize = 18,
 			Size = UDim2.new(1, 0, 0, 24),
 			Position = UDim2.new(0, 0, 1, -28),
@@ -338,7 +499,7 @@ function PetsPanel.new(app: any): Panel.PanelApi
 			select(id)
 			Anim.pop(frame, 0.1)
 		end)
-		cards[id] = { frame = frame, view = view, key = key }
+		cards[id] = { frame = frame, view = view, key = key, look = key .. table.concat(mutations or {}, ",") }
 		return frame
 	end
 
@@ -368,22 +529,27 @@ function PetsPanel.new(app: any): Panel.PanelApi
 			if ea ~= eb then
 				return ea
 			end
-			local ba, bb = Economy.petBoost(profile.pets[a].s), Economy.petBoost(profile.pets[b].s)
+			local pa, pb = profile.pets[a], profile.pets[b]
+			local ba, bb = Economy.petPower(pa.s, pa.m), Economy.petPower(pb.s, pb.m)
 			if ba ~= bb then
 				return ba > bb
 			end
 			return a < b
 		end)
 		local keep = {}
+		local rebuiltSelected = false
 		for order, id in ids do
 			keep[id] = true
 			local card = cards[id]
-			if not card or card.key ~= profile.pets[id].s then
+			local pet = profile.pets[id]
+			local look = pet.s .. table.concat(pet.m or {}, ",")
+			if not card or card.look ~= look then
 				if card then
 					card.frame:Destroy()
 				end
-				buildCard(id, profile.pets[id].s, order)
+				buildCard(id, pet.s, pet.m, order)
 				card = cards[id]
+				rebuiltSelected = rebuiltSelected or id == selected
 			end
 			card.frame.LayoutOrder = order
 			local equippedBadge = card.frame:FindFirstChild("Equipped") :: Frame?
@@ -406,6 +572,8 @@ function PetsPanel.new(app: any): Panel.PanelApi
 		end
 		if not selected and ids[1] then
 			select(ids[1])
+		elseif rebuiltSelected then
+			select(selected)
 		else
 			refreshDetail()
 		end

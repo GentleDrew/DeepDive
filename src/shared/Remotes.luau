@@ -12,7 +12,14 @@ Remotes.Board = "LeaderboardData" -- StringValue: JSON top divers for the global
 
 Remotes.Actions = {
 	Teleport = true,
-	BuyUpgrade = true,
+	BuyGear = true,
+	EquipGear = true,
+	Mutate = true,
+	TradeRequest = true,
+	TradeRespond = true,
+	TradeOffer = true,
+	TradeReady = true,
+	TradeCancel = true,
 	Hatch = true,
 	Equip = true,
 	EquipBest = true,

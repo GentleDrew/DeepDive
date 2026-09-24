@@ -3,10 +3,14 @@
 
 local Config = if script then require(script.Parent.Config) else require("./Config")
 local Worlds = if script then require(script.Parent.Data.Worlds) else require("./Data/Worlds")
+local Gear = if script then require(script.Parent.Data.Gear) else require("./Data/Gear")
+local Economy = if script then require(script.Parent.Economy) else require("./Economy")
 
 local Profile = {}
 
-export type PetEntry = { s: string, l: boolean? }
+-- s = species key, l = locked, m = mutations (Config.Mutations keys, in the order gained)
+export type PetEntry = { s: string, l: boolean?, m: { string }? }
+export type GearData = { owned: { [string]: boolean }, equip: { [string]: string } }
 export type WorldProgress = { sold: number, cleared: boolean, best: number }
 export type Data = {
 	v: number,
@@ -15,7 +19,8 @@ export type Data = {
 	world: number,
 	unlocked: number,
 	worlds: { [string]: WorldProgress },
-	upgrades: { [string]: number },
+	gear: GearData,
+	enchants: number, -- Lucky Enchant tokens (developer product)
 	pets: { [string]: PetEntry },
 	equipped: { string },
 	petSeq: number,
@@ -31,10 +36,6 @@ export type Data = {
 }
 
 function Profile.new(now: number): Data
-	local upgrades = {}
-	for _, track in Config.Upgrades do
-		upgrades[track.id] = 1
-	end
 	return {
 		v = Config.SchemaVersion,
 		coins = 0,
@@ -42,7 +43,8 @@ function Profile.new(now: number): Data
 		world = 1,
 		unlocked = 1,
 		worlds = {},
-		upgrades = upgrades,
+		gear = { owned = {}, equip = {} },
+		enchants = 0,
 		pets = {},
 		equipped = {},
 		petSeq = 0,
@@ -101,11 +103,36 @@ function Profile.reconcile(raw: any, now: number): Data
 			end
 		end
 	end
-	if type(raw.upgrades) == "table" then
-		for _, track in Config.Upgrades do
-			data.upgrades[track.id] = math.floor(number(raw.upgrades[track.id], 1, 1, track.max))
+	if type(raw.gear) == "table" then
+		if type(raw.gear.owned) == "table" then
+			for key, value in raw.gear.owned do
+				if type(key) == "string" and Gear.byKey[key] and value == true then
+					data.gear.owned[key] = true
+				end
+			end
+		end
+		if type(raw.gear.equip) == "table" then
+			for _, slot in Gear.Slots do
+				local key = raw.gear.equip[slot]
+				local item = if type(key) == "string" then Gear.byKey[key] else nil
+				if item and item.slot == slot and data.gear.owned[key] then
+					data.gear.equip[slot] = key
+				end
+			end
+		end
+	elseif type(raw.upgrades) == "table" then
+		-- Saves from before gear: grant the best piece whose stat the old upgrade level covered.
+		for _, slot in Gear.Slots do
+			local level = number(raw.upgrades[slot], 1, 1)
+			for _, item in Gear.bySlot[slot] do
+				if Economy.gearLevel(slot, item.tier) <= level + 1e-6 then
+					data.gear.owned[item.key] = true
+					data.gear.equip[slot] = item.key
+				end
+			end
 		end
 	end
+	data.enchants = math.floor(number(raw.enchants, 0, 0, 9999))
 	local count = 0
 	if type(raw.pets) == "table" then
 		for id, entry in raw.pets do
@@ -116,7 +143,19 @@ function Profile.reconcile(raw: any, now: number): Data
 				and Worlds.pets[entry.s]
 				and count < Config.PetInventoryCap
 			then
-				data.pets[id] = { s = entry.s, l = entry.l == true }
+				local mutations: { string }? = nil
+				if type(entry.m) == "table" then
+					local list = {}
+					for _, key in entry.m do
+						if type(key) == "string" and Economy.Mutations[key] and not table.find(list, key) then
+							table.insert(list, key)
+						end
+					end
+					if #list > 0 then
+						mutations = list
+					end
+				end
+				data.pets[id] = { s = entry.s, l = entry.l == true, m = mutations }
 				count += 1
 			end
 		end

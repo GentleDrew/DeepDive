@@ -30,10 +30,11 @@ local Tutorial = require(UI.Tutorial)
 local EggPanel = require(UI.Panels.Egg)
 local IndexPanel = require(UI.Panels.Index)
 local PlayerList = require(UI.PlayerList)
+local Trade = require(UI.Trade)
 local PetsPanel = require(UI.Panels.Pets)
 local SettingsPanel = require(UI.Panels.Settings)
 local ShopPanel = require(UI.Panels.Shop)
-local UpgradesPanel = require(UI.Panels.Upgrades)
+local GearPanel = require(UI.Panels.Gear)
 local WorldsPanel = require(UI.Panels.Worlds)
 
 local ClientNet = require(script.Parent.ClientNet)
@@ -186,7 +187,7 @@ Hud.init({
 })
 
 panels.worlds = WorldsPanel.new(app)
-panels.upgrades = UpgradesPanel.new(app)
+panels.upgrades = GearPanel.new(app)
 panels.pets = PetsPanel.new(app)
 panels.shop = ShopPanel.new(app)
 panels.settings = SettingsPanel.new(app)
@@ -214,7 +215,13 @@ Prompts.init(app)
 Tutorial.init(app)
 Nameplates.init(app)
 Board.init(app)
-app.PlayerList = PlayerList.init()
+app.Trade = Trade.init(app)
+app.PlayerList = PlayerList.init(function(player)
+	app.requestTrade(player.UserId)
+end)
+State.languageChanged:Connect(function()
+	task.defer(app.PlayerList.refresh)
+end)
 
 -- Handshake: wait until the server has loaded our profile and world.
 local view = nil
@@ -247,7 +254,7 @@ task.spawn(function()
 	while true do
 		local p = State.profile
 		if p then
-			Hud.setBadge("upgrades", UpgradesPanel.anyAffordable(p))
+			Hud.setBadge("upgrades", GearPanel.anyAffordable(p))
 			Hud.setBadge("pets", p.coins >= Economy.eggCost(State.world) and next(p.pets) == nil)
 		end
 		task.wait(0.5)

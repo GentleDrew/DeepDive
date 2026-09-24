@@ -49,9 +49,11 @@ local function processReceipt(receipt: any): Enum.ProductPurchaseDecision
 	if table.find(profile.receipts, receiptId) then
 		return Enum.ProductPurchaseDecision.PurchaseGranted
 	end
-	local coins = Economy.productCoins(product.dives, profile.unlocked)
+	local coins = if product.dives > 0 then Economy.productCoins(product.dives, profile.unlocked) else 0
+	local enchants = product.enchants or 0
 	profile.coins += coins
 	profile.lifetime += coins
+	profile.enchants += enchants
 	table.insert(profile.receipts, receiptId)
 	while #profile.receipts > 50 do
 		table.remove(profile.receipts, 1)
@@ -60,6 +62,7 @@ local function processReceipt(receipt: any): Enum.ProductPurchaseDecision
 	if not ProfileStore.save(player, false) then
 		profile.coins -= coins
 		profile.lifetime -= coins
+		profile.enchants -= enchants
 		local index = table.find(profile.receipts, receiptId)
 		if index then
 			table.remove(profile.receipts, index)
@@ -68,7 +71,7 @@ local function processReceipt(receipt: any): Enum.ProductPurchaseDecision
 	end
 	Sync.profile(session)
 	Net.push(player, "toast", { key = "thanks", kind = "gold" })
-	Net.push(player, "purchase", { coins = coins })
+	Net.push(player, "purchase", { coins = coins, enchants = enchants })
 	return Enum.ProductPurchaseDecision.PurchaseGranted
 end
 

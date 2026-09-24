@@ -8,6 +8,7 @@ local Format = require("../src/shared/Format")
 local Profile = require("../src/shared/Profile")
 local Strings = require("../src/shared/Strings")
 local Worlds = require("../src/shared/Data/Worlds")
+local Gear = require("../src/shared/Data/Gear")
 
 local passed, failed = 0, 0
 local function check(condition: any, message: string)
@@ -152,17 +153,53 @@ do
 	end
 	check(Economy.rollPet(4, false, 0) == "s4", "roll 0 in a secret egg gives the secret pet")
 	check(Economy.rollPet(1, false, 0) == "p1.1", "roll 0 in a normal egg gives the common pet")
-	for _, def in Config.Upgrades do
-		for level = 1, def.max - 1 do
-			check(Economy.upgradeValue(def.id, level + 1) > Economy.upgradeValue(def.id, level), def.id .. " value grows at " .. level)
-			local cost = Economy.upgradeCost(def.id, level)
-			check(cost ~= nil and cost > 0, def.id .. " has a price at " .. level)
-			if level > 1 then
-				check((Economy.upgradeCost(def.id, level) :: number) > (Economy.upgradeCost(def.id, level - 1) :: number), def.id .. " price grows")
-			end
+	-- Gear: 2 pieces per world per slot, every tier strictly better and pricier than the last.
+	check(#Gear.list == Config.WorldCount * 2 * #Gear.Slots, "160 gear pieces")
+	for _, slot in Gear.Slots do
+		local items = Gear.bySlot[slot]
+		check(#items == Gear.Tiers, slot .. " has 40 tiers")
+		local previousValue, previousCost = Economy.gearValue(slot, 0), 0
+		for index, item in items do
+			check(item.tier == index and Gear.byKey[item.key] == item, slot .. " tier order " .. index)
+			local value = Economy.gearValue(slot, item.tier)
+			local cost = Economy.gearCost(item.key) :: number
+			check(value > previousValue, slot .. " value grows at tier " .. index)
+			check(cost > previousCost, slot .. " price grows at tier " .. index)
+			previousValue, previousCost = value, cost
 		end
-		check(Economy.upgradeCost(def.id, def.max) == nil, def.id .. " has no price at max")
+		local def = Economy.Tracks[slot]
+		check(math.abs(Economy.gearValue(slot, Gear.Tiers) - Economy.upgradeValue(slot, def.max)) < 1e-9, slot .. " top tier reaches max")
 	end
+	check(Economy.stat(nil, "pack") == 4 and Economy.stat({ pack = "pack1a" }, "pack") > 4, "starter and equipped stat")
+	check(Economy.gearCost("nope") == nil and Gear.tier("nope") == 0, "unknown gear")
+	-- Mutations add their multipliers and never repeat on one pet.
+	check(Economy.mutationMultiplier(nil) == 1 and Economy.mutationMultiplier({}) == 1, "no mutation is x1")
+	check(Economy.mutationMultiplier({ "Gold" }) == 2 and Economy.mutationMultiplier({ "Gold", "Lava" }) == 7, "mutations stack by adding")
+	check(Economy.mutationMultiplier({ "Gold", "Diamond", "Galaxy", "Lava", "GOAT" }) == 20, "all mutations x20")
+	check(Economy.petPower("p1.1", { "Galaxy" }) == Economy.petBoost("p1.1") * 4, "mutation scales the pet boost")
+	local owned: { string } = {}
+	for i = 1, #Config.Mutations do
+		local key = Economy.rollMutation(owned, (i * 0.37) % 1)
+		check(key ~= nil and not table.find(owned, key), "enchant adds a new mutation")
+		table.insert(owned, key :: string)
+		if i < #Config.Mutations then
+			check(
+				(Economy.mutateCost("p1.1", owned) :: number) > (Economy.mutateCost("p1.1", { table.unpack(owned, 1, i - 1) }) :: number),
+				"enchants get pricier"
+			)
+		end
+	end
+	check(Economy.rollMutation(owned, 0.5) == nil and Economy.mutateCost("p1.1", owned) == nil, "no enchant past every mutation")
+	for _, roll in { 0, 0.3, 0.7, 0.999 } do
+		local lucky = Economy.rollMutation({}, roll, Config.LuckyMutations)
+		check(lucky ~= nil and table.find(Config.LuckyMutations, lucky) ~= nil, "lucky enchants roll Galaxy+")
+	end
+	local chanceSum = 0
+	for _, entry in Economy.mutationChances({ "Gold" }) do
+		chanceSum += entry.chance
+		check(entry.key ~= "Gold", "owned mutation not offered")
+	end
+	check(math.abs(chanceSum - 1) < 1e-9, "mutation chances sum to 1")
 	check(Economy.oxygenDrain(1, 0) == 1, "no pressure at the surface")
 	check(Economy.oxygenDrain(20, Economy.depthStuds(20)) > Economy.oxygenDrain(1, Economy.depthStuds(1)), "deep worlds drain faster")
 	local counts = { 0, 0, 0, 0, 0 }
@@ -228,12 +265,19 @@ do
 		for _, suffix in { "", ".desc", ".value" } do
 			check(Strings.hasKey("upgrade." .. def.id .. suffix), "upgrade string " .. def.id .. suffix)
 		end
+		check(Strings.hasKey("gear." .. def.id), "gear name string " .. def.id)
+	end
+	for _, mutation in Config.Mutations do
+		check(Strings.hasKey("mutation." .. mutation.key), "mutation string " .. mutation.key)
 	end
 	for _, pass in Config.Passes do
 		check(Strings.hasKey("pass." .. pass.key) and Strings.hasKey("pass." .. pass.key .. ".desc"), "pass strings " .. pass.key)
 	end
 	for _, product in Config.Products do
 		check(Strings.hasKey("product." .. product.key), "product string " .. product.key)
+		if product.enchants > 0 then
+			check(Strings.hasKey("product." .. product.key .. ".desc"), "product desc " .. product.key)
+		end
 	end
 	for _, rarity in Config.Rarities do
 		check(Strings.hasKey("rarity." .. rarity), "rarity string " .. rarity)
@@ -255,7 +299,7 @@ do
 		unlocked = 99,
 		world = 7,
 		upgrades = { tank = 999, pack = "x" },
-		pets = { P1 = { s = "p3.2" }, P2 = { s = "nope" }, P3 = 5 },
+		pets = { P1 = { s = "p3.2", m = { "Gold", "Gold", "Fake", 3, "Lava" } }, P2 = { s = "nope" }, P3 = 5 },
 		equipped = { "P1", "P1", "P2" },
 		settings = { lang = "fr", sfx = false },
 		worlds = { ["3"] = { sold = 12, cleared = true, best = 40 }, ["99"] = { sold = 1 } },
@@ -263,7 +307,20 @@ do
 	check(repaired.coins == 0, "negative coins clamp to 0")
 	check(repaired.unlocked == Config.WorldCount, "unlocked clamps to world count")
 	check(repaired.world == 7, "world kept when unlocked")
-	check(repaired.upgrades.tank == 30 and repaired.upgrades.pack == 1, "upgrade levels clamp")
+	check(repaired.gear.equip.tank == "tank20b" and repaired.gear.owned.tank20b, "old max tank level migrates to the top tank")
+	check(repaired.gear.equip.pack == nil and next(repaired.gear.owned) ~= nil, "bad upgrade level gives starter gear")
+	local mutations = repaired.pets.P1.m :: { string }
+	check(#mutations == 2 and mutations[1] == "Gold" and mutations[2] == "Lava", "mutations deduplicated and filtered")
+	local geared = Profile.reconcile(
+		{ gear = { owned = { tank3a = true, fins9b = true, bogus = true }, equip = { tank = "tank3a", fins = "tank3a", pack = "pack1a" } } },
+		5
+	)
+	check(geared.gear.owned.tank3a and geared.gear.owned.fins9b and not geared.gear.owned.bogus, "owned gear filtered")
+	check(
+		geared.gear.equip.tank == "tank3a" and geared.gear.equip.fins == nil and geared.gear.equip.pack == nil,
+		"equip needs owned gear in its own slot"
+	)
+	check(Profile.reconcile({ enchants = -4 }, 5).enchants == 0, "lucky enchant tokens clamp")
 	check(repaired.pets.P1 ~= nil and repaired.pets.P2 == nil and repaired.pets.P3 == nil, "invalid pets dropped")
 	check(#repaired.equipped == 1, "equipped deduplicated and filtered")
 	check(repaired.settings.lang == Config.DefaultLanguage and repaired.settings.sfx == false, "settings repaired")
@@ -295,7 +352,7 @@ do
 		end,
 	}
 	local coins, eggBank = 0, 0
-	local levels = { tank = 1, pack = 1, fins = 1, magnet = 1 }
+	local tiers = { tank = 0, pack = 0, fins = 0, magnet = 0 }
 	local boosts = {}
 	local t = 0
 	local function bestBoost(): number
@@ -310,10 +367,10 @@ do
 	end
 	local function dive(world: number)
 		local depth = Economy.depthStuds(world)
-		local oxygen = Economy.upgradeValue("tank", levels.tank)
-		local capacity = Economy.upgradeValue("pack", levels.pack)
-		local speed = Economy.upgradeValue("fins", levels.fins)
-		local magnet = Economy.upgradeValue("magnet", levels.magnet)
+		local oxygen = Economy.gearValue("tank", tiers.tank)
+		local capacity = Economy.gearValue("pack", tiers.pack)
+		local speed = Economy.gearValue("fins", tiers.fins)
+		local magnet = Economy.gearValue("magnet", tiers.magnet)
 		local best = nil
 		for step = 1, 20 do
 			local r = step / 20
@@ -350,19 +407,24 @@ do
 			sold += result.count
 			coins += result.value * 0.65
 			eggBank += result.value * 0.35
+			-- Buys the next gear piece in the cheapest slot (conservative: players may also skip
+			-- tiers). Only gear of unlocked worlds is for sale.
 			while true do
-				local cheapest, cheapestTrack = math.huge, nil
-				for _, def in Config.Upgrades do
-					local cost = Economy.upgradeCost(def.id, levels[def.id])
-					if cost and cost < cheapest then
-						cheapest, cheapestTrack = cost, def.id
+				local cheapest, cheapestSlot = math.huge, nil
+				for _, slot in Gear.Slots do
+					local nextItem = Gear.bySlot[slot][tiers[slot] + 1]
+					if nextItem and nextItem.world <= world then
+						local cost = Economy.gearCost(nextItem.key) :: number
+						if cost < cheapest then
+							cheapest, cheapestSlot = cost, slot
+						end
 					end
 				end
-				if not cheapestTrack or cheapest > coins then
+				if not cheapestSlot or cheapest > coins then
 					break
 				end
 				coins -= cheapest
-				levels[cheapestTrack] += 1
+				tiers[cheapestSlot] += 1
 			end
 			while eggBank >= Economy.eggCost(world) and eggs < 8 do
 				eggBank -= Economy.eggCost(world)
@@ -382,9 +444,9 @@ do
 				eggBank = 0
 			end
 			local depth = Economy.depthStuds(world)
-			local chestTime = 2 * depth / (Economy.upgradeValue("fins", levels.fins) * 0.8) + 3
+			local chestTime = 2 * depth / (Economy.gearValue("fins", tiers.fins) * 0.8) + 3
 			local chestDrain = 1 + depth * Economy.pressure(world) * 0.7
-			if sold >= Economy.goal(world) and chestTime * chestDrain < Economy.upgradeValue("tank", levels.tank) * 0.9 then
+			if sold >= Economy.goal(world) and chestTime * chestDrain < Economy.gearValue("tank", tiers.tank) * 0.9 then
 				break
 			end
 			if t - started > 5 * 3600 then
@@ -398,16 +460,16 @@ do
 				world,
 				(t - started) / 60,
 				t / 60,
-				levels.tank,
-				levels.pack,
-				levels.fins,
-				levels.magnet,
+				tiers.tank,
+				tiers.pack,
+				tiers.fins,
+				tiers.magnet,
 				Format.short(1 + bestBoost())
 			)
 		)
 	end
 	print(table.concat(rows, "\n"))
-	check(t / 60 > 90 and t / 60 < 240, "efficient full clear takes 1.5-4 hours (" .. math.floor(t / 60) .. " min)")
+	check(t / 60 > 60 and t / 60 < 150, "efficient full clear takes 1-2.5 hours (" .. math.floor(t / 60) .. " min)")
 end
 
 print(string.format("\n%d passed, %d failed", passed, failed))

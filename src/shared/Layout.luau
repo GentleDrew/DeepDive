@@ -75,6 +75,7 @@ function Layout.dock(world: number)
 		pierEnd = Vector3.new(38, info.landY, r - 26),
 		sell = Vector3.new(-46, info.landY, r + 34),
 		board = Vector3.new(48, info.landY, r + 46),
+		enchant = Vector3.new(-24, info.landY, r + 54),
 		beachHalfWidth = 20,
 	}
 end

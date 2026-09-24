@@ -186,7 +186,7 @@ function Dock.build(world: number, parent: Instance): SpawnLocation
 	kioskSign.Name = "KioskSign"
 	kioskSign:SetAttribute("World", world)
 	local kioskAnchor = anchorPart(folder, "KioskAnchor", kiosk * cf(0, 3, -2), V(8, 4, 3))
-	prompt(kioskAnchor, "Kiosk", world, "Upgrades", "Dive Shop", 12)
+	prompt(kioskAnchor, "Kiosk", world, "Gear", "Gear Shop", 12)
 
 	-- Travel portal behind the spawn.
 	local portalPosition = o + V(dock.portal.X, landY, dock.portal.Z)
@@ -278,6 +278,36 @@ function Dock.build(world: number, parent: Instance): SpawnLocation
 	screen.Name = "BoardScreen"
 	local crown = Build.block(folder, V(6, 1.6, 0.9), boardAt * cf(0, 17.8, 0.4), GOLD)
 	crown.Material = Enum.Material.Neon
+
+	-- Enchanting altar: a rune circle with a floating crystal (opens pet enchanting).
+	local altarPosition = o + V(dock.enchant.X, landY, dock.enchant.Z)
+	local altar = CFrame.lookAt(altarPosition, spawnFlat)
+	local PURPLE = Color3.fromRGB(170, 90, 255)
+	local STONE = Color3.fromRGB(70, 64, 92)
+	solid(Build.column(folder, 1, 11, altar * cf(0, 0.5, 0), STONE))
+	local runeRing = Build.column(folder, 0.2, 9.4, altar * cf(0, 1.05, 0), PURPLE)
+	runeRing.Material = Enum.Material.Neon
+	solid(Build.column(folder, 0.3, 8.4, altar * cf(0, 1.1, 0), STONE))
+	solid(Build.column(folder, 3, 2.4, altar * cf(0, 2.6, 0), STONE))
+	local bowl = Build.column(folder, 0.5, 3.4, altar * cf(0, 4.3, 0), Color3.fromRGB(255, 208, 72))
+	bowl.Material = Enum.Material.Metal
+	local crystal = Build.ball(folder, 2.2, altar * cf(0, 6.2, 0), PURPLE)
+	crystal.Name = "EnchantCrystal"
+	crystal.Material = Enum.Material.Neon
+	crystal.Transparency = 0.15
+	Build.light(crystal, PURPLE, 18, 2)
+	Build.sparkles(crystal, Color3.fromRGB(230, 190, 255), 12)
+	for i = 0, 3 do
+		local a = i * math.pi / 2 + math.pi / 4
+		local pillarAt = altar * cf(math.cos(a) * 4.4, 0, math.sin(a) * 4.4)
+		solid(Build.column(folder, 4, 0.9, pillarAt * cf(0, 3, 0), STONE))
+		local gem = Build.block(folder, V(0.7, 1, 0.7), pillarAt * cf(0, 5.6, 0) * ang(0, math.pi / 4, 0), PURPLE)
+		gem.Material = Enum.Material.Neon
+	end
+	local enchantSign = Build.block(folder, V(7, 2, 0.3), altar * cf(0, 9.4, 0), Color3.fromRGB(40, 30, 64))
+	enchantSign.Name = "EnchantSign"
+	local enchantAnchor = anchorPart(folder, "EnchantAnchor", altar * cf(0, 3, 0), V(6, 5, 6))
+	prompt(enchantAnchor, "Enchant", world, "Enchant", "Enchanting Altar", 14)
 
 	-- Invisible boundary around the island so divers stay home.
 	local walls = Instance.new("Folder")

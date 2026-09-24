@@ -371,7 +371,6 @@ function Html.page(playerGui, viewport, options): string
 		topbar = [[<div style="position:absolute;left:0;right:0;top:0;height:58px;z-index:1000;pointer-events:none">
 <div style="position:absolute;left:12px;top:10px;width:44px;height:44px;border-radius:22px;background:rgba(20,20,24,.72)"></div>
 <div style="position:absolute;left:64px;top:10px;width:44px;height:44px;border-radius:22px;background:rgba(20,20,24,.72)"></div>
-<div style="position:absolute;right:12px;top:10px;width:44px;height:44px;border-radius:22px;background:rgba(20,20,24,.72)"></div>
 </div>]]
 	end
 	local background = options.background or "linear-gradient(180deg, #7fd3ff 0%, #bfeaff 38%, #1f9ad6 39%, #0c6aa6 70%, #06406b 100%)"

@@ -1,7 +1,7 @@
 --!strict
 -- Deep Dive tuning values. Pure data (no Roblox datatypes) so the luau/lune test runner can load it.
--- Economy curves were tuned with a pacing simulation: World 1 clears in ~2 minutes, the full 20
--- worlds take an efficient player ~2 hours (roughly 3-4 hours of normal play).
+-- Economy curves were tuned with a pacing simulation (tests/run.luau): World 1 clears in under
+-- 2 minutes, the full 20 worlds take an efficient player ~80 minutes (2-3 hours of normal play).
 
 local Config = {}
 
@@ -83,8 +83,8 @@ Config.PetEquipPass = 2
 Config.PetInventoryCap = 60
 
 -- World progression.
-Config.GoalBase = 12
-Config.GoalGrowth = 1.2
+Config.GoalBase = 10
+Config.GoalGrowth = 1.17
 Config.DepthBase = 40 -- studs, World 1
 Config.DepthStep = 7.2
 Config.RadiusBase = 74
@@ -93,40 +93,33 @@ Config.PressureBase = 0.010 -- extra oxygen drain per stud of depth
 Config.PressureStep = 0.0016
 Config.ClearRewardRelics = 60 -- first-clear bonus = this many common relics of that world
 
+-- Stat curves the gear tiers map onto (see Data/Gear.luau and Economy.gearValue). `base` and
+-- `growth` shape gear prices: price = GearPriceScale * base * growth ^ (level - 2).
 Config.Upgrades = {
-	{
-		id = "tank",
-		max = 30,
-		base = 30,
-		growth = 2.08,
-		icon = "O2",
-		color = "#3fd2ff",
-	},
-	{
-		id = "pack",
-		max = 30,
-		base = 45,
-		growth = 2.08,
-		icon = "BAG",
-		color = "#ffb13f",
-	},
-	{
-		id = "fins",
-		max = 25,
-		base = 65,
-		growth = 2.25,
-		icon = "FIN",
-		color = "#5ee280",
-	},
-	{
-		id = "magnet",
-		max = 15,
-		base = 110,
-		growth = 2.6,
-		icon = "MAG",
-		color = "#ff6f91",
-	},
+	{ id = "tank", max = 30, base = 30, growth = 2.08, color = "#3fd2ff" },
+	{ id = "pack", max = 30, base = 45, growth = 2.08, color = "#ffb13f" },
+	{ id = "fins", max = 25, base = 65, growth = 2.25, color = "#5ee280" },
+	{ id = "magnet", max = 15, base = 110, growth = 2.6, color = "#ff6f91" },
 }
+Config.GearCurve = 0.75 -- < 1: early tiers climb the stat curves faster
+Config.GearPriceScale = 0.5
+
+-- Pet mutations (enchanting). An enchant adds one random mutation the pet does not have yet;
+-- multipliers add up (Gold x2 + Lava x5 = x7) and scale the pet's boost.
+Config.Mutations = {
+	{ key = "Gold", mult = 2, weight = 50, color = "#ffc62e" },
+	{ key = "Diamond", mult = 3, weight = 26, color = "#7ff0ff" },
+	{ key = "Galaxy", mult = 4, weight = 14, color = "#9a5cff" },
+	{ key = "Lava", mult = 5, weight = 7.5, color = "#ff5a1f" },
+	{ key = "GOAT", mult = 6, weight = 2.5, color = "#ff4fd8" },
+}
+-- Enchant price = this x the egg price of the pet's world, by mutations already on the pet.
+Config.MutationCost = { 3, 8, 20, 50, 120 }
+
+-- Trading.
+Config.TradeMaxPets = 8
+Config.TradeCountdown = 3
+Config.TradeRequestSeconds = 20
 
 -- Monetisation. id = 0 means "not created yet": the card shows "Coming soon" and cannot be bought.
 -- Create the passes / products on the Creator Dashboard and paste their ids here.
@@ -137,10 +130,13 @@ Config.Passes = {
 	{ key = "SwiftFins", id = 0, price = 99, color = "#3fd2ff" },
 }
 Config.Products = {
-	{ key = "CoinsSmall", id = 0, price = 25, dives = 4, color = "#ffd84f" },
-	{ key = "CoinsMedium", id = 0, price = 99, dives = 20, color = "#ffb13f" },
-	{ key = "CoinsLarge", id = 0, price = 299, dives = 75, color = "#ff8a3f" },
+	{ key = "CoinsSmall", id = 0, price = 25, dives = 4, enchants = 0, color = "#ffd84f" },
+	{ key = "CoinsMedium", id = 0, price = 99, dives = 20, enchants = 0, color = "#ffb13f" },
+	{ key = "CoinsLarge", id = 0, price = 299, dives = 75, enchants = 0, color = "#ff8a3f" },
+	-- Lucky Enchants: free enchants that only roll Galaxy, Lava or GOAT.
+	{ key = "LuckyEnchant", id = 0, price = 79, dives = 0, enchants = 3, color = "#be68ff" },
 }
+Config.LuckyMutations = { "Galaxy", "Lava", "GOAT" }
 Config.SwiftFinsBonus = 1.25
 
 -- Built-in engine sounds (no uploaded audio needed). Cues layer and re-pitch these.

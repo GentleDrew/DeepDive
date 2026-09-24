@@ -19,15 +19,16 @@ local Theme = require(script.Parent.Theme)
 local PlayerList = {}
 
 local C = Theme.C
-local WIDTH = 360
+local WIDTH = 392
 local ROW = 38
--- Columns start after the avatar (42) and must end inside the padded row (WIDTH - 16) with an
--- 8px right margin: 42 + 146 + 82 + 66 = 336 = 360 - 16 - 8.
-local NAME_W, COIN_W, RELIC_W = 146, 82, 66
+-- Columns start after the avatar (42); the trade button (34) follows the relic column and the
+-- row keeps an 8px right margin: 42 + 136 + 80 + 62 + 6 + 34 + 8 = 368 = 392 - 16 - 8.
+local NAME_W, COIN_W, RELIC_W = 136, 80, 62
+local TRADE_X = 42 + NAME_W + COIN_W + RELIC_W + 6
 
 type Row = { frame: Frame, name: TextLabel, coins: TextLabel, relics: TextLabel, stroke: UIStroke }
 
-function PlayerList.init()
+function PlayerList.init(onTrade: ((Player) -> ())?)
 	pcall(function()
 		StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.PlayerList, false)
 	end)
@@ -39,9 +40,9 @@ function PlayerList.init()
 		BackgroundTransparency = 0.18,
 		Size = UDim2.fromOffset(WIDTH, 0),
 		AutomaticSize = Enum.AutomaticSize.Y,
-		Position = UDim2.new(1, -16, 0, 12),
+		Position = UDim2.new(1, -16, 0, 10),
 		AnchorPoint = Vector2.new(1, 0),
-		Parent = Gui.hud,
+		Parent = Gui.hudTop,
 	}) :: Frame
 	Kit.corner(panel, 14)
 	Kit.stroke(panel, C.Outline, 2.5)
@@ -131,6 +132,24 @@ function PlayerList.init()
 		end
 		coins.TextColor3 = Color3.fromRGB(255, 222, 92)
 		relics.TextColor3 = Color3.fromRGB(150, 230, 255)
+		if player ~= localPlayer and onTrade then
+			Kit.button({
+				Name = "Trade",
+				Text = "",
+				Icon = utf8.char(0x1F91D),
+				IconSize = 17,
+				Palette = "Cyan",
+				Size = UDim2.fromOffset(34, 30),
+				Position = UDim2.new(0, TRADE_X, 0.5, 0),
+				AnchorPoint = Vector2.new(0, 0.5),
+				Radius = 10,
+				Stroke = 2,
+				Parent = frame,
+				OnClick = function()
+					onTrade(player)
+				end,
+			})
+		end
 		local row = { frame = frame, name = name, coins = coins, relics = relics, stroke = stroke }
 		rows[player] = row
 		return row
@@ -203,16 +222,16 @@ function PlayerList.init()
 			IconSize = 24,
 			Palette = "Purple",
 			Size = UDim2.fromOffset(52, 52),
-			Position = UDim2.new(1, -16, 0, 12),
+			Position = UDim2.new(1, -16, 0, 6),
 			AnchorPoint = Vector2.new(1, 0),
 			Radius = 26,
 			Stroke = 2.5,
-			Parent = Gui.hud,
+			Parent = Gui.hudTop,
 			OnClick = function()
 				setOpen(not panel.Visible)
 			end,
 		})
-		panel.Position = UDim2.new(1, -16, 0, 72)
+		panel.Position = UDim2.new(1, -16, 0, 64)
 		local _ = toggle
 	end
 	refresh()

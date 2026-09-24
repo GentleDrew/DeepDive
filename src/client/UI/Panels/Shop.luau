@@ -28,6 +28,7 @@ local ICONS = {
 	CoinsSmall = utf8.char(0x1FA99),
 	CoinsMedium = utf8.char(0x1F4B0),
 	CoinsLarge = utf8.char(0x1F451),
+	LuckyEnchant = utf8.char(0x2728),
 }
 
 type Card = { key: string, kind: string, name: TextLabel, desc: TextLabel, buy: Kit.ButtonApi, def: any }
@@ -167,7 +168,9 @@ function ShopPanel.new(app: any): Panel.PanelApi
 				c.desc.Text = Strings.get("pass." .. c.key .. ".desc")
 			else
 				c.name.Text = Strings.get("product." .. c.key)
-				c.desc.Text = Strings.get("product.desc", { n = Format.short(Economy.productCoins(c.def.dives, unlocked)) })
+				c.desc.Text = if c.def.enchants > 0
+					then Strings.get("product." .. c.key .. ".desc")
+					else Strings.get("product.desc", { n = Format.short(Economy.productCoins(c.def.dives, unlocked)) })
 			end
 			if c.kind == "pass" and app.State.passes[c.key] then
 				c.buy.setText(Strings.get("owned"))

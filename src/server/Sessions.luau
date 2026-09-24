@@ -32,6 +32,7 @@ export type Session = {
 	passes: { [string]: boolean },
 	rng: Random,
 	busy: boolean,
+	trade: any?, -- the open trade this player is in (TradeService)
 }
 
 local sessions: { [Player]: Session } = {}
@@ -58,8 +59,9 @@ function Sessions.create(player: Player, profile: Profile.Data): Session
 		passes = {},
 		rng = Random.new(),
 		busy = false,
+		trade = nil,
 	}
-	session.oxygenMax = Economy.upgradeValue("tank", profile.upgrades.tank)
+	session.oxygenMax = Economy.stat(profile.gear.equip, "tank")
 	session.oxygen = session.oxygenMax
 	sessions[player] = session
 	return session
@@ -86,7 +88,7 @@ function Sessions.boostSum(session: Session): number
 	for _, id in session.profile.equipped do
 		local pet = session.profile.pets[id]
 		if pet then
-			sum += Economy.petBoost(pet.s)
+			sum += Economy.petPower(pet.s, pet.m)
 		end
 	end
 	return sum
@@ -96,13 +98,14 @@ function Sessions.multiplier(session: Session): number
 	return Economy.coinMultiplier(Sessions.boostSum(session), session.passes.DoubleCoins == true)
 end
 
--- Equipped pet species as JSON, replicated so every client can render followers.
+-- Equipped pets as JSON ("species" or "species|Gold,Lava" with mutations), replicated so every
+-- client can render followers.
 function Sessions.publishPets(session: Session)
 	local keys = {}
 	for _, id in session.profile.equipped do
 		local pet = session.profile.pets[id]
 		if pet then
-			table.insert(keys, pet.s)
+			table.insert(keys, if pet.m and #pet.m > 0 then pet.s .. "|" .. table.concat(pet.m, ",") else pet.s)
 		end
 	end
 	session.player:SetAttribute("Pets", HttpService:JSONEncode(keys))

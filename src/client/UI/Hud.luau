@@ -423,7 +423,9 @@ function Hud.init(actions: Actions)
 		touchButtons.dash.setText(Strings.get("dash"))
 		touchButtons.up.setText(Strings.get("up"))
 		touchButtons.down.setText(Strings.get("down"))
-		memoryLabel.Text = if State.memory then Strings.get("studioSave") else ""
+		if State.memory then
+			memoryLabel.Text = Strings.get("studioSave")
+		end
 		refreshBanner()
 	end)
 
@@ -440,11 +442,37 @@ function Hud.init(actions: Actions)
 		end
 		shownCoins = profile.coins
 		boostLabel.Text = utf8.char(0x1F43E) .. " " .. Format.multiplier(State.multiplier())
-		memoryLabel.Text = if State.memory then Strings.get("studioSave") else ""
+		if State.memory then
+			memoryLabel.Text = Strings.get("studioSave")
+		end
 		refreshBanner()
 	end)
 	State.worldChanged:Connect(refreshBanner)
 	State.languageChanged:Connect(Hud.refresh)
+end
+
+-- Brief "Saved" note where the Studio notice lives (the server pushes "saved" after each save).
+local savedToken = 0
+function Hud.showSaved()
+	if State.memory then
+		return
+	end
+	savedToken += 1
+	local token = savedToken
+	memoryLabel.Text = utf8.char(0x1F4BE) .. " " .. Strings.get("saved")
+	memoryLabel.TextColor3 = Color.hex("#a8ffbf")
+	memoryLabel.TextTransparency = 0
+	task.delay(2.5, function()
+		if token == savedToken then
+			Anim.tween(memoryLabel, 0.6, { TextTransparency = 1 })
+		end
+	end)
+	task.delay(3.2, function()
+		if token == savedToken then
+			memoryLabel.Text = ""
+			memoryLabel.TextTransparency = 0
+		end
+	end)
 end
 
 function Hud.bumpCargo()

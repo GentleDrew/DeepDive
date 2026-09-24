@@ -5,6 +5,8 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
+local GearModels = require(Shared.Models.GearModels)
+local Mutations = require(Shared.Models.Mutations)
 local PetModels = require(Shared.Models.PetModels)
 local RelicModels = require(Shared.Models.RelicModels)
 
@@ -26,9 +28,18 @@ local function cached(key: string, build: () -> Model): Model
 	return model:Clone()
 end
 
-function Viewport.pet(key: string): Model
-	return cached("pet:" .. key, function()
-		return PetModels.build(key, 3)
+function Viewport.pet(key: string, mutations: { string }?): Model
+	local top = Mutations.top(mutations)
+	return cached("pet:" .. key .. ":" .. (top or ""), function()
+		local model = PetModels.build(key, 3)
+		Mutations.apply(model, mutations)
+		return model
+	end)
+end
+
+function Viewport.gear(key: string): Model
+	return cached("gear:" .. key, function()
+		return GearModels.build(key, 3)
 	end)
 end
 

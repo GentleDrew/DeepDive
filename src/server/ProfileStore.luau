@@ -14,7 +14,7 @@ local Profile = require(Shared.Profile)
 local ProfileStore = {}
 
 local LOCK_TIMEOUT = 240
-local AUTOSAVE_INTERVAL = 75
+local AUTOSAVE_INTERVAL = 60
 local jobId = if game.JobId ~= "" then game.JobId else "studio-" .. tostring(math.random(1, 1e9))
 
 type Entry = { data: Profile.Data, dirty: boolean, saving: boolean, released: boolean, lastSave: number }
@@ -22,6 +22,8 @@ type Entry = { data: Profile.Data, dirty: boolean, saving: boolean, released: bo
 local entries: { [Player]: Entry } = {}
 local store: DataStore? = nil
 ProfileStore.memoryMode = false
+-- Called after every successful DataStore write of a player's profile.
+ProfileStore.onSaved = nil :: ((Player) -> ())?
 
 local function key(userId: number): string
 	return "p_" .. tostring(userId)
@@ -190,6 +192,10 @@ function ProfileStore.save(player: Player, release: boolean?): boolean
 	if success then
 		entry.dirty = false
 		entry.lastSave = os.clock()
+		local onSaved = ProfileStore.onSaved
+		if onSaved and not release then
+			task.spawn(onSaved, player)
+		end
 	end
 	if release then
 		entry.released = true

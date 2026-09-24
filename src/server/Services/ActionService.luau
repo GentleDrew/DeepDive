@@ -1,10 +1,5 @@
 --!strict
--- Upgrades, travel, settings, tutorial progress and the client "Ready" handshake.
-
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
-
-local Shared = ReplicatedStorage:WaitForChild("Shared")
-local Economy = require(Shared.Economy)
+-- Selling, travel, settings, tutorial progress and the client "Ready" handshake.
 
 local Net = require(script.Parent.Parent.Net)
 local Sessions = require(script.Parent.Parent.Sessions)
@@ -12,36 +7,6 @@ local Sync = require(script.Parent.Parent.Sync)
 local DiveService = require(script.Parent.DiveService)
 
 local ActionService = {}
-
-local function buyUpgrade(player: Player, payload: any): (boolean, string?, any)
-	local session = Sessions.get(player)
-	if not session or not session.ready then
-		return false, "err.notReady"
-	end
-	if type(payload) ~= "table" or type(payload.track) ~= "string" or not Economy.Tracks[payload.track] then
-		return false, "err.generic"
-	end
-	local track = payload.track :: string
-	local profile = session.profile
-	local level = profile.upgrades[track] or 1
-	local cost = Economy.upgradeCost(track, level)
-	if not cost then
-		return false, "max"
-	end
-	if profile.coins < cost then
-		return false, "notEnough"
-	end
-	profile.coins -= cost
-	profile.upgrades[track] = level + 1
-	if profile.tutorial == 4 then
-		profile.tutorial = 5
-	end
-	if track == "tank" then
-		DiveService.refreshOxygen(session)
-	end
-	Sync.profile(session)
-	return true, nil, { level = level + 1 }
-end
 
 local function teleport(player: Player, payload: any): (boolean, string?, any)
 	local session = Sessions.get(player)
@@ -107,7 +72,6 @@ function ActionService.init()
 		end
 		return DiveService.sell(session, true)
 	end)
-	Net.on("BuyUpgrade", buyUpgrade)
 	Net.on("Teleport", teleport)
 	Net.on("Setting", setting)
 	Net.on("Tutorial", tutorial)

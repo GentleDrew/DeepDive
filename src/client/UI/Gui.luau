@@ -91,6 +91,9 @@ end
 
 Gui.world = layer("DeepDiveWorldFx", 1, true) -- vignettes, underwater tint
 Gui.hud = layer("DeepDiveHud", 5, false)
+-- Same level as the HUD but drawn from the very top of the screen (the player list sits in the
+-- Roblox top-bar row, which is empty on the right).
+Gui.hudTop = layer("DeepDiveHudTop", 6, true)
 Gui.panels = layer("DeepDivePanels", 10, false)
 Gui.overlay = layer("DeepDiveOverlay", 20, true)
 Gui.top = layer("DeepDiveTop", 30, true) -- loading screen, transitions

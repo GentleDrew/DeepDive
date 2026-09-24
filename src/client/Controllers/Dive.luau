@@ -165,7 +165,16 @@ function Dive.init(app: any)
 		app.Toasts.show(Strings.get(payload.key), payload.kind or "info")
 	end)
 
+	Net.on("saved", function()
+		app.Hud.showSaved()
+	end)
+
 	Net.on("purchase", function(payload: any)
+		if (payload.coins or 0) <= 0 then
+			app.Sfx.play("Legendary")
+			app.Toasts.show(Strings.get("luckyGot", { n = payload.enchants or 0 }), "gold", utf8.char(0x2728))
+			return
+		end
 		app.Effects.coinBurst(24, Vector2.new(0.5, 0.5), app.Hud.coinTarget, function()
 			app.Sfx.play("Coin", 1.1)
 		end)

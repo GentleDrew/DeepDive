@@ -8,6 +8,7 @@ local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
+local Mutations = require(Shared.Models.Mutations)
 local PetModels = require(Shared.Models.PetModels)
 
 local Pets = {}
@@ -26,11 +27,15 @@ function Pets.init(app: any)
 	local owners: { [Player]: Owner } = {}
 	local templates: { [string]: Model } = {}
 
-	local function template(key: string): Model
-		local model = templates[key]
+	-- `entry` is "species" or "species|Gold,Lava" (see Sessions.publishPets).
+	local function template(entry: string): Model
+		local model = templates[entry]
 		if not model then
-			model = PetModels.build(key)
-			templates[key] = model
+			local key, mutations = Mutations.parse(entry)
+			local built = PetModels.build(key)
+			Mutations.apply(built, mutations)
+			templates[entry] = built
+			return built:Clone()
 		end
 		return model:Clone()
 	end

@@ -84,8 +84,8 @@ Config.PetEquipPass = 2
 Config.PetInventoryCap = 60
 
 -- World progression.
-Config.GoalBase = 12
-Config.GoalGrowth = 1.17
+Config.GoalBase = 16
+Config.GoalGrowth = 1.175
 Config.DepthBase = 40 -- studs, World 1
 Config.DepthStep = 7.2
 Config.RadiusBase = 74
@@ -98,8 +98,8 @@ Config.ClearRewardRelics = 60 -- first-clear bonus = this many common relics of 
 -- worlds quick and makes the middle of the game a grind to push through.
 -- stylua: ignore
 Config.UnlockClears = {
-	0, 2, 2.5, 1.5, 1.8, 4, 20, 40, 55, 60,
-	55, 48, 38, 28, 25, 22, 20, 18, 18, 18,
+	0, 1.1, 1.9, 1.4, 1.3, 5.9, 36, 40, 42, 36,
+	34, 25, 16, 20, 15, 11.5, 12, 8.5, 18, 12,
 }
 Config.UnlockPetRamp = 4 -- worlds over which the fee's pet-boost part ramps in
 
@@ -139,6 +139,8 @@ Config.Passes = {
 	{ key = "LuckyEggs", id = 0, price = 249, color = "#be68ff" },
 	{ key = "PetSlots", id = 0, price = 149, color = "#5ee280" },
 	{ key = "SwiftFins", id = 0, price = 99, color = "#3fd2ff" },
+	-- Cosmetic only (a crown by your name + a gold sparkle trail): no gameplay effect.
+	{ key = "VIPAura", id = 0, price = 299, color = "#ffd23f" },
 }
 Config.Products = {
 	{ key = "CoinsSmall", id = 0, price = 25, dives = 4, enchants = 0, color = "#ffd84f" },
@@ -146,6 +148,14 @@ Config.Products = {
 	{ key = "CoinsLarge", id = 0, price = 299, dives = 75, enchants = 0, color = "#ff8a3f" },
 	-- Lucky Enchants: free enchants that only roll Galaxy, Lava or GOAT.
 	{ key = "LuckyEnchant", id = 0, price = 79, dives = 0, enchants = 3, color = "#be68ff" },
+	-- Coins worth exactly the fee to unlock your next world (or a flat bonus once you own World 20).
+	{ key = "UnlockBoost", id = 0, price = 149, dives = 0, enchants = 0, unlockBoost = true, color = "#4fe07a" },
+}
+-- Promo codes redeemable once per player from Settings. Add more anytime; nothing needs
+-- redeploying beyond this list. `coins` and/or `enchants` are granted on a valid, unused code.
+export type PromoCode = { code: string, coins: number?, enchants: number? }
+Config.PromoCodes = {
+	{ code = "LAUNCH", coins = 2000 } :: PromoCode,
 }
 Config.LuckyMutations = { "Galaxy", "Lava", "GOAT" }
 Config.SwiftFinsBonus = 1.25

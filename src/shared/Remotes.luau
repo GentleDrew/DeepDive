@@ -31,6 +31,7 @@ Remotes.Actions = {
 	Ready = true,
 	Sell = true,
 	UnlockWorld = true,
+	RedeemCode = true,
 }
 
 return Remotes

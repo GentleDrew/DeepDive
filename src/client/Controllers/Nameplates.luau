@@ -10,7 +10,26 @@ local Format = require(Shared.Format)
 
 local Nameplates = {}
 
-type Plate = { gui: BillboardGui, connections: { RBXScriptConnection } }
+type Plate = { gui: BillboardGui, name: TextLabel, aura: ParticleEmitter?, connections: { RBXScriptConnection } }
+
+local VIP_CROWN = utf8.char(0x1F451) .. " "
+
+-- Gold sparkle worn by VIPAura pass owners, attached to the root part.
+local function auraEmitter(root: BasePart): ParticleEmitter
+	local emitter = Instance.new("ParticleEmitter")
+	emitter.Texture = "rbxasset://textures/particles/sparkles_main.dds"
+	emitter.Color = ColorSequence.new(Color3.fromRGB(255, 226, 130), Color3.fromRGB(255, 190, 40))
+	emitter.LightEmission = 1
+	emitter.LightInfluence = 0
+	emitter.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.4), NumberSequenceKeypoint.new(1, 0) })
+	emitter.Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.15), NumberSequenceKeypoint.new(1, 1) })
+	emitter.Lifetime = NumberRange.new(0.7, 1.2)
+	emitter.Rate = 6
+	emitter.Speed = NumberRange.new(0.5, 1.5)
+	emitter.SpreadAngle = Vector2.new(180, 180)
+	emitter.Parent = root
+	return emitter
+end
 
 function Nameplates.init(app: any)
 	local Kit = app.Kit
@@ -46,7 +65,7 @@ function Nameplates.init(app: any)
 		gui.Parent = app.Gui.promptParent
 		local column = Kit.new("Frame", { BackgroundTransparency = 1, Size = UDim2.fromScale(1, 1), Parent = gui })
 		Kit.list(column, Enum.FillDirection.Vertical, 0)
-		Kit.text({
+		local name = Kit.text({
 			Text = player.DisplayName,
 			TextSize = 22,
 			Color = if isMe then Color3.fromRGB(255, 236, 150) else Color3.new(1, 1, 1),
@@ -75,7 +94,21 @@ function Nameplates.init(app: any)
 			amount.Text = Format.short(if type(coins) == "number" then coins else 0)
 		end
 		refresh()
-		plates[player] = { gui = gui, connections = { player:GetAttributeChangedSignal("Coins"):Connect(refresh) } }
+		local plate: Plate = { gui = gui, name = name, aura = nil, connections = { player:GetAttributeChangedSignal("Coins"):Connect(refresh) } }
+		local root = character:FindFirstChild("HumanoidRootPart") :: BasePart?
+		local function refreshVip()
+			local vip = player:GetAttribute("VIP") == true
+			name.Text = (if vip then VIP_CROWN else "") .. player.DisplayName
+			if vip and not plate.aura and root then
+				plate.aura = auraEmitter(root)
+			elseif not vip and plate.aura then
+				plate.aura:Destroy()
+				plate.aura = nil
+			end
+		end
+		refreshVip()
+		table.insert(plate.connections, player:GetAttributeChangedSignal("VIP"):Connect(refreshVip))
+		plates[player] = plate
 	end
 
 	local function watch(player: Player)

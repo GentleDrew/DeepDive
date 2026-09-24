@@ -265,6 +265,7 @@ local function blackout(session: Session)
 end
 
 local function tick(session: Session, dt: number)
+	session.profile.stats.playtime += dt
 	if session.mode == "Travel" or session.mode == "Rescue" then
 		return
 	end
@@ -472,6 +473,17 @@ end
 function DiveService.init()
 	Net.onEvent(Remotes.Collect, onCollect)
 	Net.onEvent(Remotes.Hazard, onHazard)
+	-- Keeps the Profile panel's playtime reasonably fresh even when nothing else syncs.
+	task.spawn(function()
+		while true do
+			task.wait(30)
+			for _, session in Sessions.all() do
+				if session.ready then
+					Sync.profile(session)
+				end
+			end
+		end
+	end)
 	local accumulator = 0
 	local step = 1 / Config.Dive.ServerHz
 	RunService.Heartbeat:Connect(function(dt)

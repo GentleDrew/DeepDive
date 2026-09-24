@@ -10,9 +10,12 @@
 - 월드·섬·장식·펫·유물·알은 전부 코드로 생성 (별도 에셋 업로드 불필요)
 - 서버 권한 방식: 산소, 유물 획득, 판매, 구매는 모두 서버가 검증
 - DataStore 세션 잠금 저장, 멱등 영수증 처리, 원격 호출 속도 제한
-- **유물 도감**(월드별 5종, 미발견은 실루엣), **글로벌 리더보드**(누적 코인 TOP 10),
+- **프로필 패널**(아바타, 가입일, 플레이 시간, 누적 코인·잠수·유물·펫·클리어·기절 통계 + 탭으로 전환하는
+  **유물 도감**: 월드별 5종, 미발견은 실루엣), **글로벌 리더보드**(누적 코인 TOP 10),
   머리 위 닉네임·코인 표시, 커스텀 **Tab 플레이어 목록**(닉네임 – 코인 – 유물 수)
 - **장비 160종**(월드마다 슬롯별 일반·프로 2종, 아바타에 착용 모습 표시), **펫 변이(인첸트)**, **펫 거래**
+- 설정 창에서 입력하는 **프로모션 코드**, 코스메틱 **VIP 오라** 패스, 로벅스로 다음 월드 해금비를 채워주는
+  **해금 부스트** 상품
 
 ## 빠른 시작
 
@@ -34,8 +37,9 @@ rojo build -o DeepDive.rbxlx  # 플레이스 파일 다시 만들기
 
 | 항목 | 위치 | 설명 |
 | --- | --- | --- |
-| 게임패스 4종 | `src/shared/Config.luau` → `Config.Passes` | Creator Dashboard에서 만든 ID를 `id`에 입력. `0`이면 상점에 "Coming soon"으로 표시되고 구매 불가 |
-| 개발자 상품 4종 | `Config.Products` | 코인 3종(지급량은 현재 해금 월드 기준 "다이빙 N회분"으로 자동 계산) + **행운 인첸트 x3**(갤럭시·용암·GOAT만 나오는 무료 인첸트) |
+| 게임패스 5종 | `src/shared/Config.luau` → `Config.Passes` | Creator Dashboard에서 만든 ID를 `id`에 입력. `0`이면 상점에 "Coming soon"으로 표시되고 구매 불가 |
+| 개발자 상품 5종 | `Config.Products` | 코인 3종 + **행운 인첸트 x3**(갤럭시·용암·GOAT만 나오는 무료 인첸트) + **해금 부스트**(다음 월드 해금비만큼 코인) |
+| 프로모션 코드 (선택) | `Config.PromoCodes` | 설정 창에서 입력하는 코드. 배열에 `{ code = "...", coins = N, enchants = N }`을 추가하면 바로 적용(재배포 불필요), 플레이어당 1회만 사용 가능 |
 | 배경음악 (선택) | `Config.Music.Surface / Underwater` | `rbxassetid://...` 입력. 비워두면 무음 |
 | 효과음 교체 (선택) | `Config.SoundIds` | 기본은 엔진 내장 소리를 겹쳐 만든 효과음. Creator Store(Audio)에서 고른 소리의 `rbxassetid://...`를 넣으면 해당 효과음(Collect, Sell, Hatch, Legendary 등)만 교체 |
 | API 서비스 | Game Settings → Security | 저장(DataStore)에 필요 |
@@ -82,14 +86,17 @@ rojo build -o DeepDive.rbxlx  # 플레이스 파일 다시 만들기
    두 번 탭). 해금비는 "그 월드에서 목표 몇 번 분량을 버는가"(에픽 펫 3마리 기준)로 계산하고, 월드별 배수는
    `Config.UnlockClears` 표에 있습니다(초반 1.5~4배 → 중반 월드 8~12에서 40~60배로 가장 빡빡 → 후반 18~25배).
 
-밸런스(자동 시뮬레이션 기준): 월드 1~5는 약 30분으로 술술 넘어가고, 월드 9~17은 한 월드에 40~90분씩 걸리는
-"막히는" 구간, 마지막 월드들은 조금 풀립니다. 20개 월드 전체는 효율적으로 약 13시간, 일반 플레이 **20시간 이상**. 초반 장비는 최소 가격(그 월드 일반 유물 80개 값,
-`Config.GearFloorRelics`)이 있어 헐값이 되지 않습니다. 조절 값: `Config.UnlockClears`(해금비), `Config.EggBaseCost`·
+밸런스(자동 시뮬레이션 기준): 월드 1~5는 약 30분으로 술술 넘어가고, 월드 6~19는 한 월드에 15~60분씩 걸리는
+"막히는" 구간이 꾸준히 이어지다가 월드 20에서 짧게 마무리됩니다. 20개 월드 전체는 효율적으로 약 12시간, 일반
+플레이 **20시간 이상**. 월드 목표 유물 수는 월드 1이 16개, 월드 20이 343개(이전보다 약 45% 증가)로 올렸습니다.
+초반 장비는 최소 가격(그 월드 일반 유물 80개 값, `Config.GearFloorRelics`)이 있어 헐값이 되지 않습니다. 조절 값:
+`Config.GoalBase`·`GoalGrowth`(월드 목표), `Config.UnlockClears`(월드별 해금비 배수 표), `Config.EggBaseCost`·
 `EggWorldGrowth`(알 가격, 인첸트 가격도 알 가격에 비례), `Config.GearPriceScale`(장비 가격).
 
 ## 저장
 
-진행 상황(코인, 가방, 장비, 펫·변이, 도감, 월드 진행, 설정)은 **DataStore에 자동 저장**됩니다.
+진행 상황(코인, 가방, 장비, 펫·변이, 도감, 월드 진행, 설정, 플레이 시간, 사용한 프로모션 코드)은
+**DataStore에 자동 저장**됩니다.
 60초마다 자동 저장, 퇴장·서버 종료·구매·거래 직후에는 즉시 저장하고, 저장될 때마다 화면 왼쪽 아래에
 "💾 Saved"가 잠깐 표시됩니다. 두 서버가 같은 데이터를 덮어쓰지 않도록 세션 잠금을 겁니다.
 Studio에서 "Studio test - saving is off"가 보이면 **게임을 퍼블리시한 뒤
@@ -99,26 +106,26 @@ Game Settings → Security → Enable Studio Access to API Services**를 켜세�
 
 | # | 월드 | World | 깊이 | 목표 | 알 가격 | 해금비 | 전설 펫 | 시크릿 (1/2000) |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 1 | 햇살 여울 | Sunny Shallows | 30m | 12 | 800 | 무료 | 무지개 물고기 | |
-| 2 | 해초 초원 | Seagrass Meadow | 60m | 14 | 1.5K | 390 | 나뭇잎해룡 | |
-| 3 | 다시마 숲 | Kelp Forest | 110m | 16 | 2.7K | 1.8K | 다시마 크라켄 | |
-| 4 | 조수 웅덩이 만 | Tidepool Cove | 170m | 19 | 5.09K | 3.4K | 달빛 가오리 | 황금 거북 |
-| 5 | 무지개 산호초 | Rainbow Reef | 240m | 22 | 9.4K | 13K | 무지개 돌고래 | |
-| 6 | 풍선껌 석호 | Bubblegum Lagoon | 320m | 26 | 17K | 74K | 유니콘 일각고래 | |
-| 7 | 빛나는 동굴 | Glowing Grotto | 410m | 31 | 32K | 950K | 오로라 만타 | |
-| 8 | 그레이트 배리어 | Great Barrier | 500m | 36 | 59K | 5M | 백상아리 | 무지개 서펜트 |
-| 9 | 난파선 만 | Shipwreck Bay | 600m | 42 | 110K | 17M | 꼬마 크라켄 | |
-| 10 | 해적의 무덤 | Pirate's Graveyard | 700m | 49 | 200K | 48M | 팬텀 크라켄 | |
-| 11 | 가라앉은 신전 | Sunken Temple | 820m | 58 | 380K | 110M | 태양 드래곤 | |
-| 12 | 아틀란티스 관문 | Atlantis Gate | 950m | 67 | 690K | 250M | 아기 리바이어던 | 포세이돈의 준마 |
-| 13 | 얼어붙은 피오르 | Frozen Fjord | 1100m | 79 | 1.3M | 510M | 일각고래 | |
-| 14 | 수정 동굴 | Crystal Caverns | 1300m | 92 | 2.4M | 980M | 프리즘 서펜트 | |
-| 15 | 화산 분출구 | Volcanic Vents | 1550m | 108 | 4.4M | 2.2B | 용암 드래곤 | |
-| 16 | 마그마 균열 | Magma Rift | 1800m | 126 | 8.1M | 5.09B | 지옥 고래 | 피닉스 가오리 |
-| 17 | 황혼 수역 | Twilight Zone | 2100m | 148 | 15M | 12B | 황혼 고래 | |
-| 18 | 한밤 해구 | Midnight Trench | 2500m | 173 | 28M | 28B | 한밤 리바이어던 | |
-| 19 | 심연 평원 | Abyssal Plains | 3000m | 203 | 52M | 71B | 심연 크라켄 | |
-| 20 | 리바이어던의 아가리 | Leviathan's Maw | 4000m | 237 | 95M | 180B | 리바이어던 | 우주 고래 |
+| 1 | 햇살 여울 | Sunny Shallows | 30m | 16 | 800 | 무료 | 무지개 물고기 | |
+| 2 | 해초 초원 | Seagrass Meadow | 60m | 19 | 1.5K | 290 | 나뭇잎해룡 | |
+| 3 | 다시마 숲 | Kelp Forest | 110m | 22 | 2.7K | 1.8K | 다시마 크라켄 | |
+| 4 | 조수 웅덩이 만 | Tidepool Cove | 170m | 26 | 5.09K | 4.4K | 달빛 가오리 | 황금 거북 |
+| 5 | 무지개 산호초 | Rainbow Reef | 240m | 30 | 9.4K | 13K | 무지개 돌고래 | |
+| 6 | 풍선껌 석호 | Bubblegum Lagoon | 320m | 36 | 17K | 150K | 유니콘 일각고래 | |
+| 7 | 빛나는 동굴 | Glowing Grotto | 410m | 42 | 32K | 2.4M | 오로라 만타 | |
+| 8 | 그레이트 배리어 | Great Barrier | 500m | 49 | 59K | 6.7M | 백상아리 | 무지개 서펜트 |
+| 9 | 난파선 만 | Shipwreck Bay | 600m | 58 | 110K | 18M | 꼬마 크라켄 | |
+| 10 | 해적의 무덤 | Pirate's Graveyard | 700m | 68 | 200K | 40M | 팬텀 크라켄 | |
+| 11 | 가라앉은 신전 | Sunken Temple | 820m | 80 | 380K | 96M | 태양 드래곤 | |
+| 12 | 아틀란티스 관문 | Atlantis Gate | 950m | 94 | 690K | 180M | 아기 리바이어던 | 포세이돈의 준마 |
+| 13 | 얼어붙은 피오르 | Frozen Fjord | 1100m | 111 | 1.3M | 300M | 일각고래 | |
+| 14 | 수정 동굴 | Crystal Caverns | 1300m | 130 | 2.4M | 980M | 프리즘 서펜트 | |
+| 15 | 화산 분출구 | Volcanic Vents | 1550m | 153 | 4.4M | 1.9B | 용암 드래곤 | |
+| 16 | 마그마 균열 | Magma Rift | 1800m | 180 | 8.1M | 3.8B | 지옥 고래 | 피닉스 가오리 |
+| 17 | 황혼 수역 | Twilight Zone | 2100m | 211 | 15M | 10B | 황혼 고래 | |
+| 18 | 한밤 해구 | Midnight Trench | 2500m | 248 | 28M | 19B | 한밤 리바이어던 | |
+| 19 | 심연 평원 | Abyssal Plains | 3000m | 292 | 52M | 100B | 심연 크라켄 | |
+| 20 | 리바이어던의 아가리 | Leviathan's Maw | 4000m | 343 | 95M | 180B | 리바이어던 | 우주 고래 |
 
 ## 글꼴과 언어
 
@@ -137,7 +144,7 @@ src/
                        · GearModels(장비 모델 + 아바타 착용) · Mutations(변이 외형)
   server/            ServerScriptService.Server – 프로필 저장, 네트워크, 다이빙 루프, 펫·인첸트, 장비, 거래, 구매
     World/             지형(섬 + 계단식 블루홀) · 장식 킷 18종 · 선착장/스폰 · 월드 빌더
-  client/            StarterPlayerScripts.Client – HUD, 패널(도감 포함), 연출, 수영, 조명/수중 효과
+  client/            StarterPlayerScripts.Client – HUD, 패널(프로필/도감 포함), 연출, 수영, 조명/수중 효과
     Sfx.luau           레이어드 효과음 (Config.SoundIds로 교체 가능)
     WorldFx.luau       반짝임·충격파 링·코인 분수 월드 이펙트
     Controllers/       Nameplates(머리 위 이름표) · Board(리더보드 화면) · Relics(외곽선) 등
@@ -173,6 +180,6 @@ lune run tests/snapshots.luau out --mobile   # 휴대폰 가로 (844x390)
 lune run tests/snapshots.luau out --ko       # 한국어
 ```
 
-에뮬레이터에서 실제 UI 코드를 실행해 로딩 화면, HUD, 잠수 중 HUD, 판매 연출, 각 패널(도감 포함), 알 부화,
+에뮬레이터에서 실제 UI 코드를 실행해 로딩 화면, HUD, 잠수 중 HUD, 판매 연출, 각 패널(프로필/도감 포함), 알 부화,
 월드 클리어, 기절 화면을 `out/*.html`로 내보냅니다. 브라우저 창을 해당 해상도로 맞춰 열면 됩니다.
 근사 렌더링이며, 3D 뷰포트(펫·알 미리보기)는 자리표시자로 보입니다.

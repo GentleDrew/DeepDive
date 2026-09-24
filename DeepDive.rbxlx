@@ -248,8 +248,8 @@ Config.PetEquipPass = 2
 Config.PetInventoryCap = 60
 
 -- World progression.
-Config.GoalBase = 12
-Config.GoalGrowth = 1.17
+Config.GoalBase = 16
+Config.GoalGrowth = 1.175
 Config.DepthBase = 40 -- studs, World 1
 Config.DepthStep = 7.2
 Config.RadiusBase = 74
@@ -262,8 +262,8 @@ Config.ClearRewardRelics = 60 -- first-clear bonus = this many common relics of 
 -- worlds quick and makes the middle of the game a grind to push through.
 -- stylua: ignore
 Config.UnlockClears = {
-	0, 2, 2.5, 1.5, 1.8, 4, 20, 40, 55, 60,
-	55, 48, 38, 28, 25, 22, 20, 18, 18, 18,
+	0, 1.1, 1.9, 1.4, 1.3, 5.9, 36, 40, 42, 36,
+	34, 25, 16, 20, 15, 11.5, 12, 8.5, 18, 12,
 }
 Config.UnlockPetRamp = 4 -- worlds over which the fee's pet-boost part ramps in
 
@@ -303,6 +303,8 @@ Config.Passes = {
 	{ key = "LuckyEggs", id = 0, price = 249, color = "#be68ff" },
 	{ key = "PetSlots", id = 0, price = 149, color = "#5ee280" },
 	{ key = "SwiftFins", id = 0, price = 99, color = "#3fd2ff" },
+	-- Cosmetic only (a crown by your name + a gold sparkle trail): no gameplay effect.
+	{ key = "VIPAura", id = 0, price = 299, color = "#ffd23f" },
 }
 Config.Products = {
 	{ key = "CoinsSmall", id = 0, price = 25, dives = 4, enchants = 0, color = "#ffd84f" },
@@ -310,6 +312,14 @@ Config.Products = {
 	{ key = "CoinsLarge", id = 0, price = 299, dives = 75, enchants = 0, color = "#ff8a3f" },
 	-- Lucky Enchants: free enchants that only roll Galaxy, Lava or GOAT.
 	{ key = "LuckyEnchant", id = 0, price = 79, dives = 0, enchants = 3, color = "#be68ff" },
+	-- Coins worth exactly the fee to unlock your next world (or a flat bonus once you own World 20).
+	{ key = "UnlockBoost", id = 0, price = 149, dives = 0, enchants = 0, unlockBoost = true, color = "#4fe07a" },
+}
+-- Promo codes redeemable once per player from Settings. Add more anytime; nothing needs
+-- redeploying beyond this list. `coins` and/or `enchants` are granted on a valid, unused code.
+export type PromoCode = { code: string, coins: number?, enchants: number? }
+Config.PromoCodes = {
+	{ code = "LAUNCH", coins = 2000 } :: PromoCode,
 }
 Config.LuckyMutations = { "Galaxy", "Lava", "GOAT" }
 Config.SwiftFinsBonus = 1.25
@@ -2063,6 +2073,34 @@ function Format.seconds(s: number): string
 	return string.format("%d:%02d", s // 60, s % 60)
 end
 
+-- Days since the Unix epoch (UTC) into a proleptic-Gregorian y/m/d triple. Portable, pure-Luau
+-- date math (Howard Hinnant's algorithm) since Roblox's os library has no os.date.
+local function civilFromDays(z: number): (number, number, number)
+	z += 719468
+	local era = (if z >= 0 then z else z - 146096) // 146097
+	local doe = z - era * 146097 -- [0, 146096]
+	local yoe = (doe - doe // 1460 + doe // 36524 - doe // 146096) // 365 -- [0, 399]
+	local y = yoe + era * 400
+	local doy = doe - (365 * yoe + yoe // 4 - yoe // 100) -- [0, 365]
+	local mp = (5 * doy + 2) // 153 -- [0, 11]
+	local d = doy - (153 * mp + 2) // 5 + 1 -- [1, 31]
+	local m = if mp < 10 then mp + 3 else mp - 9 -- [1, 12]
+	return (if m <= 2 then y + 1 else y), m, d
+end
+
+-- Unix timestamp (seconds, UTC) -> "2026.09.24".
+function Format.date(timestamp: number): string
+	local days = math.floor(timestamp / 86400)
+	local y, m, d = civilFromDays(days)
+	return string.format("%04d.%02d.%02d", y, m, d)
+end
+
+-- Seconds -> hours and minutes, for a "{h}h {m}m" / "{h}시간 {m}분" style playtime display.
+function Format.hoursMinutes(seconds: number): (number, number)
+	local total = math.max(0, math.floor(seconds))
+	return total // 3600, (total % 3600) // 60
+end
+
 -- Replaces {name} placeholders with values from args.
 function Format.fill(template: string, args: { [string]: any }?): string
 	if not args then
@@ -3738,6 +3776,7 @@ export type Data = {
 	worlds: { [string]: WorldProgress },
 	gear: GearData,
 	enchants: number, -- Lucky Enchant tokens (developer product)
+	redeemed: { [string]: boolean }, -- promo codes already claimed (see Config.PromoCodes)
 	pets: { [string]: PetEntry },
 	equipped: { string },
 	petSeq: number,
@@ -3762,6 +3801,7 @@ function Profile.new(now: number): Data
 		worlds = {},
 		gear = { owned = {}, equip = {} },
 		enchants = 0,
+		redeemed = {},
 		pets = {},
 		equipped = {},
 		petSeq = 0,
@@ -3850,6 +3890,13 @@ function Profile.reconcile(raw: any, now: number): Data
 		end
 	end
 	data.enchants = math.floor(number(raw.enchants, 0, 0, 9999))
+	if type(raw.redeemed) == "table" then
+		for key, value in raw.redeemed do
+			if type(key) == "string" and value == true then
+				data.redeemed[string.upper(key)] = true
+			end
+		end
+	end
 	local count = 0
 	if type(raw.pets) == "table" then
 		for id, entry in raw.pets do
@@ -3998,6 +4045,7 @@ Remotes.Actions = {
 	Ready = true,
 	Sell = true,
 	UnlockWorld = true,
+	RedeemCode = true,
 }
 
 return Remotes
@@ -4116,7 +4164,6 @@ local EN: { [string]: string } = {
 	["menu.pets"] = "Pets",
 	["menu.shop"] = "Shop",
 	["menu.settings"] = "Settings",
-	["menu.index"] = "Index",
 
 	up = "UP",
 	down = "DOWN",
@@ -4189,6 +4236,8 @@ local EN: { [string]: string } = {
 	["pass.PetSlots.desc"] = "Equip 5 pets at once",
 	["pass.SwiftFins"] = "Swift Fins",
 	["pass.SwiftFins.desc"] = "Swim 25% faster",
+	["pass.VIPAura"] = "VIP Aura",
+	["pass.VIPAura.desc"] = "A gold crown by your name and a sparkle trail (cosmetic only)",
 	["product.CoinsSmall"] = "Coin Pouch",
 	["product.CoinsMedium"] = "Coin Chest",
 	["product.CoinsLarge"] = "Coin Vault",
@@ -4311,10 +4360,30 @@ local EN: { [string]: string } = {
 	saved = "Saved",
 	["product.LuckyEnchant"] = "Lucky Enchants x3",
 	["product.LuckyEnchant.desc"] = "Rolls only Galaxy, Lava or GOAT",
+	["product.UnlockBoost"] = "Unlock Boost",
+	["product.UnlockBoost.desc"] = "Coins worth your next world's unlock fee",
 	unlockReady = "World {n} can now be unlocked!",
 	unlockButton = "Unlock  {n}",
 	unlockCard = "Unlock: {n}",
 	unlockTap = "Tap again to unlock!",
+	codeInvalid = "Invalid code",
+	codeUsed = "You already redeemed that code",
+	codeRedeemed = "Code redeemed!",
+	enterCode = "Enter a code",
+	redeemButton = "Redeem",
+	redeemLabel = "Promo Code",
+	["menu.profile"] = "Profile",
+	profileTitle = "Profile",
+	profileTabInfo = "Info",
+	profileTabRelics = "Relics",
+	profileJoined = "Joined {date}",
+	profilePlaytime = "Playtime: {h}h {m}m",
+	profileLifetime = "Lifetime coins",
+	profileDives = "Dives",
+	profileRelicsFound = "Relics collected",
+	profilePetsHatched = "Pets hatched",
+	profileWorldsCleared = "Worlds cleared",
+	profileBlackouts = "Blackouts",
 }
 
 local KO: { [string]: string } = {
@@ -4347,7 +4416,6 @@ local KO: { [string]: string } = {
 	["menu.pets"] = "펫",
 	["menu.shop"] = "상점",
 	["menu.settings"] = "설정",
-	["menu.index"] = "도감",
 
 	up = "위로",
 	down = "아래로",
@@ -4420,6 +4488,8 @@ local KO: { [string]: string } = {
 	["pass.PetSlots.desc"] = "펫을 5마리까지 장착",
 	["pass.SwiftFins"] = "쾌속 오리발",
 	["pass.SwiftFins.desc"] = "25% 더 빠르게 헤엄쳐요",
+	["pass.VIPAura"] = "VIP 오라",
+	["pass.VIPAura.desc"] = "이름 옆 금관 + 반짝이는 오라(꾸미기 전용)",
 	["product.CoinsSmall"] = "코인 주머니",
 	["product.CoinsMedium"] = "코인 상자",
 	["product.CoinsLarge"] = "코인 금고",
@@ -4542,10 +4612,30 @@ local KO: { [string]: string } = {
 	saved = "저장됨",
 	["product.LuckyEnchant"] = "행운 인첸트 x3",
 	["product.LuckyEnchant.desc"] = "갤럭시·용암·GOAT만 나와요",
+	["product.UnlockBoost"] = "해금 부스트",
+	["product.UnlockBoost.desc"] = "다음 월드 해금비만큼 코인을 드려요",
 	unlockReady = "월드 {n} 해금 가능!",
 	unlockButton = "해금  {n}",
 	unlockCard = "해금: {n}",
 	unlockTap = "한 번 더 누르면 해금!",
+	codeInvalid = "잘못된 코드예요",
+	codeUsed = "이미 사용한 코드예요",
+	codeRedeemed = "코드 사용 완료!",
+	enterCode = "코드를 입력하세요",
+	redeemButton = "사용하기",
+	redeemLabel = "프로모션 코드",
+	["menu.profile"] = "프로필",
+	profileTitle = "프로필",
+	profileTabInfo = "정보",
+	profileTabRelics = "유물 도감",
+	profileJoined = "가입일 {date}",
+	profilePlaytime = "플레이 시간: {h}시간 {m}분",
+	profileLifetime = "누적 코인",
+	profileDives = "잠수 횟수",
+	profileRelicsFound = "모은 유물",
+	profilePetsHatched = "부화한 펫",
+	profileWorldsCleared = "클리어한 월드",
+	profileBlackouts = "기절 횟수",
 }
 
 local TABLES = { en = EN, ko = KO }
@@ -5175,6 +5265,41 @@ local function unlockWorld(player: Player, payload: any): (boolean, string?, any
 	return true, nil, { world = world, cost = cost }
 end
 
+-- Promo codes: case-insensitive, one redemption per player, ever.
+local function redeemCode(player: Player, payload: any): (boolean, string?, any)
+	local session = Sessions.get(player)
+	if not session or type(payload) ~= "table" or type(payload.code) ~= "string" then
+		return false, "err.generic"
+	end
+	local code = string.upper((string.gsub(payload.code, "%s+", "")))
+	if code == "" then
+		return false, "codeInvalid"
+	end
+	local profile = session.profile
+	if profile.redeemed[code] then
+		return false, "codeUsed"
+	end
+	local entry = nil
+	for _, candidate in Config.PromoCodes do
+		if string.upper(candidate.code) == code then
+			entry = candidate
+			break
+		end
+	end
+	if not entry then
+		return false, "codeInvalid"
+	end
+	profile.redeemed[code] = true
+	local coins = entry.coins or 0
+	local enchants = entry.enchants or 0
+	profile.coins += coins
+	profile.lifetime += coins
+	profile.enchants += enchants
+	Sync.profile(session)
+	task.spawn(ProfileStore.save, player, false)
+	return true, nil, { coins = coins, enchants = enchants }
+end
+
 local BOOL_SETTINGS = { music = true, sfx = true, lowFx = true, hidePets = true }
 
 local function setting(player: Player, payload: any): (boolean, string?, any)
@@ -5229,6 +5354,7 @@ function ActionService.init()
 	end)
 	Net.on("Teleport", teleport)
 	Net.on("UnlockWorld", unlockWorld)
+	Net.on("RedeemCode", redeemCode)
 	Net.on("Setting", setting)
 	Net.on("Tutorial", tutorial)
 	Net.on("Ready", ready)
@@ -5508,6 +5634,7 @@ local function blackout(session: Session)
 end
 
 local function tick(session: Session, dt: number)
+	session.profile.stats.playtime += dt
 	if session.mode == "Travel" or session.mode == "Rescue" then
 		return
 	end
@@ -5715,6 +5842,17 @@ end
 function DiveService.init()
 	Net.onEvent(Remotes.Collect, onCollect)
 	Net.onEvent(Remotes.Hazard, onHazard)
+	-- Keeps the Profile panel's playtime reasonably fresh even when nothing else syncs.
+	task.spawn(function()
+		while true do
+			task.wait(30)
+			for _, session in Sessions.all() do
+				if session.ready then
+					Sync.profile(session)
+				end
+			end
+		end
+	end)
 	local accumulator = 0
 	local step = 1 / Config.Dive.ServerHz
 	RunService.Heartbeat:Connect(function(dt)
@@ -6310,6 +6448,8 @@ function PurchaseService.loadPasses(session: Sessions.Session)
 			session.passes[pass.key] = false
 		end
 	end
+	-- Replicated so other clients can render the VIP crown/aura.
+	session.player:SetAttribute("VIP", session.passes.VIPAura == true)
 end
 
 local function processReceipt(receipt: any): Enum.ProductPurchaseDecision
@@ -6327,7 +6467,18 @@ local function processReceipt(receipt: any): Enum.ProductPurchaseDecision
 	if table.find(profile.receipts, receiptId) then
 		return Enum.ProductPurchaseDecision.PurchaseGranted
 	end
-	local coins = if product.dives > 0 then Economy.productCoins(product.dives, profile.unlocked) else 0
+	-- UnlockBoost grants exactly the fee for the next world you can still unlock (or a flat
+	-- bonus once every world is already unlocked).
+	local coins
+	if product.unlockBoost then
+		coins = if profile.unlocked < Config.WorldCount
+			then Economy.unlockCost(profile.unlocked + 1)
+			else Economy.nice(Economy.unlockCost(Config.WorldCount) * 0.15)
+	elseif product.dives > 0 then
+		coins = Economy.productCoins(product.dives, profile.unlocked)
+	else
+		coins = 0
+	end
 	local enchants = product.enchants or 0
 	profile.coins += coins
 	profile.lifetime += coins
@@ -6372,6 +6523,8 @@ function PurchaseService.init()
 			session.passes[key] = true
 			if key == "PetSlots" then
 				PetService.clampEquipped(session)
+			elseif key == "VIPAura" then
+				player:SetAttribute("VIP", true)
 			end
 			Sync.profile(session)
 			Net.push(player, "toast", { key = "thanks", kind = "gold" })
@@ -9856,7 +10009,26 @@ local Format = require(Shared.Format)
 
 local Nameplates = {}
 
-type Plate = { gui: BillboardGui, connections: { RBXScriptConnection } }
+type Plate = { gui: BillboardGui, name: TextLabel, aura: ParticleEmitter?, connections: { RBXScriptConnection } }
+
+local VIP_CROWN = utf8.char(0x1F451) .. " "
+
+-- Gold sparkle worn by VIPAura pass owners, attached to the root part.
+local function auraEmitter(root: BasePart): ParticleEmitter
+	local emitter = Instance.new("ParticleEmitter")
+	emitter.Texture = "rbxasset://textures/particles/sparkles_main.dds"
+	emitter.Color = ColorSequence.new(Color3.fromRGB(255, 226, 130), Color3.fromRGB(255, 190, 40))
+	emitter.LightEmission = 1
+	emitter.LightInfluence = 0
+	emitter.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.4), NumberSequenceKeypoint.new(1, 0) })
+	emitter.Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.15), NumberSequenceKeypoint.new(1, 1) })
+	emitter.Lifetime = NumberRange.new(0.7, 1.2)
+	emitter.Rate = 6
+	emitter.Speed = NumberRange.new(0.5, 1.5)
+	emitter.SpreadAngle = Vector2.new(180, 180)
+	emitter.Parent = root
+	return emitter
+end
 
 function Nameplates.init(app: any)
 	local Kit = app.Kit
@@ -9892,7 +10064,7 @@ function Nameplates.init(app: any)
 		gui.Parent = app.Gui.promptParent
 		local column = Kit.new("Frame", { BackgroundTransparency = 1, Size = UDim2.fromScale(1, 1), Parent = gui })
 		Kit.list(column, Enum.FillDirection.Vertical, 0)
-		Kit.text({
+		local name = Kit.text({
 			Text = player.DisplayName,
 			TextSize = 22,
 			Color = if isMe then Color3.fromRGB(255, 236, 150) else Color3.new(1, 1, 1),
@@ -9921,7 +10093,21 @@ function Nameplates.init(app: any)
 			amount.Text = Format.short(if type(coins) == "number" then coins else 0)
 		end
 		refresh()
-		plates[player] = { gui = gui, connections = { player:GetAttributeChangedSignal("Coins"):Connect(refresh) } }
+		local plate: Plate = { gui = gui, name = name, aura = nil, connections = { player:GetAttributeChangedSignal("Coins"):Connect(refresh) } }
+		local root = character:FindFirstChild("HumanoidRootPart") :: BasePart?
+		local function refreshVip()
+			local vip = player:GetAttribute("VIP") == true
+			name.Text = (if vip then VIP_CROWN else "") .. player.DisplayName
+			if vip and not plate.aura and root then
+				plate.aura = auraEmitter(root)
+			elseif not vip and plate.aura then
+				plate.aura:Destroy()
+				plate.aura = nil
+			end
+		end
+		refreshVip()
+		table.insert(plate.connections, player:GetAttributeChangedSignal("VIP"):Connect(refreshVip))
+		plates[player] = plate
 	end
 
 	local function watch(player: Player)
@@ -11278,7 +11464,7 @@ local Theme = require(UI.Theme)
 local Toasts = require(UI.Toasts)
 local Tutorial = require(UI.Tutorial)
 local EggPanel = require(UI.Panels.Egg)
-local IndexPanel = require(UI.Panels.Index)
+local ProfilePanel = require(UI.Panels.Profile)
 local PlayerList = require(UI.PlayerList)
 local Trade = require(UI.Trade)
 local PetsPanel = require(UI.Panels.Pets)
@@ -11409,8 +11595,8 @@ end
 function app.openSettings()
 	panels.settings.open()
 end
-function app.openIndex()
-	panels.index.open()
+function app.openProfile()
+	panels.profile.open()
 end
 function app.sell()
 	local result = ClientNet.invoke("Sell")
@@ -11450,7 +11636,7 @@ Hud.init({
 	openPets = app.openPets,
 	openShop = app.openShop,
 	openSettings = app.openSettings,
-	openIndex = app.openIndex,
+	openProfile = app.openProfile,
 	swimInput = Swim.setInput,
 })
 
@@ -11460,7 +11646,7 @@ panels.pets = PetsPanel.new(app)
 panels.shop = ShopPanel.new(app)
 panels.settings = SettingsPanel.new(app)
 panels.egg = EggPanel.new(app)
-panels.index = IndexPanel.new(app)
+panels.profile = ProfilePanel.new(app)
 for _, panel in panels do
 	local previous = panel.onClose
 	panel.onClose = function()
@@ -12692,7 +12878,7 @@ export type Actions = {
 	openPets: () -> (),
 	openShop: () -> (),
 	openSettings: () -> (),
-	openIndex: () -> (),
+	openProfile: () -> (),
 	swimInput: (string, boolean) -> (),
 }
 
@@ -13037,7 +13223,7 @@ function Hud.init(actions: Actions)
 	Hud.menuButtons.worlds = menuButton("worlds", utf8.char(0x1F30D), "Blue", 1, actions.openWorlds)
 	Hud.menuButtons.upgrades = menuButton("upgrades", utf8.char(0x1F93F), "Orange", 2, actions.openUpgrades)
 	Hud.menuButtons.pets = menuButton("pets", utf8.char(0x1F43E), "Pink", 3, actions.openPets)
-	Hud.menuButtons.index = menuButton("index", utf8.char(0x1F4D6), "Purple", 4, actions.openIndex)
+	Hud.menuButtons.profile = menuButton("profile", utf8.char(0x1F464), "Purple", 4, actions.openProfile)
 	Hud.menuButtons.shop = menuButton("shop", utf8.char(0x1F6D2), "Green", 5, actions.openShop)
 	Hud.menuButtons.settings = menuButton("settings", utf8.char(0x2699) .. utf8.char(0xFE0F), "Gray", 6, actions.openSettings)
 	boostChip.Activated:Connect(actions.openPets)
@@ -14702,312 +14888,6 @@ return GearPanel
             </Item>
             <Item class="ModuleScript" referent="83">
               <Properties>
-                <string name="Name">Index</string>
-                <string name="Source"><![CDATA[--!strict
--- Relic index: every world's five relics. Discovered relics show their 3D model, rarity, value
--- and how many you have collected; undiscovered ones are black silhouettes marked "???".
-
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
-
-local Shared = ReplicatedStorage:WaitForChild("Shared")
-local Color = require(Shared.Color)
-local Config = require(Shared.Config)
-local Economy = require(Shared.Economy)
-local Format = require(Shared.Format)
-local Strings = require(Shared.Strings)
-local Worlds = require(Shared.Data.Worlds)
-
-local Kit = require(script.Parent.Parent.Kit)
-local Panel = require(script.Parent.Parent.Panel)
-local Theme = require(script.Parent.Parent.Theme)
-local Viewport = require(script.Parent.Parent.Viewport)
-
-local IndexPanel = {}
-
-local C = Theme.C
-local RELICS_PER_WORLD = 5
-
-type Card = {
-	frame: Frame,
-	view: Viewport.ViewApi,
-	name: TextLabel,
-	rarityChip: Frame,
-	rarity: TextLabel,
-	worth: TextLabel,
-	count: TextLabel,
-	key: string?,
-}
-
-local function discoveredIn(profile: any, world: number): number
-	local n = 0
-	for _, relic in Worlds.get(world).relics do
-		if (profile.relics[relic.key] or 0) > 0 then
-			n += 1
-		end
-	end
-	return n
-end
-
-function IndexPanel.totals(profile: any): (number, number)
-	local found = 0
-	for world = 1, Config.WorldCount do
-		found += discoveredIn(profile, world)
-	end
-	return found, Config.WorldCount * RELICS_PER_WORLD
-end
-
-function IndexPanel.new(app: any): Panel.PanelApi
-	local panel = Panel.new({
-		Parent = app.Gui.panels,
-		Title = Strings.get("indexTitle"),
-		Icon = utf8.char(0x1F4D6),
-		Palette = "Purple",
-		Size = Vector2.new(900, 560),
-	})
-	local body = panel.body
-	local selected = 1
-
-	-- Header: total progress bar.
-	local progress = Kit.progress({
-		Size = UDim2.new(1, -8, 0, 30),
-		Position = UDim2.fromOffset(4, 20),
-		Colors = { Color.hex("#d99bff"), Color.hex("#8a4fe0") },
-		TextSize = 18,
-		Parent = body,
-	})
-
-	-- World list -----------------------------------------------------------------------------------
-	local list = Kit.new("ScrollingFrame", {
-		BackgroundColor3 = C.PanelAlt,
-		BackgroundTransparency = 0.2,
-		Size = UDim2.new(0, 250, 1, -70),
-		Position = UDim2.fromOffset(0, 64),
-		CanvasSize = UDim2.new(),
-		AutomaticCanvasSize = Enum.AutomaticSize.Y,
-		ScrollBarThickness = 8,
-		ScrollBarImageColor3 = C.NavySoft,
-		BorderSizePixel = 0,
-		Parent = body,
-	}) :: ScrollingFrame
-	Kit.corner(list, 16)
-	Kit.padding(list, 8, 12, 8, 8)
-	Kit.list(list, Enum.FillDirection.Vertical, 6, Enum.HorizontalAlignment.Center, Enum.VerticalAlignment.Top)
-
-	type Row = { button: TextButton, label: TextLabel, tally: TextLabel, stroke: UIStroke }
-	local rows: { Row } = {}
-	local refresh: () -> () = function() end
-	for world = 1, Config.WorldCount do
-		local data = Worlds.get(world)
-		local button = Kit.new("TextButton", {
-			Name = "World" .. world,
-			Text = "",
-			AutoButtonColor = false,
-			BackgroundColor3 = Color3.new(1, 1, 1),
-			Size = UDim2.new(1, -4, 0, 46),
-			LayoutOrder = world,
-			Parent = list,
-		}) :: TextButton
-		Kit.corner(button, 12)
-		Kit.gradient(button, Color.lighten(Color.hex(data.accent[1]), 0.25), Color.hex(data.accent[2]), 90)
-		local stroke = Kit.stroke(button, Color.darken(Color.hex(data.accent[2]), 0.5), 2.5)
-		local label = Kit.text({
-			Text = "",
-			TextSize = 16,
-			Size = UDim2.new(1, -66, 1, 0),
-			Position = UDim2.fromOffset(10, 0),
-			XAlign = Enum.TextXAlignment.Left,
-			Stroke = 2,
-			StrokeColor = Color.darken(Color.hex(data.accent[2]), 0.55),
-			Parent = button,
-		})
-		local tally = Kit.text({
-			Text = "",
-			TextSize = 15,
-			Size = UDim2.fromOffset(58, 46),
-			Position = UDim2.new(1, -60, 0, 0),
-			Stroke = 2,
-			Parent = button,
-		})
-		button.Activated:Connect(function()
-			selected = world
-			app.Sfx.play("Click")
-			refresh()
-		end)
-		rows[world] = { button = button, label = label, tally = tally, stroke = stroke }
-	end
-
-	-- Relic cards ----------------------------------------------------------------------------------
-	local title = Kit.text({
-		Text = "",
-		TextSize = 26,
-		Size = UDim2.new(1, -266, 0, 32),
-		Position = UDim2.fromOffset(266, 66),
-		XAlign = Enum.TextXAlignment.Left,
-		Stroke = 3,
-		Parent = body,
-	})
-	local completeChip = Kit.new("Frame", {
-		BackgroundColor3 = Color3.new(1, 1, 1),
-		Size = UDim2.fromOffset(120, 30),
-		Position = UDim2.new(1, -4, 0, 67),
-		AnchorPoint = Vector2.new(1, 0),
-		Visible = false,
-		Parent = body,
-	})
-	Kit.round(completeChip)
-	Kit.gradient(completeChip, Theme.Buttons.Gold[1], Theme.Buttons.Gold[2])
-	Kit.stroke(completeChip, Theme.Buttons.Gold[3], 2.5)
-	local completeLabel =
-		Kit.text({ Text = "", TextSize = 17, Size = UDim2.fromScale(1, 1), StrokeColor = Theme.Buttons.Gold[3], Parent = completeChip })
-
-	local grid = Kit.new("Frame", {
-		BackgroundTransparency = 1,
-		Size = UDim2.new(1, -266, 1, -110),
-		Position = UDim2.fromOffset(266, 108),
-		Parent = body,
-	})
-	Kit.new("UIGridLayout", {
-		CellSize = UDim2.fromOffset(186, 184),
-		CellPadding = UDim2.fromOffset(12, 12),
-		HorizontalAlignment = Enum.HorizontalAlignment.Center,
-		SortOrder = Enum.SortOrder.LayoutOrder,
-		Parent = grid,
-	})
-	local lockedNote = Kit.text({
-		Text = "",
-		TextSize = 22,
-		Color = C.Muted,
-		Stroke = 0,
-		Wrapped = true,
-		Size = UDim2.new(1, -266, 0, 60),
-		Position = UDim2.new(0, 266, 0.55, 0),
-		Visible = false,
-		Parent = body,
-	})
-
-	local cards: { Card } = {}
-	for i = 1, RELICS_PER_WORLD do
-		local frame = Kit.new("Frame", { BackgroundColor3 = Color3.new(1, 1, 1), LayoutOrder = i, Parent = grid }) :: Frame
-		Kit.corner(frame, 16)
-		Kit.stroke(frame, C.Outline, 3)
-		local view = Viewport.new(frame, UDim2.fromOffset(150, 88), UDim2.new(0.5, 0, 0, 6), Vector2.new(0.5, 0))
-		view.setSpin(true)
-		local name =
-			Kit.text({ Text = "", TextSize = 17, Size = UDim2.new(1, -10, 0, 20), Position = UDim2.fromOffset(5, 96), Stroke = 2, Parent = frame })
-		local rarityChip = Kit.new("Frame", {
-			BackgroundColor3 = C.Gray,
-			Size = UDim2.fromOffset(110, 20),
-			Position = UDim2.new(0.5, 0, 0, 120),
-			AnchorPoint = Vector2.new(0.5, 0),
-			Parent = frame,
-		})
-		Kit.round(rarityChip)
-		Kit.stroke(rarityChip, C.Outline, 2)
-		local rarity = Kit.text({ Text = "", TextSize = 13, Size = UDim2.fromScale(1, 1), Stroke = 1.6, Parent = rarityChip })
-		local worthRow =
-			Kit.new("Frame", { BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 20), Position = UDim2.fromOffset(0, 143), Parent = frame })
-		Kit.list(worthRow, Enum.FillDirection.Horizontal, 4)
-		local coin = Kit.Icons.coin(16, worthRow)
-		coin.LayoutOrder = 1
-		local worth =
-			Kit.text({ Text = "", TextSize = 15, Size = UDim2.new(0, 0, 1, 0), AutoX = true, Stroke = 2, LayoutOrder = 2, Parent = worthRow })
-		local count = Kit.text({
-			Text = "",
-			TextSize = 13,
-			Color = C.Muted,
-			Stroke = 0,
-			Size = UDim2.new(1, -10, 0, 16),
-			Position = UDim2.fromOffset(5, 164),
-			Parent = frame,
-		})
-		cards[i] = { frame = frame, view = view, name = name, rarityChip = rarityChip, rarity = rarity, worth = worth, count = count, key = nil }
-	end
-
-	local function paintCard(card: Card, relic: any, found: number, world: number)
-		local discovered = found > 0
-		local rarityColor = Theme.rarityColor(relic.rarity)
-		if card.key ~= relic.key then
-			card.key = relic.key
-			card.view.setModel(Viewport.relic(relic.key))
-		end
-		-- Undiscovered relics render as flat black silhouettes.
-		card.view.frame.Ambient = if discovered then Color3.fromRGB(190, 200, 215) else Color3.new(0, 0, 0)
-		card.view.frame.LightColor = if discovered then Color3.fromRGB(255, 250, 240) else Color3.new(0, 0, 0)
-		card.view.frame.ImageColor3 = if discovered then Color3.new(1, 1, 1) else Color3.fromRGB(20, 28, 44)
-		card.frame.BackgroundColor3 = if discovered then rarityColor:Lerp(Color3.new(1, 1, 1), 0.72) else Color3.fromRGB(196, 206, 220)
-		card.name.Text = if discovered then Strings.name(relic.name) else "???"
-		local stroke = card.name:FindFirstChildOfClass("UIStroke")
-		if stroke then
-			stroke.Color = if discovered then rarityColor:Lerp(Color3.new(0, 0, 0), 0.55) else C.Ink
-		end
-		card.rarityChip.BackgroundColor3 = rarityColor
-		card.rarity.Text = Strings.get("rarity." .. Config.Rarities[relic.rarity])
-		card.worth.Text = Format.short(Economy.relicValue(world, relic.rarity))
-		card.count.Text = if discovered then Strings.get("indexCount", { n = Format.commas(found) }) else Strings.get("indexUndiscovered")
-	end
-
-	refresh = function()
-		local profile = app.State.profile
-		if not profile then
-			return
-		end
-		local found, total = IndexPanel.totals(profile)
-		progress.set(found / total, Strings.get("indexProgress", { a = found, b = total }))
-		for world, row in rows do
-			local data = Worlds.get(world)
-			local unlocked = world <= profile.unlocked
-			local n = discoveredIn(profile, world)
-			row.label.Text = (if unlocked then "" else utf8.char(0x1F512) .. " ") .. world .. ". " .. Strings.name(data.name)
-			row.tally.Text = if n == RELICS_PER_WORLD then utf8.char(0x2714) else n .. "/" .. RELICS_PER_WORLD
-			row.button.BackgroundTransparency = if unlocked then 0 else 0.45
-			row.stroke.Thickness = if world == selected then 4 else 2.5
-			row.stroke.Color = if world == selected then Color3.new(1, 1, 1) else Color.darken(Color.hex(data.accent[2]), 0.5)
-		end
-		local data = Worlds.get(selected)
-		title.Text = Strings.get("world", { n = selected }) .. "  ·  " .. Strings.name(data.name)
-		local titleStroke = title:FindFirstChildOfClass("UIStroke")
-		if titleStroke then
-			titleStroke.Color = Color.darken(Color.hex(data.accent[2]), 0.45)
-		end
-		title.TextColor3 = Color.lighten(Color.hex(data.accent[1]), 0.35)
-		local count = discoveredIn(profile, selected)
-		completeChip.Visible = count == RELICS_PER_WORLD
-		completeLabel.Text = Strings.get("indexComplete")
-		local unlocked = selected <= profile.unlocked
-		for i, card in cards do
-			local relic = data.relics[i]
-			card.frame.Visible = relic ~= nil
-			if relic then
-				paintCard(card, relic, profile.relics[relic.key] or 0, selected)
-			end
-		end
-		lockedNote.Visible = not unlocked and count == 0
-		lockedNote.Text = Strings.get("indexLocked")
-		grid.Visible = unlocked or count > 0
-	end
-
-	panel.onOpen = function()
-		selected = app.State.world
-		refresh()
-	end
-	app.State.profileChanged:Connect(function()
-		if panel.isOpen then
-			refresh()
-		end
-	end)
-	app.State.languageChanged:Connect(function()
-		panel.setTitle(Strings.get("indexTitle"))
-		refresh()
-	end)
-	return panel
-end
-
-return IndexPanel
-]]></string>
-              </Properties>
-            </Item>
-            <Item class="ModuleScript" referent="84">
-              <Properties>
                 <string name="Name">Pets</string>
                 <string name="Source"><![CDATA[--!strict
 -- Pet inventory: 3D pet cards by rarity, equip/lock/delete, equip best and total boost.
@@ -15607,6 +15487,482 @@ return PetsPanel
 ]]></string>
               </Properties>
             </Item>
+            <Item class="ModuleScript" referent="84">
+              <Properties>
+                <string name="Name">Profile</string>
+                <string name="Source"><![CDATA[--!strict
+-- Your profile: avatar, join date, playtime and lifetime stats on one tab; the relic index (every
+-- world's five relics, undiscovered ones as black silhouettes) on the other.
+
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local Shared = ReplicatedStorage:WaitForChild("Shared")
+local Color = require(Shared.Color)
+local Config = require(Shared.Config)
+local Economy = require(Shared.Economy)
+local Format = require(Shared.Format)
+local Strings = require(Shared.Strings)
+local Worlds = require(Shared.Data.Worlds)
+
+local Kit = require(script.Parent.Parent.Kit)
+local Panel = require(script.Parent.Parent.Panel)
+local Theme = require(script.Parent.Parent.Theme)
+local Viewport = require(script.Parent.Parent.Viewport)
+
+local ProfilePanel = {}
+
+local C = Theme.C
+local RELICS_PER_WORLD = 5
+
+type RelicCard = {
+	frame: Frame,
+	view: Viewport.ViewApi,
+	name: TextLabel,
+	rarityChip: Frame,
+	rarity: TextLabel,
+	worth: TextLabel,
+	count: TextLabel,
+	key: string?,
+}
+
+local function discoveredIn(profile: any, world: number): number
+	local n = 0
+	for _, relic in Worlds.get(world).relics do
+		if (profile.relics[relic.key] or 0) > 0 then
+			n += 1
+		end
+	end
+	return n
+end
+
+function ProfilePanel.totals(profile: any): (number, number)
+	local found = 0
+	for world = 1, Config.WorldCount do
+		found += discoveredIn(profile, world)
+	end
+	return found, Config.WorldCount * RELICS_PER_WORLD
+end
+
+local function worldsCleared(profile: any): number
+	local n = 0
+	for _, entry in profile.worlds do
+		if entry.cleared then
+			n += 1
+		end
+	end
+	return n
+end
+
+function ProfilePanel.new(app: any): Panel.PanelApi
+	local panel = Panel.new({
+		Parent = app.Gui.panels,
+		Title = Strings.get("profileTitle"),
+		Icon = utf8.char(0x1F464),
+		Palette = "Purple",
+		Size = Vector2.new(900, 560),
+	})
+	local body = panel.body
+	local relicWorld = 1
+	local tab = "info" -- "info" | "relics"
+
+	-- Tab bar --------------------------------------------------------------------------------------
+	local tabs = Kit.new("Frame", { BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 44), Position = UDim2.fromOffset(0, 16), Parent = body })
+	Kit.list(tabs, Enum.FillDirection.Horizontal, 10, Enum.HorizontalAlignment.Left)
+	local tabButtons: { [string]: Kit.ButtonApi } = {}
+	local refresh: () -> ()
+	local function selectTab(key: string)
+		tab = key
+		refresh()
+	end
+	for order, key in { "info", "relics" } do
+		tabButtons[key] = Kit.button({
+			Text = "",
+			TextSize = 19,
+			Palette = "Navy",
+			Size = UDim2.fromOffset(180, 44),
+			LayoutOrder = order,
+			Parent = tabs,
+			OnClick = function()
+				app.Sfx.play("Click")
+				selectTab(key)
+			end,
+		})
+	end
+
+	-- Info tab ---------------------------------------------------------------------------------------
+	local info = Kit.new("Frame", { BackgroundTransparency = 1, Size = UDim2.new(1, 0, 1, -66), Position = UDim2.fromOffset(0, 66), Parent = body })
+
+	local card = Kit.new("Frame", {
+		BackgroundColor3 = Color3.new(1, 1, 1),
+		Size = UDim2.new(0, 250, 1, 0),
+		Parent = info,
+	})
+	Kit.corner(card, 18)
+	Kit.stroke(card, C.PanelLine, 3)
+	Kit.gradient(card, Color3.fromRGB(255, 255, 255), Color3.fromRGB(228, 243, 255))
+	local avatar = Kit.new("ImageLabel", {
+		BackgroundColor3 = Color3.fromRGB(60, 90, 140),
+		Size = UDim2.fromOffset(140, 140),
+		Position = UDim2.new(0.5, 0, 0, 24),
+		AnchorPoint = Vector2.new(0.5, 0),
+		Parent = card,
+	})
+	Kit.round(avatar)
+	Kit.stroke(avatar, C.Outline, 3)
+	local nameLabel = Kit.text({
+		Text = "",
+		TextSize = 26,
+		Size = UDim2.new(1, -16, 0, 34),
+		Position = UDim2.new(0.5, 0, 0, 172),
+		AnchorPoint = Vector2.new(0.5, 0),
+		Parent = card,
+	})
+	local joinedLabel = Kit.text({
+		Text = "",
+		TextSize = 16,
+		Color = C.Muted,
+		Stroke = 0,
+		Size = UDim2.new(1, -16, 0, 22),
+		Position = UDim2.new(0.5, 0, 0, 208),
+		AnchorPoint = Vector2.new(0.5, 0),
+		Parent = card,
+	})
+	local playtimeChip = Kit.new("Frame", {
+		BackgroundColor3 = Color3.new(1, 1, 1),
+		Size = UDim2.new(1, -30, 0, 44),
+		Position = UDim2.new(0.5, 0, 0, 244),
+		AnchorPoint = Vector2.new(0.5, 0),
+		Parent = card,
+	})
+	Kit.round(playtimeChip)
+	local pg = Theme.Buttons.Blue
+	Kit.gradient(playtimeChip, pg[1], pg[2])
+	Kit.stroke(playtimeChip, pg[3], 2.5)
+	local playtimeLabel = Kit.text({ Text = "", TextSize = 17, Size = UDim2.fromScale(1, 1), StrokeColor = pg[3], Parent = playtimeChip })
+
+	-- Stat grid.
+	local statsFrame = Kit.new("Frame", {
+		BackgroundTransparency = 1,
+		Size = UDim2.new(1, -270, 1, 0),
+		Position = UDim2.fromOffset(266, 0),
+		Parent = info,
+	})
+	Kit.new("UIGridLayout", {
+		CellSize = UDim2.fromOffset(276, 84),
+		CellPadding = UDim2.fromOffset(12, 12),
+		SortOrder = Enum.SortOrder.LayoutOrder,
+		Parent = statsFrame,
+	})
+
+	local STAT_DEFS = {
+		{ key = "lifetime", label = "profileLifetime", icon = utf8.char(0x1F4B0), palette = "Gold" },
+		{ key = "dives", label = "profileDives", icon = utf8.char(0x1F3CA), palette = "Blue" },
+		{ key = "relicsFound", label = "profileRelicsFound", icon = utf8.char(0x1F4E6), palette = "Green" },
+		{ key = "petsHatched", label = "profilePetsHatched", icon = utf8.char(0x1F95A), palette = "Pink" },
+		{ key = "worldsCleared", label = "profileWorldsCleared", icon = utf8.char(0x1F3C6), palette = "Orange" },
+		{ key = "blackouts", label = "profileBlackouts", icon = utf8.char(0x1F4A8), palette = "Red" },
+	}
+	local statLabels: { [string]: TextLabel } = {}
+	local statValues: { [string]: TextLabel } = {}
+	for order, def in STAT_DEFS do
+		local palette = Theme.Buttons[def.palette]
+		local tile = Kit.new("Frame", { BackgroundColor3 = Color3.new(1, 1, 1), LayoutOrder = order, Parent = statsFrame })
+		Kit.corner(tile, 16)
+		Kit.stroke(tile, C.PanelLine, 2.5)
+		local iconBack = Kit.new("Frame", {
+			BackgroundColor3 = palette[2],
+			Size = UDim2.fromOffset(56, 56),
+			Position = UDim2.fromOffset(12, 14),
+			Parent = tile,
+		})
+		Kit.round(iconBack)
+		Kit.stroke(iconBack, palette[3], 2.5)
+		Kit.text({ Text = def.icon, TextSize = 28, Size = UDim2.fromScale(1, 1), Stroke = 0, Parent = iconBack })
+		statLabels[def.key] = Kit.text({
+			Text = "",
+			TextSize = 15,
+			Color = C.Muted,
+			Stroke = 0,
+			Size = UDim2.new(1, -84, 0, 20),
+			Position = UDim2.fromOffset(78, 14),
+			XAlign = Enum.TextXAlignment.Left,
+			Parent = tile,
+		})
+		statValues[def.key] = Kit.text({
+			Text = "",
+			TextSize = 24,
+			Size = UDim2.new(1, -84, 0, 32),
+			Position = UDim2.fromOffset(78, 36),
+			XAlign = Enum.TextXAlignment.Left,
+			Parent = tile,
+		})
+	end
+
+	-- Relics tab (unchanged relic index) --------------------------------------------------------------
+	local relics = Kit.new("Frame", { BackgroundTransparency = 1, Size = UDim2.new(1, 0, 1, -66), Position = UDim2.fromOffset(0, 66), Parent = body })
+
+	local progress = Kit.progress({
+		Size = UDim2.new(1, -8, 0, 30),
+		Position = UDim2.fromOffset(4, 0),
+		Colors = { Color.hex("#d99bff"), Color.hex("#8a4fe0") },
+		TextSize = 18,
+		Parent = relics,
+	})
+
+	local list = Kit.new("ScrollingFrame", {
+		BackgroundColor3 = C.PanelAlt,
+		BackgroundTransparency = 0.2,
+		Size = UDim2.new(0, 250, 1, -44),
+		Position = UDim2.fromOffset(0, 44),
+		CanvasSize = UDim2.new(),
+		AutomaticCanvasSize = Enum.AutomaticSize.Y,
+		ScrollBarThickness = 8,
+		ScrollBarImageColor3 = C.NavySoft,
+		BorderSizePixel = 0,
+		Parent = relics,
+	}) :: ScrollingFrame
+	Kit.corner(list, 16)
+	Kit.padding(list, 8, 12, 8, 8)
+	Kit.list(list, Enum.FillDirection.Vertical, 6, Enum.HorizontalAlignment.Center, Enum.VerticalAlignment.Top)
+
+	type Row = { button: TextButton, label: TextLabel, tally: TextLabel, stroke: UIStroke }
+	local rows: { Row } = {}
+	for world = 1, Config.WorldCount do
+		local data = Worlds.get(world)
+		local button = Kit.new("TextButton", {
+			Name = "World" .. world,
+			Text = "",
+			AutoButtonColor = false,
+			BackgroundColor3 = Color3.new(1, 1, 1),
+			Size = UDim2.new(1, -4, 0, 46),
+			LayoutOrder = world,
+			Parent = list,
+		}) :: TextButton
+		Kit.corner(button, 12)
+		Kit.gradient(button, Color.lighten(Color.hex(data.accent[1]), 0.25), Color.hex(data.accent[2]), 90)
+		local stroke = Kit.stroke(button, Color.darken(Color.hex(data.accent[2]), 0.5), 2.5)
+		local label = Kit.text({
+			Text = "",
+			TextSize = 16,
+			Size = UDim2.new(1, -66, 1, 0),
+			Position = UDim2.fromOffset(10, 0),
+			XAlign = Enum.TextXAlignment.Left,
+			Stroke = 2,
+			StrokeColor = Color.darken(Color.hex(data.accent[2]), 0.55),
+			Parent = button,
+		})
+		local tally = Kit.text({
+			Text = "",
+			TextSize = 15,
+			Size = UDim2.fromOffset(58, 46),
+			Position = UDim2.new(1, -60, 0, 0),
+			Stroke = 2,
+			Parent = button,
+		})
+		button.Activated:Connect(function()
+			relicWorld = world
+			app.Sfx.play("Click")
+			refresh()
+		end)
+		rows[world] = { button = button, label = label, tally = tally, stroke = stroke }
+	end
+
+	local relicTitle = Kit.text({
+		Text = "",
+		TextSize = 26,
+		Size = UDim2.new(1, -266, 0, 32),
+		Position = UDim2.fromOffset(266, 2),
+		XAlign = Enum.TextXAlignment.Left,
+		Stroke = 3,
+		Parent = relics,
+	})
+	local completeChip = Kit.new("Frame", {
+		BackgroundColor3 = Color3.new(1, 1, 1),
+		Size = UDim2.fromOffset(120, 30),
+		Position = UDim2.new(1, -4, 0, 3),
+		AnchorPoint = Vector2.new(1, 0),
+		Visible = false,
+		Parent = relics,
+	})
+	Kit.round(completeChip)
+	Kit.gradient(completeChip, Theme.Buttons.Gold[1], Theme.Buttons.Gold[2])
+	Kit.stroke(completeChip, Theme.Buttons.Gold[3], 2.5)
+	local completeLabel =
+		Kit.text({ Text = "", TextSize = 17, Size = UDim2.fromScale(1, 1), StrokeColor = Theme.Buttons.Gold[3], Parent = completeChip })
+
+	local grid = Kit.new("Frame", {
+		BackgroundTransparency = 1,
+		Size = UDim2.new(1, -266, 1, -44),
+		Position = UDim2.fromOffset(266, 44),
+		Parent = relics,
+	})
+	Kit.new("UIGridLayout", {
+		CellSize = UDim2.fromOffset(186, 184),
+		CellPadding = UDim2.fromOffset(12, 12),
+		HorizontalAlignment = Enum.HorizontalAlignment.Center,
+		SortOrder = Enum.SortOrder.LayoutOrder,
+		Parent = grid,
+	})
+	local lockedNote = Kit.text({
+		Text = "",
+		TextSize = 22,
+		Color = C.Muted,
+		Stroke = 0,
+		Wrapped = true,
+		Size = UDim2.new(1, -266, 0, 60),
+		Position = UDim2.new(0, 266, 0.5, 0),
+		Visible = false,
+		Parent = relics,
+	})
+
+	local cards: { RelicCard } = {}
+	for i = 1, RELICS_PER_WORLD do
+		local frame = Kit.new("Frame", { BackgroundColor3 = Color3.new(1, 1, 1), LayoutOrder = i, Parent = grid }) :: Frame
+		Kit.corner(frame, 16)
+		Kit.stroke(frame, C.Outline, 3)
+		local view = Viewport.new(frame, UDim2.fromOffset(150, 88), UDim2.new(0.5, 0, 0, 6), Vector2.new(0.5, 0))
+		view.setSpin(true)
+		local name =
+			Kit.text({ Text = "", TextSize = 17, Size = UDim2.new(1, -10, 0, 20), Position = UDim2.fromOffset(5, 96), Stroke = 2, Parent = frame })
+		local rarityChip = Kit.new("Frame", {
+			BackgroundColor3 = C.Gray,
+			Size = UDim2.fromOffset(110, 20),
+			Position = UDim2.new(0.5, 0, 0, 120),
+			AnchorPoint = Vector2.new(0.5, 0),
+			Parent = frame,
+		})
+		Kit.round(rarityChip)
+		Kit.stroke(rarityChip, C.Outline, 2)
+		local rarity = Kit.text({ Text = "", TextSize = 13, Size = UDim2.fromScale(1, 1), Stroke = 1.6, Parent = rarityChip })
+		local worthRow =
+			Kit.new("Frame", { BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 20), Position = UDim2.fromOffset(0, 143), Parent = frame })
+		Kit.list(worthRow, Enum.FillDirection.Horizontal, 4)
+		local coin = Kit.Icons.coin(16, worthRow)
+		coin.LayoutOrder = 1
+		local worth =
+			Kit.text({ Text = "", TextSize = 15, Size = UDim2.new(0, 0, 1, 0), AutoX = true, Stroke = 2, LayoutOrder = 2, Parent = worthRow })
+		local count = Kit.text({
+			Text = "",
+			TextSize = 13,
+			Color = C.Muted,
+			Stroke = 0,
+			Size = UDim2.new(1, -10, 0, 16),
+			Position = UDim2.fromOffset(5, 164),
+			Parent = frame,
+		})
+		cards[i] = { frame = frame, view = view, name = name, rarityChip = rarityChip, rarity = rarity, worth = worth, count = count, key = nil }
+	end
+
+	local function paintCard(card2: RelicCard, relic: any, found: number, world: number)
+		local discovered = found > 0
+		local rarityColor = Theme.rarityColor(relic.rarity)
+		if card2.key ~= relic.key then
+			card2.key = relic.key
+			card2.view.setModel(Viewport.relic(relic.key))
+		end
+		card2.view.frame.Ambient = if discovered then Color3.fromRGB(190, 200, 215) else Color3.new(0, 0, 0)
+		card2.view.frame.LightColor = if discovered then Color3.fromRGB(255, 250, 240) else Color3.new(0, 0, 0)
+		card2.view.frame.ImageColor3 = if discovered then Color3.new(1, 1, 1) else Color3.fromRGB(20, 28, 44)
+		card2.frame.BackgroundColor3 = if discovered then rarityColor:Lerp(Color3.new(1, 1, 1), 0.72) else Color3.fromRGB(196, 206, 220)
+		card2.name.Text = if discovered then Strings.name(relic.name) else "???"
+		local stroke = card2.name:FindFirstChildOfClass("UIStroke")
+		if stroke then
+			stroke.Color = if discovered then rarityColor:Lerp(Color3.new(0, 0, 0), 0.55) else C.Ink
+		end
+		card2.rarityChip.BackgroundColor3 = rarityColor
+		card2.rarity.Text = Strings.get("rarity." .. Config.Rarities[relic.rarity])
+		card2.worth.Text = Format.short(Economy.relicValue(world, relic.rarity))
+		card2.count.Text = if discovered then Strings.get("indexCount", { n = Format.commas(found) }) else Strings.get("indexUndiscovered")
+	end
+
+	refresh = function()
+		local profile = app.State.profile
+		panel.setTitle(if tab == "info" then Strings.get("profileTitle") else Strings.get("indexTitle"))
+		tabButtons.info.setText(Strings.get("profileTabInfo"))
+		tabButtons.relics.setText(Strings.get("profileTabRelics"))
+		tabButtons.info.setPalette(if tab == "info" then "Purple" else "Navy")
+		tabButtons.relics.setPalette(if tab == "relics" then "Purple" else "Navy")
+		info.Visible = tab == "info"
+		relics.Visible = tab == "relics"
+		if not profile then
+			return
+		end
+		if tab == "info" then
+			local player = Players.LocalPlayer
+			avatar.Image = string.format("rbxthumb://type=AvatarHeadShot&id=%d&w=180&h=180", math.max(1, player.UserId))
+			local vip = player:GetAttribute("VIP") == true
+			nameLabel.Text = (if vip then utf8.char(0x1F451) .. " " else "") .. player.DisplayName
+			joinedLabel.Text = Strings.get("profileJoined", { date = Format.date(profile.created) })
+			local h, m = Format.hoursMinutes(profile.stats.playtime)
+			playtimeLabel.Text = Strings.get("profilePlaytime", { h = h, m = m })
+			local found = ProfilePanel.totals(profile)
+			local values = {
+				lifetime = Format.commas(profile.lifetime),
+				dives = Format.commas(profile.stats.dives),
+				relicsFound = found .. "/" .. Config.WorldCount * RELICS_PER_WORLD,
+				petsHatched = Format.commas(profile.stats.hatched),
+				worldsCleared = worldsCleared(profile) .. "/" .. Config.WorldCount,
+				blackouts = Format.commas(profile.stats.blackouts),
+			}
+			for _, def in STAT_DEFS do
+				statLabels[def.key].Text = Strings.get(def.label)
+				statValues[def.key].Text = values[def.key]
+			end
+		else
+			local found, total = ProfilePanel.totals(profile)
+			progress.set(found / total, Strings.get("indexProgress", { a = found, b = total }))
+			for world, row in rows do
+				local data = Worlds.get(world)
+				local unlocked = world <= profile.unlocked
+				local n = discoveredIn(profile, world)
+				row.label.Text = (if unlocked then "" else utf8.char(0x1F512) .. " ") .. world .. ". " .. Strings.name(data.name)
+				row.tally.Text = if n == RELICS_PER_WORLD then utf8.char(0x2714) else n .. "/" .. RELICS_PER_WORLD
+				row.button.BackgroundTransparency = if unlocked then 0 else 0.45
+				row.stroke.Thickness = if world == relicWorld then 4 else 2.5
+				row.stroke.Color = if world == relicWorld then Color3.new(1, 1, 1) else Color.darken(Color.hex(data.accent[2]), 0.5)
+			end
+			local data = Worlds.get(relicWorld)
+			relicTitle.Text = Strings.get("world", { n = relicWorld }) .. "  ·  " .. Strings.name(data.name)
+			local titleStroke = relicTitle:FindFirstChildOfClass("UIStroke")
+			if titleStroke then
+				titleStroke.Color = Color.darken(Color.hex(data.accent[2]), 0.45)
+			end
+			relicTitle.TextColor3 = Color.lighten(Color.hex(data.accent[1]), 0.35)
+			local count = discoveredIn(profile, relicWorld)
+			completeChip.Visible = count == RELICS_PER_WORLD
+			completeLabel.Text = Strings.get("indexComplete")
+			local unlocked = relicWorld <= profile.unlocked
+			for i, card2 in cards do
+				local relic = data.relics[i]
+				card2.frame.Visible = relic ~= nil
+				if relic then
+					paintCard(card2, relic, profile.relics[relic.key] or 0, relicWorld)
+				end
+			end
+			lockedNote.Visible = not unlocked and count == 0
+			lockedNote.Text = Strings.get("indexLocked")
+			grid.Visible = unlocked or count > 0
+		end
+	end
+
+	panel.onOpen = function()
+		relicWorld = app.State.world
+		refresh()
+	end
+	app.State.profileChanged:Connect(function()
+		if panel.isOpen then
+			refresh()
+		end
+	end)
+	app.State.languageChanged:Connect(refresh)
+	return panel
+end
+
+return ProfilePanel
+]]></string>
+              </Properties>
+            </Item>
             <Item class="ModuleScript" referent="85">
               <Properties>
                 <string name="Name">Settings</string>
@@ -15617,6 +15973,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Config = require(Shared.Config)
+local Format = require(Shared.Format)
 local Strings = require(Shared.Strings)
 
 local Kit = require(script.Parent.Parent.Kit)
@@ -15701,6 +16058,70 @@ function SettingsPanel.new(app: any): Panel.PanelApi
 		})
 	end
 
+	-- Promo code redemption.
+	local codeRow = row(6)
+	local codeLabel = Kit.text({
+		Text = "",
+		TextSize = 24,
+		Color = C.Navy,
+		Stroke = 0,
+		Size = UDim2.new(0.3, 0, 1, 0),
+		Position = UDim2.fromOffset(20, 0),
+		XAlign = Enum.TextXAlignment.Left,
+		Parent = codeRow,
+	})
+	local codeBox = Kit.new("TextBox", {
+		Text = "",
+		TextSize = 20,
+		FontFace = Theme.Font,
+		TextColor3 = C.Ink,
+		PlaceholderColor3 = C.Muted,
+		BackgroundColor3 = Color3.fromRGB(255, 255, 255),
+		ClearTextOnFocus = false,
+		Size = UDim2.fromOffset(180, 44),
+		Position = UDim2.new(0.32, 0, 0.5, 0),
+		AnchorPoint = Vector2.new(0, 0.5),
+		Parent = codeRow,
+	}) :: TextBox
+	Kit.corner(codeBox, 12)
+	Kit.stroke(codeBox, C.PanelLine, 2)
+	Kit.padding(codeBox, 0, 12, 0, 12)
+	local redeemButton = Kit.button({
+		Text = "",
+		TextSize = 20,
+		Palette = "Purple",
+		Size = UDim2.fromOffset(120, 44),
+		Position = UDim2.new(1, -18, 0.5, 0),
+		AnchorPoint = Vector2.new(1, 0.5),
+		Parent = codeRow,
+		OnClick = function()
+			local code = codeBox.Text
+			if code == "" then
+				app.Toasts.show(Strings.get("enterCode"), "info")
+				return
+			end
+			local result = app.Net.invoke("RedeemCode", { code = code })
+			if result.ok then
+				app.Sfx.play("Legendary")
+				codeBox.Text = ""
+				local reward = result.data or {}
+				local parts = {}
+				if (reward.coins or 0) > 0 then
+					table.insert(parts, Format.commas(reward.coins) .. " " .. Strings.get("coins"))
+				end
+				if (reward.enchants or 0) > 0 then
+					table.insert(parts, "+" .. reward.enchants .. " " .. utf8.char(0x2728))
+				end
+				app.Toasts.show(Strings.get("codeRedeemed") .. (if #parts > 0 then "  " .. table.concat(parts, ", ") else ""), "gold")
+			else
+				app.Sfx.play("Error")
+				if result.err then
+					app.Toasts.show(Strings.get(result.err), "bad")
+				end
+			end
+		end,
+	})
+
 	local help = Kit.text({
 		Text = "",
 		TextSize = 16,
@@ -15708,7 +16129,7 @@ function SettingsPanel.new(app: any): Panel.PanelApi
 		Stroke = 0,
 		Wrapped = true,
 		Size = UDim2.new(1, -20, 0, 44),
-		LayoutOrder = 6,
+		LayoutOrder = 7,
 		Parent = list,
 	})
 	local version = Kit.text({
@@ -15717,7 +16138,7 @@ function SettingsPanel.new(app: any): Panel.PanelApi
 		Color = C.Muted,
 		Stroke = 0,
 		Size = UDim2.new(1, 0, 0, 20),
-		LayoutOrder = 7,
+		LayoutOrder = 8,
 		Parent = list,
 	})
 	local _ = version
@@ -15736,6 +16157,9 @@ function SettingsPanel.new(app: any): Panel.PanelApi
 			button.setPalette(if Strings.language == lang then "Blue" else "Gray")
 		end
 		help.Text = Strings.get(if app.Gui.isTouch() then "controlsTouch" else "controlsPc")
+		codeLabel.Text = Strings.get("redeemLabel")
+		codeBox.PlaceholderText = Strings.get("enterCode")
+		redeemButton.setText(Strings.get("redeemButton"))
 	end
 
 	panel.onOpen = function()
@@ -15789,6 +16213,8 @@ local ICONS = {
 	CoinsMedium = utf8.char(0x1F4B0),
 	CoinsLarge = utf8.char(0x1F451),
 	LuckyEnchant = utf8.char(0x2728),
+	VIPAura = utf8.char(0x1F451),
+	UnlockBoost = utf8.char(0x1F513),
 }
 
 type Card = { key: string, kind: string, name: TextLabel, desc: TextLabel, buy: Kit.ButtonApi, def: any }
@@ -15928,7 +16354,7 @@ function ShopPanel.new(app: any): Panel.PanelApi
 				c.desc.Text = Strings.get("pass." .. c.key .. ".desc")
 			else
 				c.name.Text = Strings.get("product." .. c.key)
-				c.desc.Text = if c.def.enchants > 0
+				c.desc.Text = if c.def.enchants > 0 or c.def.unlockBoost
 					then Strings.get("product." .. c.key .. ".desc")
 					else Strings.get("product.desc", { n = Format.short(Economy.productCoins(c.def.dives, unlocked)) })
 			end
@@ -16309,6 +16735,7 @@ local Theme = require(script.Parent.Theme)
 local PlayerList = {}
 
 local C = Theme.C
+local VIP_CROWN = utf8.char(0x1F451) .. " "
 local WIDTH = 392
 local ROW = 38
 -- Columns start after the avatar (42); the trade button (34) follows the relic column and the
@@ -16415,7 +16842,6 @@ function PlayerList.init(onTrade: ((Player) -> ())?)
 		Kit.round(avatar)
 		Kit.stroke(avatar, C.Outline, 2)
 		local name, coins, relics = columns(frame, 17, nil, 2)
-		name.Text = player.DisplayName
 		name.TextTruncate = Enum.TextTruncate.AtEnd
 		if player == localPlayer then
 			name.TextColor3 = Color3.fromRGB(255, 232, 140)
@@ -16462,6 +16888,7 @@ function PlayerList.init(onTrade: ((Player) -> ())?)
 		for index, player in list do
 			local row = rows[player] or makeRow(player)
 			row.frame.LayoutOrder = 10 + index
+			row.name.Text = (if player:GetAttribute("VIP") == true then VIP_CROWN else "") .. player.DisplayName
 			row.coins.Text = Format.short(numberOf(player, "Coins"))
 			row.relics.Text = Format.short(numberOf(player, "Relics"))
 		end
@@ -16474,6 +16901,7 @@ function PlayerList.init(onTrade: ((Player) -> ())?)
 	local function watch(player: Player)
 		player:GetAttributeChangedSignal("Coins"):Connect(refresh)
 		player:GetAttributeChangedSignal("Relics"):Connect(refresh)
+		player:GetAttributeChangedSignal("VIP"):Connect(refresh)
 		refresh()
 	end
 	for _, player in Players:GetPlayers() do

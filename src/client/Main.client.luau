@@ -28,7 +28,7 @@ local Theme = require(UI.Theme)
 local Toasts = require(UI.Toasts)
 local Tutorial = require(UI.Tutorial)
 local EggPanel = require(UI.Panels.Egg)
-local IndexPanel = require(UI.Panels.Index)
+local ProfilePanel = require(UI.Panels.Profile)
 local PlayerList = require(UI.PlayerList)
 local Trade = require(UI.Trade)
 local PetsPanel = require(UI.Panels.Pets)
@@ -159,8 +159,8 @@ end
 function app.openSettings()
 	panels.settings.open()
 end
-function app.openIndex()
-	panels.index.open()
+function app.openProfile()
+	panels.profile.open()
 end
 function app.sell()
 	local result = ClientNet.invoke("Sell")
@@ -200,7 +200,7 @@ Hud.init({
 	openPets = app.openPets,
 	openShop = app.openShop,
 	openSettings = app.openSettings,
-	openIndex = app.openIndex,
+	openProfile = app.openProfile,
 	swimInput = Swim.setInput,
 })
 
@@ -210,7 +210,7 @@ panels.pets = PetsPanel.new(app)
 panels.shop = ShopPanel.new(app)
 panels.settings = SettingsPanel.new(app)
 panels.egg = EggPanel.new(app)
-panels.index = IndexPanel.new(app)
+panels.profile = ProfilePanel.new(app)
 for _, panel in panels do
 	local previous = panel.onClose
 	panel.onClose = function()

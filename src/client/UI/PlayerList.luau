@@ -19,6 +19,7 @@ local Theme = require(script.Parent.Theme)
 local PlayerList = {}
 
 local C = Theme.C
+local VIP_CROWN = utf8.char(0x1F451) .. " "
 local WIDTH = 392
 local ROW = 38
 -- Columns start after the avatar (42); the trade button (34) follows the relic column and the
@@ -125,7 +126,6 @@ function PlayerList.init(onTrade: ((Player) -> ())?)
 		Kit.round(avatar)
 		Kit.stroke(avatar, C.Outline, 2)
 		local name, coins, relics = columns(frame, 17, nil, 2)
-		name.Text = player.DisplayName
 		name.TextTruncate = Enum.TextTruncate.AtEnd
 		if player == localPlayer then
 			name.TextColor3 = Color3.fromRGB(255, 232, 140)
@@ -172,6 +172,7 @@ function PlayerList.init(onTrade: ((Player) -> ())?)
 		for index, player in list do
 			local row = rows[player] or makeRow(player)
 			row.frame.LayoutOrder = 10 + index
+			row.name.Text = (if player:GetAttribute("VIP") == true then VIP_CROWN else "") .. player.DisplayName
 			row.coins.Text = Format.short(numberOf(player, "Coins"))
 			row.relics.Text = Format.short(numberOf(player, "Relics"))
 		end
@@ -184,6 +185,7 @@ function PlayerList.init(onTrade: ((Player) -> ())?)
 	local function watch(player: Player)
 		player:GetAttributeChangedSignal("Coins"):Connect(refresh)
 		player:GetAttributeChangedSignal("Relics"):Connect(refresh)
+		player:GetAttributeChangedSignal("VIP"):Connect(refresh)
 		refresh()
 	end
 	for _, player in Players:GetPlayers() do

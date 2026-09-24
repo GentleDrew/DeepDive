@@ -37,7 +37,7 @@ export type Actions = {
 	openPets: () -> (),
 	openShop: () -> (),
 	openSettings: () -> (),
-	openIndex: () -> (),
+	openProfile: () -> (),
 	swimInput: (string, boolean) -> (),
 }
 
@@ -382,7 +382,7 @@ function Hud.init(actions: Actions)
 	Hud.menuButtons.worlds = menuButton("worlds", utf8.char(0x1F30D), "Blue", 1, actions.openWorlds)
 	Hud.menuButtons.upgrades = menuButton("upgrades", utf8.char(0x1F93F), "Orange", 2, actions.openUpgrades)
 	Hud.menuButtons.pets = menuButton("pets", utf8.char(0x1F43E), "Pink", 3, actions.openPets)
-	Hud.menuButtons.index = menuButton("index", utf8.char(0x1F4D6), "Purple", 4, actions.openIndex)
+	Hud.menuButtons.profile = menuButton("profile", utf8.char(0x1F464), "Purple", 4, actions.openProfile)
 	Hud.menuButtons.shop = menuButton("shop", utf8.char(0x1F6D2), "Green", 5, actions.openShop)
 	Hud.menuButtons.settings = menuButton("settings", utf8.char(0x2699) .. utf8.char(0xFE0F), "Gray", 6, actions.openSettings)
 	boostChip.Activated:Connect(actions.openPets)

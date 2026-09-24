@@ -53,6 +53,41 @@ local function unlockWorld(player: Player, payload: any): (boolean, string?, any
 	return true, nil, { world = world, cost = cost }
 end
 
+-- Promo codes: case-insensitive, one redemption per player, ever.
+local function redeemCode(player: Player, payload: any): (boolean, string?, any)
+	local session = Sessions.get(player)
+	if not session or type(payload) ~= "table" or type(payload.code) ~= "string" then
+		return false, "err.generic"
+	end
+	local code = string.upper((string.gsub(payload.code, "%s+", "")))
+	if code == "" then
+		return false, "codeInvalid"
+	end
+	local profile = session.profile
+	if profile.redeemed[code] then
+		return false, "codeUsed"
+	end
+	local entry = nil
+	for _, candidate in Config.PromoCodes do
+		if string.upper(candidate.code) == code then
+			entry = candidate
+			break
+		end
+	end
+	if not entry then
+		return false, "codeInvalid"
+	end
+	profile.redeemed[code] = true
+	local coins = entry.coins or 0
+	local enchants = entry.enchants or 0
+	profile.coins += coins
+	profile.lifetime += coins
+	profile.enchants += enchants
+	Sync.profile(session)
+	task.spawn(ProfileStore.save, player, false)
+	return true, nil, { coins = coins, enchants = enchants }
+end
+
 local BOOL_SETTINGS = { music = true, sfx = true, lowFx = true, hidePets = true }
 
 local function setting(player: Player, payload: any): (boolean, string?, any)
@@ -107,6 +142,7 @@ function ActionService.init()
 	end)
 	Net.on("Teleport", teleport)
 	Net.on("UnlockWorld", unlockWorld)
+	Net.on("RedeemCode", redeemCode)
 	Net.on("Setting", setting)
 	Net.on("Tutorial", tutorial)
 	Net.on("Ready", ready)

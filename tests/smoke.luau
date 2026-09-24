@@ -65,6 +65,16 @@ for _, realm in { Engine.server, Engine.client } do
 	else
 		realmConfig.Products[1].id = 111
 		realmConfig.Passes[1].id = 222
+		for _, product in realmConfig.Products do
+			if product.key == "UnlockBoost" then
+				product.id = 333
+			end
+		end
+		for _, pass in realmConfig.Passes do
+			if pass.key == "VIPAura" then
+				pass.id = 444
+			end
+		end
 	end
 end
 if mobile then
@@ -737,6 +747,73 @@ if not quick then
 		check(s.passes.DoubleCoins == true, "game pass purchase not applied")
 		local shopConfig = Engine.client.module(Shared .. "Config")
 		check(shopConfig.Products[1].id == 111, "client realm should see the configured product id")
+
+		-- UnlockBoost grants exactly the next world's unlock fee.
+		local wantFee = Economy.unlockCost(s.profile.unlocked + 1)
+		local beforeBoost = s.profile.coins
+		local boostDecision = processReceipt({ PlayerId = 1001, ProductId = 333, PurchaseId = "receipt-boost" })
+		check(boostDecision == Enum.ProductPurchaseDecision.PurchaseGranted, "UnlockBoost receipt not granted")
+		check(s.profile.coins == beforeBoost + wantFee, "UnlockBoost should grant exactly the next unlock fee")
+
+		-- VIPAura is cosmetic: sets the replicated VIP attribute (crown + aura on other clients).
+		check(player:GetAttribute("VIP") ~= true, "VIP attribute set before buying the pass")
+		Engine.ownedPasses[444] = true
+		Engine.fire(market, "PromptGamePassPurchaseFinished", player, 444, true)
+		Engine.wait(0.5)
+		check(s.passes.VIPAura == true and player:GetAttribute("VIP") == true, "VIPAura purchase did not set the VIP attribute")
+	end)
+
+	step("promo codes", function()
+		local s = session()
+		local before = s.profile.coins
+		local ok = invoke("RedeemCode", { code = " launch " })
+		check(ok.ok, "RedeemCode LAUNCH failed: " .. tostring(ok.err))
+		check(s.profile.coins == before + 2000, "LAUNCH code should grant 2000 coins")
+		check(s.profile.redeemed.LAUNCH == true, "code not recorded as redeemed")
+		local again = invoke("RedeemCode", { code = "LAUNCH" })
+		check(not again.ok and again.err == "codeUsed", "redeeming the same code twice must fail")
+		local bogus = invoke("RedeemCode", { code = "NOPE12345" })
+		check(not bogus.ok and bogus.err == "codeInvalid", "an unknown code must fail")
+		local empty = invoke("RedeemCode", { code = "" })
+		check(not empty.ok, "an empty code must fail")
+	end)
+
+	step("profile panel and playtime", function()
+		local Strings = Engine.client.module(Shared .. "Strings")
+		local Panel = Engine.client.module("Players.Diver.PlayerScripts.Client.UI.Panel")
+		Engine.wait(1.2)
+		check(session().profile.stats.playtime > 0, "playtime should accumulate while connected")
+		local profileButton = Engine.gui():FindFirstChild("profile", true)
+		check(profileButton ~= nil and profileButton:IsA("GuiButton"), "profile menu button missing")
+		Engine.click(profileButton)
+		Engine.wait(0.5)
+		-- Looked up by the live PanelApi rather than "Panel_<title>" (the frame's Name is fixed
+		-- at creation, which may be a different language than whatever is active now).
+		local panelApi = Panel.current()
+		check(panelApi ~= nil, "profile panel did not open from the menu")
+		if not panelApi then
+			return
+		end
+		local panel = panelApi.root
+		local relicsTab
+		for _, d in panel:GetDescendants() do
+			if d:IsA("TextLabel") and d.Text == Strings.get("profileTabRelics") then
+				relicsTab = d:FindFirstAncestorWhichIsA("GuiButton")
+			end
+		end
+		check(relicsTab ~= nil, "relics tab button not found")
+		Engine.click(relicsTab)
+		Engine.wait(0.3)
+		local dexTitle
+		local want = Strings.get("world", { n = State.world })
+		for _, d in panel:GetDescendants() do
+			if d:IsA("TextLabel") and string.find(d.Text, want, 1, true) then
+				dexTitle = d
+			end
+		end
+		check(dexTitle ~= nil, "relic index content did not show after switching tabs")
+		Panel.closeAll()
+		Engine.wait(0.4)
 	end)
 
 	step("UI monkey test", function()

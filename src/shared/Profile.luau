@@ -21,6 +21,7 @@ export type Data = {
 	worlds: { [string]: WorldProgress },
 	gear: GearData,
 	enchants: number, -- Lucky Enchant tokens (developer product)
+	redeemed: { [string]: boolean }, -- promo codes already claimed (see Config.PromoCodes)
 	pets: { [string]: PetEntry },
 	equipped: { string },
 	petSeq: number,
@@ -45,6 +46,7 @@ function Profile.new(now: number): Data
 		worlds = {},
 		gear = { owned = {}, equip = {} },
 		enchants = 0,
+		redeemed = {},
 		pets = {},
 		equipped = {},
 		petSeq = 0,
@@ -133,6 +135,13 @@ function Profile.reconcile(raw: any, now: number): Data
 		end
 	end
 	data.enchants = math.floor(number(raw.enchants, 0, 0, 9999))
+	if type(raw.redeemed) == "table" then
+		for key, value in raw.redeemed do
+			if type(key) == "string" and value == true then
+				data.redeemed[string.upper(key)] = true
+			end
+		end
+	end
 	local count = 0
 	if type(raw.pets) == "table" then
 		for id, entry in raw.pets do

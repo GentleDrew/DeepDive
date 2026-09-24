@@ -32,6 +32,8 @@ function PurchaseService.loadPasses(session: Sessions.Session)
 			session.passes[pass.key] = false
 		end
 	end
+	-- Replicated so other clients can render the VIP crown/aura.
+	session.player:SetAttribute("VIP", session.passes.VIPAura == true)
 end
 
 local function processReceipt(receipt: any): Enum.ProductPurchaseDecision
@@ -49,7 +51,18 @@ local function processReceipt(receipt: any): Enum.ProductPurchaseDecision
 	if table.find(profile.receipts, receiptId) then
 		return Enum.ProductPurchaseDecision.PurchaseGranted
 	end
-	local coins = if product.dives > 0 then Economy.productCoins(product.dives, profile.unlocked) else 0
+	-- UnlockBoost grants exactly the fee for the next world you can still unlock (or a flat
+	-- bonus once every world is already unlocked).
+	local coins
+	if product.unlockBoost then
+		coins = if profile.unlocked < Config.WorldCount
+			then Economy.unlockCost(profile.unlocked + 1)
+			else Economy.nice(Economy.unlockCost(Config.WorldCount) * 0.15)
+	elseif product.dives > 0 then
+		coins = Economy.productCoins(product.dives, profile.unlocked)
+	else
+		coins = 0
+	end
 	local enchants = product.enchants or 0
 	profile.coins += coins
 	profile.lifetime += coins
@@ -94,6 +107,8 @@ function PurchaseService.init()
 			session.passes[key] = true
 			if key == "PetSlots" then
 				PetService.clampEquipped(session)
+			elseif key == "VIPAura" then
+				player:SetAttribute("VIP", true)
 			end
 			Sync.profile(session)
 			Net.push(player, "toast", { key = "thanks", kind = "gold" })

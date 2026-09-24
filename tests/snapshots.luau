@@ -164,7 +164,7 @@ session.profile.enchants = 2
 Sync.profile(session)
 Engine.wait(0.5)
 
-for index, name in { "worlds", "upgrades", "pets", "shop", "settings", "index" } do
+for index, name in { "worlds", "upgrades", "pets", "shop", "settings", "profile" } do
 	openMenu(name)
 	snap(string.format("%02d_panel_%s", 4 + index, name))
 	closePanels()

@@ -231,6 +231,14 @@ do
 		"percent -> " .. Format.percent(0.0005)
 	)
 	check(Format.fill("World {n}", { n = 3 }) == "World 3", "fill")
+	check(Format.date(0) == "1970.01.01", "date epoch -> " .. Format.date(0))
+	check(Format.date(1735689600) == "2025.01.01", "date 2025-01-01 -> " .. Format.date(1735689600))
+	check(Format.date(1740787199) == "2025.02.28", "date before a non-leap Feb 29 -> " .. Format.date(1740787199))
+	check(Format.date(951782400) == "2000.02.29", "date leap day 2000 -> " .. Format.date(951782400))
+	local h, m = Format.hoursMinutes(3 * 3600 + 25 * 60 + 40)
+	check(h == 3 and m == 25, "hoursMinutes -> " .. h .. "h " .. m .. "m")
+	local h2, m2 = Format.hoursMinutes(-5)
+	check(h2 == 0 and m2 == 0, "hoursMinutes clamps negative")
 end
 
 section("Strings")
@@ -286,7 +294,7 @@ do
 	for _, rarity in Config.Rarities do
 		check(Strings.hasKey("rarity." .. rarity), "rarity string " .. rarity)
 	end
-	for _, key in { "worlds", "upgrades", "pets", "index", "shop", "settings" } do
+	for _, key in { "worlds", "upgrades", "pets", "profile", "shop", "settings" } do
 		check(Strings.hasKey("menu." .. key), "menu string " .. key)
 	end
 	Strings.setLanguage("ko")
@@ -325,6 +333,9 @@ do
 		"equip needs owned gear in its own slot"
 	)
 	check(Profile.reconcile({ enchants = -4 }, 5).enchants == 0, "lucky enchant tokens clamp")
+	local codes = Profile.reconcile({ redeemed = { launch = true, BOGUS = false, [1] = true } }, 5).redeemed
+	check(codes.LAUNCH == true and codes.launch == nil and codes.BOGUS == nil, "redeemed codes upper-cased and filtered")
+	check(next(Profile.new(5).redeemed) == nil, "new profiles start with no redeemed codes")
 	check(repaired.pets.P1 ~= nil and repaired.pets.P2 == nil and repaired.pets.P3 == nil, "invalid pets dropped")
 	check(#repaired.equipped == 1, "equipped deduplicated and filtered")
 	check(repaired.settings.lang == Config.DefaultLanguage and repaired.settings.sfx == false, "settings repaired")

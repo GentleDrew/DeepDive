@@ -79,6 +79,34 @@ function Format.seconds(s: number): string
 	return string.format("%d:%02d", s // 60, s % 60)
 end
 
+-- Days since the Unix epoch (UTC) into a proleptic-Gregorian y/m/d triple. Portable, pure-Luau
+-- date math (Howard Hinnant's algorithm) since Roblox's os library has no os.date.
+local function civilFromDays(z: number): (number, number, number)
+	z += 719468
+	local era = (if z >= 0 then z else z - 146096) // 146097
+	local doe = z - era * 146097 -- [0, 146096]
+	local yoe = (doe - doe // 1460 + doe // 36524 - doe // 146096) // 365 -- [0, 399]
+	local y = yoe + era * 400
+	local doy = doe - (365 * yoe + yoe // 4 - yoe // 100) -- [0, 365]
+	local mp = (5 * doy + 2) // 153 -- [0, 11]
+	local d = doy - (153 * mp + 2) // 5 + 1 -- [1, 31]
+	local m = if mp < 10 then mp + 3 else mp - 9 -- [1, 12]
+	return (if m <= 2 then y + 1 else y), m, d
+end
+
+-- Unix timestamp (seconds, UTC) -> "2026.09.24".
+function Format.date(timestamp: number): string
+	local days = math.floor(timestamp / 86400)
+	local y, m, d = civilFromDays(days)
+	return string.format("%04d.%02d.%02d", y, m, d)
+end
+
+-- Seconds -> hours and minutes, for a "{h}h {m}m" / "{h}시간 {m}분" style playtime display.
+function Format.hoursMinutes(seconds: number): (number, number)
+	local total = math.max(0, math.floor(seconds))
+	return total // 3600, (total % 3600) // 60
+end
+
 -- Replaces {name} placeholders with values from args.
 function Format.fill(template: string, args: { [string]: any }?): string
 	if not args then

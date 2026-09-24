@@ -508,7 +508,7 @@ do
 	end
 	print(table.concat(rows, "\n"))
 	print(string.format("  saving for unlock fees: %.1f min of %.1f", savingTotal / 60, t / 60))
-	check(t / 60 > 600 and t / 60 < 960, "efficient full clear takes 10-16 hours (" .. math.floor(t / 60) .. " min)")
+	check(t / 60 > 1080 and t / 60 < 1680, "efficient full clear takes 18-28 hours (" .. math.floor(t / 60) .. " min)")
 end
 
 print(string.format("\n%d passed, %d failed", passed, failed))

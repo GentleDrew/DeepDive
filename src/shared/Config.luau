@@ -1,8 +1,10 @@
 --!strict
 -- Deep Dive tuning values. Pure data (no Roblox datatypes) so the luau/lune test runner can load it.
--- Economy curves were tuned with a pacing simulation (tests/run.luau): Worlds 1-5 take an
--- efficient player ~30 minutes, Worlds 9-17 are the long middle (40-80 minutes each) and the
--- full 20 worlds take ~13 hours, roughly 20+ hours of normal play.
+-- Economy curves were tuned with a pacing simulation (tests/run.luau). World treasure goals
+-- (Config.GoalBase/GoalGrowth) were later doubled on their own, which also roughly doubles the
+-- unlock fees below (they scale with the goal): Worlds 1-5 still clear in well under an hour,
+-- but the full 20 worlds now take an efficient player ~23 hours, well over a full day of normal
+-- play. Lower GoalBase back toward 16 to return to the earlier, gentler pace.
 
 local Config = {}
 
@@ -84,7 +86,7 @@ Config.PetEquipPass = 2
 Config.PetInventoryCap = 60
 
 -- World progression.
-Config.GoalBase = 16
+Config.GoalBase = 32
 Config.GoalGrowth = 1.175
 Config.DepthBase = 40 -- studs, World 1
 Config.DepthStep = 7.2

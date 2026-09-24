@@ -183,7 +183,7 @@ local KO: { [string]: string } = {
 	newRelic = "새 유물 발견!",
 
 	["menu.worlds"] = "월드",
-	["menu.upgrades"] = "업그레이드",
+	["menu.upgrades"] = "강화",
 	["menu.pets"] = "펫",
 	["menu.shop"] = "상점",
 	["menu.settings"] = "설정",

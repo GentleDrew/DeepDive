@@ -208,17 +208,24 @@ function Kit.button(props: ButtonProps): ButtonApi
 	Kit.corner(button, radius)
 	local gradient = Kit.gradient(button, palette[1], palette[2])
 	local stroke = Kit.stroke(button, palette[3], props.Stroke or 3)
-	-- Glossy highlight on the upper half.
+	-- Glossy highlight on the upper half. Circular buttons get a smaller centred highlight so it
+	-- stays inside the curve (children are not clipped to a UICorner).
+	local size = props.Size or UDim2.fromOffset(160, 54)
+	local circular = radius * 2 >= math.min(size.X.Offset, size.Y.Offset) - 2 and size.X.Offset > 0
 	local gloss = Kit.new("Frame", {
 		Name = "Gloss",
 		BackgroundColor3 = Color3.new(1, 1, 1),
 		BackgroundTransparency = 0.78,
-		Size = UDim2.new(1, -10, 0.42, 0),
-		Position = UDim2.fromOffset(5, 4),
+		Size = if circular then UDim2.fromScale(0.62, 0.34) else UDim2.new(1, -10, 0.42, 0),
+		Position = if circular then UDim2.fromScale(0.19, 0.09) else UDim2.fromOffset(5, 4),
 		ZIndex = button.ZIndex,
 		Parent = button,
 	})
-	Kit.corner(gloss, math.max(4, radius - 4))
+	if circular then
+		Kit.round(gloss)
+	else
+		Kit.corner(gloss, math.max(4, radius - 4))
+	end
 	local content = Kit.new("Frame", {
 		Name = "Content",
 		BackgroundTransparency = 1,

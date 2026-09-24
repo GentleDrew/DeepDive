@@ -38,18 +38,29 @@ function EggPanel.new(app: any): EggPanelApi
 	Kit.corner(stage, 20)
 	Kit.stroke(stage, C.PanelLine, 3)
 	local stageGradient = Kit.gradient(stage, Color3.fromRGB(255, 255, 255), Color3.fromRGB(220, 235, 255))
-	local eggView = Viewport.new(stage, UDim2.fromOffset(240, 240), UDim2.new(0.5, 0, 0, 10), Vector2.new(0.5, 0))
+	local eggView = Viewport.new(stage, UDim2.fromOffset(220, 220), UDim2.new(0.5, 0, 0, 6), Vector2.new(0.5, 0))
 	eggView.setSpin(true)
+	-- World number on its own small line so long world names still fit the column.
+	local worldLabel = Kit.text({
+		Text = "",
+		TextSize = 18,
+		Color = C.Muted,
+		Stroke = 0,
+		Size = UDim2.new(1, -16, 0, 22),
+		Position = UDim2.new(0.5, 0, 0, 226),
+		AnchorPoint = Vector2.new(0.5, 0),
+		Parent = stage,
+	})
 	local eggName = Kit.text({
 		Text = "",
-		TextSize = 28,
-		Size = UDim2.new(1, -16, 0, 34),
-		Position = UDim2.new(0.5, 0, 0, 252),
+		TextSize = 24,
+		Size = UDim2.new(1, -16, 0, 30),
+		Position = UDim2.new(0.5, 0, 0, 248),
 		AnchorPoint = Vector2.new(0.5, 0),
 		Parent = stage,
 	})
 	local costPill =
-		Kit.pill({ Size = UDim2.fromOffset(190, 50), Position = UDim2.new(0.5, 0, 0, 296), AnchorPoint = Vector2.new(0.5, 0), Parent = stage })
+		Kit.pill({ Size = UDim2.fromOffset(190, 50), Position = UDim2.new(0.5, 0, 0, 288), AnchorPoint = Vector2.new(0.5, 0), Parent = stage })
 	local coin = Kit.Icons.coin(40, costPill)
 	coin.Position = UDim2.fromOffset(6, 5)
 	local costLabel = Kit.text({
@@ -253,7 +264,8 @@ function EggPanel.new(app: any): EggPanelApi
 		local cost = Economy.eggCost(world)
 		local profile = app.State.profile
 		panel.setTitle(Strings.name(data.egg.name))
-		eggName.Text = Strings.get("world", { n = world }) .. "  -  " .. Strings.name(data.name)
+		worldLabel.Text = Strings.get("world", { n = world })
+		eggName.Text = Strings.name(data.name)
 		costLabel.Text = Format.short(cost)
 		chancesTitle.Text = Strings.get("chances")
 		autoLabel.Text = "Auto"

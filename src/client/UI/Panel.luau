@@ -3,6 +3,7 @@
 -- Only one panel is open at a time.
 
 local Anim = require(script.Parent.Anim)
+local Gui = require(script.Parent.Gui)
 local Kit = require(script.Parent.Kit)
 local Theme = require(script.Parent.Theme)
 
@@ -171,6 +172,16 @@ function Panel.new(props: PanelProps): PanelApi
 	closeButton.button.ZIndex = 26
 
 	local scale = Anim.scaleOf(holder)
+	-- Shrinks the window on short screens so it (plus the header ribbon and shadow) always fits.
+	local function fit(): number
+		local canvas = Gui.canvasSize
+		return math.min(1, (canvas.Y - 44) / (size.Y + 34), (canvas.X - 40) / (size.X + 24))
+	end
+	Gui.resized:Connect(function()
+		if api.isOpen then
+			scale.Scale = fit()
+		end
+	end)
 	api.open = function()
 		if api.isOpen then
 			return
@@ -183,8 +194,8 @@ function Panel.new(props: PanelProps): PanelApi
 		root.Visible = true
 		backdrop.BackgroundTransparency = 1
 		Anim.tween(backdrop, 0.25, { BackgroundTransparency = 0.45 })
-		scale.Scale = 0.82
-		Anim.tween(scale, 0.38, { Scale = 1 }, Enum.EasingStyle.Back)
+		scale.Scale = 0.82 * fit()
+		Anim.tween(scale, 0.38, { Scale = fit() }, Enum.EasingStyle.Back)
 		if api.onOpen then
 			api.onOpen()
 		end
@@ -198,7 +209,7 @@ function Panel.new(props: PanelProps): PanelApi
 			current = nil
 		end
 		Anim.tween(backdrop, 0.18, { BackgroundTransparency = 1 })
-		local tween = Anim.tween(scale, 0.18, { Scale = 0.85 }, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
+		local tween = Anim.tween(scale, 0.18, { Scale = 0.85 * fit() }, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
 		tween.Completed:Once(function()
 			if not api.isOpen then
 				root.Visible = false

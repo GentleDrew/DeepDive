@@ -107,6 +107,7 @@ tests/
   run.luau           단위 테스트 (데이터 무결성, 경제 곡선, 문자열, 프로필 복구, 진행 시뮬레이션)
   smoke.luau         런타임 스모크 테스트 (아래 참고)
   harness/engine.luau  Lune용 로블록스 엔진 에뮬레이터
+  snapshots.luau     UI 미리보기 (HTML 내보내기, harness/html.luau)
 tools/check.sh       전체 검증 스크립트
 ```
 
@@ -125,3 +126,15 @@ tools/check.sh
    접속 → 잠수·수집·판매 → 강화 → 알·펫 → 보물상자·클리어 → 이동 → 기절·구조 → 사망·부활 → 한국어 전환 →
    구매(영수증 멱등성) → UI 버튼 전수 클릭 → 20개 월드 순회 → 퇴장·저장·재접속까지 플레이하고,
    모든 텍스트가 둥근 글꼴인지, 번역 키가 그대로 노출되지 않는지도 확인합니다.
+
+### UI 미리보기 (Studio 없이)
+
+```bash
+lune run tests/snapshots.luau out            # PC (1280x720)
+lune run tests/snapshots.luau out --mobile   # 휴대폰 가로 (844x390)
+lune run tests/snapshots.luau out --ko       # 한국어
+```
+
+에뮬레이터에서 실제 UI 코드를 실행해 로딩 화면, HUD, 잠수 중 HUD, 판매 연출, 각 패널, 알 부화,
+월드 클리어, 기절 화면을 `out/*.html`로 내보냅니다. 브라우저 창을 해당 해상도로 맞춰 열면 됩니다.
+근사 렌더링이며, 3D 뷰포트(펫·알 미리보기)는 자리표시자로 보입니다.

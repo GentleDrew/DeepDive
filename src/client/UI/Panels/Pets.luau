@@ -103,20 +103,22 @@ function PetsPanel.new(app: any): Panel.PanelApi
 	Kit.corner(detail, 18)
 	Kit.stroke(detail, C.PanelLine, 3)
 	local detailGradient = Kit.gradient(detail, Color3.fromRGB(255, 255, 255), Color3.fromRGB(220, 240, 255))
-	local bigView = Viewport.new(detail, UDim2.fromOffset(220, 170), UDim2.new(0.5, 0, 0, 8), Vector2.new(0.5, 0))
+	-- Vertical budget (detail is ~384 tall): preview 4-140, name, rarity, origin, boost up to ~262,
+	-- then the action grid (96) pinned to the bottom.
+	local bigView = Viewport.new(detail, UDim2.fromOffset(200, 136), UDim2.new(0.5, 0, 0, 4), Vector2.new(0.5, 0))
 	bigView.setSpin(true)
 	local detailName = Kit.text({
 		Text = "",
 		TextSize = 28,
-		Size = UDim2.new(1, -16, 0, 34),
-		Position = UDim2.new(0.5, 0, 0, 180),
+		Size = UDim2.new(1, -16, 0, 32),
+		Position = UDim2.new(0.5, 0, 0, 142),
 		AnchorPoint = Vector2.new(0.5, 0),
 		Parent = detail,
 	})
 	local rarityChip = Kit.new("Frame", {
 		BackgroundColor3 = C.Gray,
-		Size = UDim2.fromOffset(150, 30),
-		Position = UDim2.new(0.5, 0, 0, 218),
+		Size = UDim2.fromOffset(150, 28),
+		Position = UDim2.new(0.5, 0, 0, 178),
 		AnchorPoint = Vector2.new(0.5, 0),
 		Parent = detail,
 	})
@@ -128,8 +130,8 @@ function PetsPanel.new(app: any): Panel.PanelApi
 		TextSize = 16,
 		Color = C.Muted,
 		Stroke = 0,
-		Size = UDim2.new(1, -16, 0, 22),
-		Position = UDim2.new(0.5, 0, 0, 254),
+		Size = UDim2.new(1, -16, 0, 20),
+		Position = UDim2.new(0.5, 0, 0, 210),
 		AnchorPoint = Vector2.new(0.5, 0),
 		Parent = detail,
 	})
@@ -138,21 +140,21 @@ function PetsPanel.new(app: any): Panel.PanelApi
 		TextSize = 26,
 		Color = C.Gold,
 		StrokeColor = C.GoldDark,
-		Size = UDim2.new(1, -16, 0, 32),
-		Position = UDim2.new(0.5, 0, 0, 280),
+		Size = UDim2.new(1, -16, 0, 30),
+		Position = UDim2.new(0.5, 0, 0, 232),
 		AnchorPoint = Vector2.new(0.5, 0),
 		Parent = detail,
 	})
 	local actions = Kit.new("Frame", {
 		BackgroundTransparency = 1,
-		Size = UDim2.new(1, -20, 0, 110),
-		Position = UDim2.new(0.5, 0, 1, -10),
+		Size = UDim2.new(1, -20, 0, 96),
+		Position = UDim2.new(0.5, 0, 1, -8),
 		AnchorPoint = Vector2.new(0.5, 1),
 		Parent = detail,
 	})
 	Kit.new("UIGridLayout", {
-		CellSize = UDim2.fromOffset(136, 48),
-		CellPadding = UDim2.fromOffset(10, 10),
+		CellSize = UDim2.fromOffset(136, 44),
+		CellPadding = UDim2.fromOffset(10, 8),
 		SortOrder = Enum.SortOrder.LayoutOrder,
 		HorizontalAlignment = Enum.HorizontalAlignment.Center,
 		Parent = actions,

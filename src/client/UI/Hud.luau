@@ -133,12 +133,22 @@ end
 local menu = Kit.new("Frame", {
 	Name = "Menu",
 	BackgroundTransparency = 1,
-	Size = UDim2.fromOffset(96, 480),
+	Size = UDim2.fromOffset(96, 478),
 	Position = UDim2.new(0, 16, 0.5, 10),
 	AnchorPoint = Vector2.new(0, 0.5),
 	Parent = root,
 })
-Kit.list(menu, Enum.FillDirection.Vertical, 12, Enum.HorizontalAlignment.Center, Enum.VerticalAlignment.Center)
+-- One column of five on normal screens, two columns (3 + 2) when the canvas is short.
+local menuGrid = Kit.new("UIGridLayout", {
+	CellSize = UDim2.fromOffset(86, 86),
+	CellPadding = UDim2.fromOffset(10, 12),
+	FillDirection = Enum.FillDirection.Vertical,
+	FillDirectionMaxCells = 5,
+	HorizontalAlignment = Enum.HorizontalAlignment.Left,
+	VerticalAlignment = Enum.VerticalAlignment.Center,
+	SortOrder = Enum.SortOrder.LayoutOrder,
+	Parent = menu,
+}) :: UIGridLayout
 local badges: { [string]: Frame } = {}
 local menuLabels: { [string]: TextLabel } = {}
 
@@ -260,11 +270,13 @@ local lowLabel = Kit.text({
 
 -- Depth gauge ------------------------------------------------------------------------------------
 
+-- Resting position; the gauge slides in from the right edge while diving.
+local gaugeHome = UDim2.new(1, -20, 0.5, 20)
 local gauge = Kit.new("Frame", {
 	Name = "Depth",
 	BackgroundTransparency = 1,
 	Size = UDim2.fromOffset(120, 360),
-	Position = UDim2.new(1, -20, 0.5, 20),
+	Position = gaugeHome,
 	AnchorPoint = Vector2.new(1, 0.5),
 	Parent = root,
 })
@@ -329,6 +341,25 @@ local memoryLabel = Kit.text({
 	XAlign = Enum.TextXAlignment.Left,
 	Parent = root,
 })
+
+-- Screen-size adaptation --------------------------------------------------------------------------
+
+local function applyScreenLayout(canvas: Vector2)
+	local compact = canvas.Y < 690
+	menuGrid.FillDirectionMaxCells = if compact then 3 else 5
+	menu.Size = if compact then UDim2.fromOffset(182, 282) else UDim2.fromOffset(96, 478)
+	if Gui.isTouch() then
+		-- Roblox hides its jump button while the swim controller has Jumping disabled, so the
+		-- swim pad takes the bottom-right corner and the depth gauge moves up out of its way.
+		gaugeHome = UDim2.new(1, -20, 0, 8)
+		gauge.Size = UDim2.fromOffset(120, 230)
+		gauge.Position = gaugeHome
+		gauge.AnchorPoint = Vector2.new(1, 0)
+		touchPad.Position = UDim2.new(1, -12, 1, -12)
+	end
+end
+applyScreenLayout(Gui.canvasSize)
+Gui.resized:Connect(applyScreenLayout)
 
 -- Wiring -----------------------------------------------------------------------------------------
 
@@ -422,7 +453,7 @@ RunService.RenderStepped:Connect(function(dt: number)
 	dive.Visible = diveAlpha > 0.02
 	gauge.Visible = diveAlpha > 0.02
 	dive.Position = UDim2.new(0.5, 0, 1, -18 + (1 - diveAlpha) * 140)
-	gauge.Position = UDim2.new(1, -20 + (1 - diveAlpha) * 160, 0.5, 20)
+	gauge.Position = gaugeHome + UDim2.fromOffset((1 - diveAlpha) * 160, 0)
 
 	local max = math.max(1, d.max)
 	local ratio = math.clamp(d.oxygen / max, 0, 1)

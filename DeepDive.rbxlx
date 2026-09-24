@@ -3650,7 +3650,7 @@ local KO: { [string]: string } = {
 	newRelic = "새 유물 발견!",
 
 	["menu.worlds"] = "월드",
-	["menu.upgrades"] = "업그레이드",
+	["menu.upgrades"] = "강화",
 	["menu.pets"] = "펫",
 	["menu.shop"] = "상점",
 	["menu.settings"] = "설정",
@@ -10263,30 +10263,54 @@ return Effects
             <Properties>
               <string name="Name">Gui</string>
               <string name="Source"><![CDATA[--!strict
--- Screen layers with resolution-independent scaling. Everything is laid out against a
--- 1280x760 reference canvas and scaled to the device (bigger on touch screens).
+-- Screen layers with resolution-independent scaling. Everything is laid out against a 1280x700
+-- reference canvas (the usable area below the Roblox top bar) and scaled to the device.
 
 local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local UserInputService = game:GetService("UserInputService")
 local Workspace = game:GetService("Workspace")
 
+local Signal = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Signal"))
+
 local Gui = {}
+
+local REFERENCE = Vector2.new(1280, 700)
+-- Touch screens get bigger UI, but never so big that the canvas drops below this height
+-- (the HUD switches to a compact two-column menu and panels shrink to fit below 690).
+local TOUCH_BOOST = 1.18
+local MIN_CANVAS_HEIGHT = 600
 
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
 
 Gui.scale = 1
+Gui.canvasSize = REFERENCE
+Gui.resized = Signal.new()
 Gui.promptParent = playerGui
 local scalers: { { frame: Frame, scale: UIScale } } = {}
+local safeScreen: ScreenGui? = nil
 
-local function computeScale(): number
-	local camera = Workspace.CurrentCamera
-	local size = if camera then camera.ViewportSize else Vector2.new(1280, 760)
-	local s = math.min(size.X / 1280, size.Y / 760)
-	if UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled then
-		s *= 1.18
+function Gui.isTouch(): boolean
+	return UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
+end
+
+-- Usable screen area: inside the top bar and device safe insets.
+local function usableSize(): Vector2
+	local screen = safeScreen
+	if screen and screen.AbsoluteSize.X > 1 and screen.AbsoluteSize.Y > 1 then
+		return screen.AbsoluteSize
 	end
-	return math.clamp(s, 0.5, 1.35)
+	local camera = Workspace.CurrentCamera
+	return if camera then camera.ViewportSize - Vector2.new(0, 58) else REFERENCE
+end
+
+local function computeScale(usable: Vector2): number
+	local s = math.min(usable.X / REFERENCE.X, usable.Y / REFERENCE.Y)
+	if Gui.isTouch() then
+		s = math.min(s * TOUCH_BOOST, usable.Y / MIN_CANVAS_HEIGHT)
+	end
+	return math.clamp(s, 0.45, 1.35)
 end
 
 local function layer(name: string, order: number, fullscreen: boolean): Frame
@@ -10298,6 +10322,9 @@ local function layer(name: string, order: number, fullscreen: boolean): Frame
 	screen.IgnoreGuiInset = fullscreen
 	screen.ScreenInsets = if fullscreen then Enum.ScreenInsets.None else Enum.ScreenInsets.CoreUISafeInsets
 	screen.Parent = playerGui
+	if not fullscreen and not safeScreen then
+		safeScreen = screen
+	end
 	local container = Instance.new("Frame")
 	container.Name = "Canvas"
 	container.BackgroundTransparency = 1
@@ -10310,11 +10337,18 @@ local function layer(name: string, order: number, fullscreen: boolean): Frame
 end
 
 local function refresh()
-	local s = computeScale()
+	local usable = usableSize()
+	local s = computeScale(usable)
+	local canvas = usable / s
+	local changed = math.abs(s - Gui.scale) > 1e-4 or (canvas - Gui.canvasSize).Magnitude > 0.5
 	Gui.scale = s
+	Gui.canvasSize = canvas
 	for _, entry in scalers do
 		entry.scale.Scale = s
 		entry.frame.Size = UDim2.fromScale(1 / s, 1 / s)
+	end
+	if changed then
+		Gui.resized:Fire(canvas, s)
 	end
 end
 
@@ -10325,6 +10359,9 @@ Gui.overlay = layer("DeepDiveOverlay", 20, true)
 Gui.top = layer("DeepDiveTop", 30, true) -- loading screen, transitions
 
 refresh()
+if safeScreen then
+	safeScreen:GetPropertyChangedSignal("AbsoluteSize"):Connect(refresh)
+end
 local function watchCamera()
 	local camera = Workspace.CurrentCamera
 	if camera then
@@ -10334,10 +10371,6 @@ local function watchCamera()
 end
 Workspace:GetPropertyChangedSignal("CurrentCamera"):Connect(watchCamera)
 watchCamera()
-
-function Gui.isTouch(): boolean
-	return UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
-end
 
 return Gui
 ]]></string>
@@ -10718,12 +10751,22 @@ end
 local menu = Kit.new("Frame", {
 	Name = "Menu",
 	BackgroundTransparency = 1,
-	Size = UDim2.fromOffset(96, 480),
+	Size = UDim2.fromOffset(96, 478),
 	Position = UDim2.new(0, 16, 0.5, 10),
 	AnchorPoint = Vector2.new(0, 0.5),
 	Parent = root,
 })
-Kit.list(menu, Enum.FillDirection.Vertical, 12, Enum.HorizontalAlignment.Center, Enum.VerticalAlignment.Center)
+-- One column of five on normal screens, two columns (3 + 2) when the canvas is short.
+local menuGrid = Kit.new("UIGridLayout", {
+	CellSize = UDim2.fromOffset(86, 86),
+	CellPadding = UDim2.fromOffset(10, 12),
+	FillDirection = Enum.FillDirection.Vertical,
+	FillDirectionMaxCells = 5,
+	HorizontalAlignment = Enum.HorizontalAlignment.Left,
+	VerticalAlignment = Enum.VerticalAlignment.Center,
+	SortOrder = Enum.SortOrder.LayoutOrder,
+	Parent = menu,
+}) :: UIGridLayout
 local badges: { [string]: Frame } = {}
 local menuLabels: { [string]: TextLabel } = {}
 
@@ -10845,11 +10888,13 @@ local lowLabel = Kit.text({
 
 -- Depth gauge ------------------------------------------------------------------------------------
 
+-- Resting position; the gauge slides in from the right edge while diving.
+local gaugeHome = UDim2.new(1, -20, 0.5, 20)
 local gauge = Kit.new("Frame", {
 	Name = "Depth",
 	BackgroundTransparency = 1,
 	Size = UDim2.fromOffset(120, 360),
-	Position = UDim2.new(1, -20, 0.5, 20),
+	Position = gaugeHome,
 	AnchorPoint = Vector2.new(1, 0.5),
 	Parent = root,
 })
@@ -10914,6 +10959,25 @@ local memoryLabel = Kit.text({
 	XAlign = Enum.TextXAlignment.Left,
 	Parent = root,
 })
+
+-- Screen-size adaptation --------------------------------------------------------------------------
+
+local function applyScreenLayout(canvas: Vector2)
+	local compact = canvas.Y < 690
+	menuGrid.FillDirectionMaxCells = if compact then 3 else 5
+	menu.Size = if compact then UDim2.fromOffset(182, 282) else UDim2.fromOffset(96, 478)
+	if Gui.isTouch() then
+		-- Roblox hides its jump button while the swim controller has Jumping disabled, so the
+		-- swim pad takes the bottom-right corner and the depth gauge moves up out of its way.
+		gaugeHome = UDim2.new(1, -20, 0, 8)
+		gauge.Size = UDim2.fromOffset(120, 230)
+		gauge.Position = gaugeHome
+		gauge.AnchorPoint = Vector2.new(1, 0)
+		touchPad.Position = UDim2.new(1, -12, 1, -12)
+	end
+end
+applyScreenLayout(Gui.canvasSize)
+Gui.resized:Connect(applyScreenLayout)
 
 -- Wiring -----------------------------------------------------------------------------------------
 
@@ -11007,7 +11071,7 @@ RunService.RenderStepped:Connect(function(dt: number)
 	dive.Visible = diveAlpha > 0.02
 	gauge.Visible = diveAlpha > 0.02
 	dive.Position = UDim2.new(0.5, 0, 1, -18 + (1 - diveAlpha) * 140)
-	gauge.Position = UDim2.new(1, -20 + (1 - diveAlpha) * 160, 0.5, 20)
+	gauge.Position = gaugeHome + UDim2.fromOffset((1 - diveAlpha) * 160, 0)
 
 	local max = math.max(1, d.max)
 	local ratio = math.clamp(d.oxygen / max, 0, 1)
@@ -11277,17 +11341,24 @@ function Kit.button(props: ButtonProps): ButtonApi
 	Kit.corner(button, radius)
 	local gradient = Kit.gradient(button, palette[1], palette[2])
 	local stroke = Kit.stroke(button, palette[3], props.Stroke or 3)
-	-- Glossy highlight on the upper half.
+	-- Glossy highlight on the upper half. Circular buttons get a smaller centred highlight so it
+	-- stays inside the curve (children are not clipped to a UICorner).
+	local size = props.Size or UDim2.fromOffset(160, 54)
+	local circular = radius * 2 >= math.min(size.X.Offset, size.Y.Offset) - 2 and size.X.Offset > 0
 	local gloss = Kit.new("Frame", {
 		Name = "Gloss",
 		BackgroundColor3 = Color3.new(1, 1, 1),
 		BackgroundTransparency = 0.78,
-		Size = UDim2.new(1, -10, 0.42, 0),
-		Position = UDim2.fromOffset(5, 4),
+		Size = if circular then UDim2.fromScale(0.62, 0.34) else UDim2.new(1, -10, 0.42, 0),
+		Position = if circular then UDim2.fromScale(0.19, 0.09) else UDim2.fromOffset(5, 4),
 		ZIndex = button.ZIndex,
 		Parent = button,
 	})
-	Kit.corner(gloss, math.max(4, radius - 4))
+	if circular then
+		Kit.round(gloss)
+	else
+		Kit.corner(gloss, math.max(4, radius - 4))
+	end
 	local content = Kit.new("Frame", {
 		Name = "Content",
 		BackgroundTransparency = 1,
@@ -11616,6 +11687,7 @@ return Kit
 -- Only one panel is open at a time.
 
 local Anim = require(script.Parent.Anim)
+local Gui = require(script.Parent.Gui)
 local Kit = require(script.Parent.Kit)
 local Theme = require(script.Parent.Theme)
 
@@ -11784,6 +11856,16 @@ function Panel.new(props: PanelProps): PanelApi
 	closeButton.button.ZIndex = 26
 
 	local scale = Anim.scaleOf(holder)
+	-- Shrinks the window on short screens so it (plus the header ribbon and shadow) always fits.
+	local function fit(): number
+		local canvas = Gui.canvasSize
+		return math.min(1, (canvas.Y - 44) / (size.Y + 34), (canvas.X - 40) / (size.X + 24))
+	end
+	Gui.resized:Connect(function()
+		if api.isOpen then
+			scale.Scale = fit()
+		end
+	end)
 	api.open = function()
 		if api.isOpen then
 			return
@@ -11796,8 +11878,8 @@ function Panel.new(props: PanelProps): PanelApi
 		root.Visible = true
 		backdrop.BackgroundTransparency = 1
 		Anim.tween(backdrop, 0.25, { BackgroundTransparency = 0.45 })
-		scale.Scale = 0.82
-		Anim.tween(scale, 0.38, { Scale = 1 }, Enum.EasingStyle.Back)
+		scale.Scale = 0.82 * fit()
+		Anim.tween(scale, 0.38, { Scale = fit() }, Enum.EasingStyle.Back)
 		if api.onOpen then
 			api.onOpen()
 		end
@@ -11811,7 +11893,7 @@ function Panel.new(props: PanelProps): PanelApi
 			current = nil
 		end
 		Anim.tween(backdrop, 0.18, { BackgroundTransparency = 1 })
-		local tween = Anim.tween(scale, 0.18, { Scale = 0.85 }, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
+		local tween = Anim.tween(scale, 0.18, { Scale = 0.85 * fit() }, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
 		tween.Completed:Once(function()
 			if not api.isOpen then
 				root.Visible = false
@@ -11886,18 +11968,29 @@ function EggPanel.new(app: any): EggPanelApi
 	Kit.corner(stage, 20)
 	Kit.stroke(stage, C.PanelLine, 3)
 	local stageGradient = Kit.gradient(stage, Color3.fromRGB(255, 255, 255), Color3.fromRGB(220, 235, 255))
-	local eggView = Viewport.new(stage, UDim2.fromOffset(240, 240), UDim2.new(0.5, 0, 0, 10), Vector2.new(0.5, 0))
+	local eggView = Viewport.new(stage, UDim2.fromOffset(220, 220), UDim2.new(0.5, 0, 0, 6), Vector2.new(0.5, 0))
 	eggView.setSpin(true)
+	-- World number on its own small line so long world names still fit the column.
+	local worldLabel = Kit.text({
+		Text = "",
+		TextSize = 18,
+		Color = C.Muted,
+		Stroke = 0,
+		Size = UDim2.new(1, -16, 0, 22),
+		Position = UDim2.new(0.5, 0, 0, 226),
+		AnchorPoint = Vector2.new(0.5, 0),
+		Parent = stage,
+	})
 	local eggName = Kit.text({
 		Text = "",
-		TextSize = 28,
-		Size = UDim2.new(1, -16, 0, 34),
-		Position = UDim2.new(0.5, 0, 0, 252),
+		TextSize = 24,
+		Size = UDim2.new(1, -16, 0, 30),
+		Position = UDim2.new(0.5, 0, 0, 248),
 		AnchorPoint = Vector2.new(0.5, 0),
 		Parent = stage,
 	})
 	local costPill =
-		Kit.pill({ Size = UDim2.fromOffset(190, 50), Position = UDim2.new(0.5, 0, 0, 296), AnchorPoint = Vector2.new(0.5, 0), Parent = stage })
+		Kit.pill({ Size = UDim2.fromOffset(190, 50), Position = UDim2.new(0.5, 0, 0, 288), AnchorPoint = Vector2.new(0.5, 0), Parent = stage })
 	local coin = Kit.Icons.coin(40, costPill)
 	coin.Position = UDim2.fromOffset(6, 5)
 	local costLabel = Kit.text({
@@ -12101,7 +12194,8 @@ function EggPanel.new(app: any): EggPanelApi
 		local cost = Economy.eggCost(world)
 		local profile = app.State.profile
 		panel.setTitle(Strings.name(data.egg.name))
-		eggName.Text = Strings.get("world", { n = world }) .. "  -  " .. Strings.name(data.name)
+		worldLabel.Text = Strings.get("world", { n = world })
+		eggName.Text = Strings.name(data.name)
 		costLabel.Text = Format.short(cost)
 		chancesTitle.Text = Strings.get("chances")
 		autoLabel.Text = "Auto"
@@ -12253,20 +12347,22 @@ function PetsPanel.new(app: any): Panel.PanelApi
 	Kit.corner(detail, 18)
 	Kit.stroke(detail, C.PanelLine, 3)
 	local detailGradient = Kit.gradient(detail, Color3.fromRGB(255, 255, 255), Color3.fromRGB(220, 240, 255))
-	local bigView = Viewport.new(detail, UDim2.fromOffset(220, 170), UDim2.new(0.5, 0, 0, 8), Vector2.new(0.5, 0))
+	-- Vertical budget (detail is ~384 tall): preview 4-140, name, rarity, origin, boost up to ~262,
+	-- then the action grid (96) pinned to the bottom.
+	local bigView = Viewport.new(detail, UDim2.fromOffset(200, 136), UDim2.new(0.5, 0, 0, 4), Vector2.new(0.5, 0))
 	bigView.setSpin(true)
 	local detailName = Kit.text({
 		Text = "",
 		TextSize = 28,
-		Size = UDim2.new(1, -16, 0, 34),
-		Position = UDim2.new(0.5, 0, 0, 180),
+		Size = UDim2.new(1, -16, 0, 32),
+		Position = UDim2.new(0.5, 0, 0, 142),
 		AnchorPoint = Vector2.new(0.5, 0),
 		Parent = detail,
 	})
 	local rarityChip = Kit.new("Frame", {
 		BackgroundColor3 = C.Gray,
-		Size = UDim2.fromOffset(150, 30),
-		Position = UDim2.new(0.5, 0, 0, 218),
+		Size = UDim2.fromOffset(150, 28),
+		Position = UDim2.new(0.5, 0, 0, 178),
 		AnchorPoint = Vector2.new(0.5, 0),
 		Parent = detail,
 	})
@@ -12278,8 +12374,8 @@ function PetsPanel.new(app: any): Panel.PanelApi
 		TextSize = 16,
 		Color = C.Muted,
 		Stroke = 0,
-		Size = UDim2.new(1, -16, 0, 22),
-		Position = UDim2.new(0.5, 0, 0, 254),
+		Size = UDim2.new(1, -16, 0, 20),
+		Position = UDim2.new(0.5, 0, 0, 210),
 		AnchorPoint = Vector2.new(0.5, 0),
 		Parent = detail,
 	})
@@ -12288,21 +12384,21 @@ function PetsPanel.new(app: any): Panel.PanelApi
 		TextSize = 26,
 		Color = C.Gold,
 		StrokeColor = C.GoldDark,
-		Size = UDim2.new(1, -16, 0, 32),
-		Position = UDim2.new(0.5, 0, 0, 280),
+		Size = UDim2.new(1, -16, 0, 30),
+		Position = UDim2.new(0.5, 0, 0, 232),
 		AnchorPoint = Vector2.new(0.5, 0),
 		Parent = detail,
 	})
 	local actions = Kit.new("Frame", {
 		BackgroundTransparency = 1,
-		Size = UDim2.new(1, -20, 0, 110),
-		Position = UDim2.new(0.5, 0, 1, -10),
+		Size = UDim2.new(1, -20, 0, 96),
+		Position = UDim2.new(0.5, 0, 1, -8),
 		AnchorPoint = Vector2.new(0.5, 1),
 		Parent = detail,
 	})
 	Kit.new("UIGridLayout", {
-		CellSize = UDim2.fromOffset(136, 48),
-		CellPadding = UDim2.fromOffset(10, 10),
+		CellSize = UDim2.fromOffset(136, 44),
+		CellPadding = UDim2.fromOffset(10, 8),
 		SortOrder = Enum.SortOrder.LayoutOrder,
 		HorizontalAlignment = Enum.HorizontalAlignment.Center,
 		Parent = actions,

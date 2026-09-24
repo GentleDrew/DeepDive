@@ -1725,6 +1725,10 @@ local function absoluteSize(raw): Vector2
 			local size = raw:IsA("BillboardGui") and raw.Size or roblox.UDim2.fromOffset(800, 600)
 			return Vector2.new(size.X.Offset + size.X.Scale * 100, size.Y.Offset + size.Y.Scale * 100)
 		end
+		-- ScreenGuis inside the safe insets lose the 58px Roblox top bar.
+		if raw:IsA("ScreenGui") and not raw.IgnoreGuiInset and raw.ScreenInsets ~= Enum.ScreenInsets.None then
+			return Engine.options.viewport - Vector2.new(0, 58)
+		end
 		return Engine.options.viewport
 	end
 	if not raw:IsA("GuiObject") then
@@ -2585,6 +2589,65 @@ method("Lighting", "GetMinutesAfterMidnight", function()
 	return 14 * 60
 end)
 method("Lighting", "SetMinutesAfterMidnight", function() end)
+
+---------------------------------------------------------------------------------------------------
+-- Analytic terrain
+
+-- Stand-in for the voxel terrain the server builds: the terraced lagoon, beach ramp, island and
+-- ocean floor, answering the downward raycasts the game makes.
+function Engine.installAnalyticTerrain(Layout, Config)
+	local function floorY(x: number, z: number): number
+		local world = Layout.worldAt(Vector3.new(x, 0, z))
+		if not world then
+			return -Config.OceanDepth
+		end
+		local info = Layout.info(world)
+		local dx, dz = x - info.origin.X, z - info.origin.Z
+		local r = math.sqrt(dx * dx + dz * dz)
+		if r <= info.deepRadius then
+			return -info.depth
+		elseif r <= info.midRadius then
+			return -info.midDepth
+		elseif r <= info.radius then
+			return -info.shelfDepth
+		elseif math.abs(dx) <= 21 and dz <= info.radius + 14 then
+			local t = math.clamp((dz - info.radius) / 14, 0, 1)
+			return -info.shelfDepth + (info.landY + info.shelfDepth) * t
+		elseif r <= info.islandRadius then
+			return info.landY
+		end
+		return -Config.OceanDepth
+	end
+	Engine.floorY = floorY
+	local resultMeta = { __type = "RaycastResult" }
+	Engine.raycastHook = function(origin, direction, params)
+		if direction.Y > -0.01 or math.abs(direction.X) + math.abs(direction.Z) > 0.05 * math.abs(direction.Y) then
+			return nil
+		end
+		if params and params.FilterType == Enum.RaycastFilterType.Include then
+			local includesTerrain = false
+			for _, instance in params.FilterDescendantsInstances do
+				if instance == Engine.terrain then
+					includesTerrain = true
+				end
+			end
+			if not includesTerrain then
+				return nil
+			end
+		end
+		local y = floorY(origin.X, origin.Z)
+		if origin.Y < y or origin.Y + direction.Y > y then
+			return nil
+		end
+		return setmetatable({
+			Position = Vector3.new(origin.X, y, origin.Z),
+			Normal = Vector3.yAxis,
+			Instance = Engine.terrain,
+			Material = Enum.Material.Sand,
+			Distance = origin.Y - y,
+		}, resultMeta)
+	end
+end
 
 ---------------------------------------------------------------------------------------------------
 -- Test helpers

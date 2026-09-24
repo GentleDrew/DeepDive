@@ -50,15 +50,15 @@ end
 
 -- Fee to unlock `world` after clearing the world before it (World 1 is free). It tracks what
 -- a diver earns there: UnlockClears x (one treasure goal of the previous world, sold as commons,
--- with three Epic pets of that world equipped; the pet part ramps in over the first nine worlds,
--- before most divers have strong pets).
+-- with three Epic pets of that world equipped; the pet part ramps in over the first
+-- Config.UnlockPetRamp worlds, before most divers have strong pets).
 function Economy.unlockCost(world: number): number
 	if world <= 1 then
 		return 0
 	end
 	local previous = world - 1
 	local typicalBoost = 3 * Config.PetBaseBoost * Config.PetWorldGrowth ^ (previous - 1) * Config.PetRarityFactor[4]
-	typicalBoost *= math.min(1, previous / 9)
+	typicalBoost *= math.min(1, previous / Config.UnlockPetRamp)
 	return Economy.nice(Config.UnlockClears * Economy.goal(previous) * Economy.relicValue(previous, 1) * (1 + typicalBoost))
 end
 
@@ -145,7 +145,10 @@ function Economy.gearCost(key: string): number?
 	end
 	local def = TRACKS[item.slot]
 	local level = Economy.gearLevel(item.slot, item.tier)
-	return Economy.nice(Config.GearPriceScale * def.base * def.growth ^ (level - 2))
+	local curve = Config.GearPriceScale * def.base * def.growth ^ (level - 2)
+	-- Floor so early pieces are never pocket change: this many common relics of their world.
+	local floor = Config.GearFloorRelics * Economy.relicValue(item.world, 1) * (if item.pro then 1.45 else 1)
+	return Economy.nice(math.max(curve, floor))
 end
 
 -- Stat from a profile's equipped gear map ({ slot = gearKey }).

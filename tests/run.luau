@@ -402,6 +402,27 @@ do
 		end
 		return best
 	end
+	-- Up to 8 eggs per world from the egg budget; the rest of the budget turns back into coins.
+	local function hatch(world: number, eggs: number): number
+		while eggBank >= Economy.eggCost(world) and eggs < 8 do
+			eggBank -= Economy.eggCost(world)
+			eggs += 1
+			local roll, acc, rarity = rng:NextNumber() * 100, 0, 1
+			for i, odds in ODDS do
+				acc += odds
+				if roll <= acc then
+					rarity = i
+					break
+				end
+			end
+			table.insert(boosts, Economy.petBoost(Worlds.get(world).pets[rarity].key))
+		end
+		if eggs >= 8 then
+			coins += eggBank
+			eggBank = 0
+		end
+		return eggs
+	end
 	local rows = {}
 	for world = 1, Config.WorldCount do
 		local sold, started, eggs, saving = 0, t, 0, 0
@@ -431,35 +452,23 @@ do
 				coins -= cheapest
 				tiers[cheapestSlot] += 1
 			end
-			while eggBank >= Economy.eggCost(world) and eggs < 8 do
-				eggBank -= Economy.eggCost(world)
-				eggs += 1
-				local roll, acc, rarity = rng:NextNumber() * 100, 0, 1
-				for i, odds in ODDS do
-					acc += odds
-					if roll <= acc then
-						rarity = i
-						break
-					end
-				end
-				table.insert(boosts, Economy.petBoost(Worlds.get(world).pets[rarity].key))
-			end
-			if eggs >= 8 then
-				coins += eggBank
-				eggBank = 0
-			end
+			eggs = hatch(world, eggs)
 			local depth = Economy.depthStuds(world)
 			local chestTime = 2 * depth / (Economy.gearValue("fins", tiers.fins) * 0.8) + 3
 			local chestDrain = 1 + depth * Economy.pressure(world) * 0.7
 			if sold >= Economy.goal(world) and chestTime * chestDrain < Economy.gearValue("tank", tiers.tank) * 0.9 then
-				-- Cleared: keep diving (no more shopping) until the next world's unlock fee is saved.
+				-- Cleared: keep diving (no gear shopping, eggs still hatch) until the next world's
+				-- unlock fee is saved.
 				coins += Economy.clearReward(world)
 				local fee = if world < Config.WorldCount then Economy.unlockCost(world + 1) else 0
 				local savingStart = t
 				while coins < fee do
 					local result2 = dive(world) :: any
 					t += result2.time
-					coins += result2.value
+					coins += result2.value * 0.65
+					eggBank += result2.value * 0.35
+					eggs = hatch(world, eggs)
+					assert(t - savingStart < 20 * 3600, "unlock fee for world " .. (world + 1) .. " is unreachable")
 				end
 				coins -= fee
 				saving = t - savingStart
@@ -488,7 +497,7 @@ do
 	end
 	print(table.concat(rows, "\n"))
 	print(string.format("  saving for unlock fees: %.1f min of %.1f", savingTotal / 60, t / 60))
-	check(t / 60 > 120 and t / 60 < 240, "efficient full clear takes 2-4 hours (" .. math.floor(t / 60) .. " min)")
+	check(t / 60 > 200 and t / 60 < 380, "efficient full clear takes 3.5-6 hours (" .. math.floor(t / 60) .. " min)")
 end
 
 print(string.format("\n%d passed, %d failed", passed, failed))

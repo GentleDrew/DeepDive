@@ -164,9 +164,9 @@ return Color
           <string name="Name">Config</string>
           <string name="Source"><![CDATA[--!strict
 -- Deep Dive tuning values. Pure data (no Roblox datatypes) so the luau/lune test runner can load it.
--- Economy curves were tuned with a pacing simulation (tests/run.luau): World 1 clears in about a
--- minute, the full 20 worlds (including saving up each unlock fee) take an efficient player
--- ~2.5 hours, roughly 5-6 hours of normal play.
+-- Economy curves were tuned with a pacing simulation (tests/run.luau): Worlds 1-4 take an
+-- efficient player ~35 minutes, the full 20 worlds (including saving up each unlock fee) ~4.5
+-- hours, roughly 8-10 hours of normal play.
 
 local Config = {}
 
@@ -241,14 +241,14 @@ Config.PetRarityFactor = { 1, 1.9, 3.6, 7, 16, 40 }
 Config.EggOdds = { 60, 26, 10, 3.5, 0.5 } -- percent for rarity 1..5
 Config.SecretChance = 0.0005 -- 1 in 2000, only in eggs that carry a secret pet
 Config.LuckyMultiplier = 2 -- Lucky Eggs pass: Epic+ odds x2
-Config.EggBaseCost = 400
+Config.EggBaseCost = 800
 Config.EggWorldGrowth = 1.85
 Config.PetEquipBase = 3
 Config.PetEquipPass = 2
 Config.PetInventoryCap = 60
 
 -- World progression.
-Config.GoalBase = 10
+Config.GoalBase = 12
 Config.GoalGrowth = 1.17
 Config.DepthBase = 40 -- studs, World 1
 Config.DepthStep = 7.2
@@ -259,7 +259,8 @@ Config.PressureStep = 0.0016
 Config.ClearRewardRelics = 60 -- first-clear bonus = this many common relics of that world
 -- Clearing a world makes the next one available; unlocking it costs a fee worth this many
 -- treasure goals of income (see Economy.unlockCost).
-Config.UnlockClears = 3
+Config.UnlockClears = 6
+Config.UnlockPetRamp = 4 -- worlds over which the fee's pet-boost part ramps in
 
 -- Stat curves the gear tiers map onto (see Data/Gear.luau and Economy.gearValue). `base` and
 -- `growth` shape gear prices: price = GearPriceScale * base * growth ^ (level - 2).
@@ -270,7 +271,8 @@ Config.Upgrades = {
 	{ id = "magnet", max = 15, base = 110, growth = 2.6, color = "#ff6f91" },
 }
 Config.GearCurve = 0.75 -- < 1: early tiers climb the stat curves faster
-Config.GearPriceScale = 2
+Config.GearPriceScale = 4
+Config.GearFloorRelics = 80
 
 -- Pet mutations (enchanting). An enchant adds one random mutation the pet does not have yet;
 -- multipliers add up (Gold x2 + Lava x5 = x7) and scale the pet's boost.
@@ -1700,15 +1702,15 @@ end
 
 -- Fee to unlock `world` after clearing the world before it (World 1 is free). It tracks what
 -- a diver earns there: UnlockClears x (one treasure goal of the previous world, sold as commons,
--- with three Epic pets of that world equipped; the pet part ramps in over the first nine worlds,
--- before most divers have strong pets).
+-- with three Epic pets of that world equipped; the pet part ramps in over the first
+-- Config.UnlockPetRamp worlds, before most divers have strong pets).
 function Economy.unlockCost(world: number): number
 	if world <= 1 then
 		return 0
 	end
 	local previous = world - 1
 	local typicalBoost = 3 * Config.PetBaseBoost * Config.PetWorldGrowth ^ (previous - 1) * Config.PetRarityFactor[4]
-	typicalBoost *= math.min(1, previous / 9)
+	typicalBoost *= math.min(1, previous / Config.UnlockPetRamp)
 	return Economy.nice(Config.UnlockClears * Economy.goal(previous) * Economy.relicValue(previous, 1) * (1 + typicalBoost))
 end
 
@@ -1795,7 +1797,10 @@ function Economy.gearCost(key: string): number?
 	end
 	local def = TRACKS[item.slot]
 	local level = Economy.gearLevel(item.slot, item.tier)
-	return Economy.nice(Config.GearPriceScale * def.base * def.growth ^ (level - 2))
+	local curve = Config.GearPriceScale * def.base * def.growth ^ (level - 2)
+	-- Floor so early pieces are never pocket change: this many common relics of their world.
+	local floor = Config.GearFloorRelics * Economy.relicValue(item.world, 1) * (if item.pro then 1.45 else 1)
+	return Economy.nice(math.max(curve, floor))
 end
 
 -- Stat from a profile's equipped gear map ({ slot = gearKey }).

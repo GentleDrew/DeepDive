@@ -19,9 +19,10 @@ local Clear = {}
 
 local C = Theme.C
 
-export type ClearData = { world: number, reward: number, nextWorld: number?, all: boolean? }
+export type ClearData = { world: number, reward: number, nextWorld: number?, unlockCost: number?, all: boolean? }
 
-function Clear.show(data: ClearData, onTravel: (number) -> (), sfx: (string) -> ())
+-- onUnlock(world, travel) pays the next world's unlock fee and returns true on success.
+function Clear.show(data: ClearData, onUnlock: (number, boolean) -> boolean, sfx: (string) -> ())
 	local root = Kit.new("Frame", {
 		Name = "Clear",
 		BackgroundColor3 = Color3.fromRGB(6, 16, 34),
@@ -101,7 +102,7 @@ function Clear.show(data: ClearData, onTravel: (number) -> (), sfx: (string) -> 
 		return "+" .. Format.commas(n)
 	end)
 
-	local subText = if data.all then Strings.get("allCleared") elseif data.nextWorld then Strings.get("unlockedNext", { n = data.nextWorld }) else ""
+	local subText = if data.all then Strings.get("allCleared") elseif data.nextWorld then Strings.get("unlockReady", { n = data.nextWorld }) else ""
 	Kit.text({
 		Text = subText,
 		TextSize = 26,
@@ -131,18 +132,22 @@ function Clear.show(data: ClearData, onTravel: (number) -> (), sfx: (string) -> 
 		end)
 	end
 	if data.nextWorld then
-		Kit.button({
-			Text = Strings.get("travelNow"),
-			TextSize = 26,
+		local cost = data.unlockCost or 0
+		local unlock = Kit.button({
+			Text = Strings.get("unlockButton", { n = Format.short(cost) }),
+			TextSize = 24,
 			Palette = "Green",
-			Size = UDim2.fromOffset(250, 60),
+			Size = UDim2.fromOffset(280, 60),
 			LayoutOrder = 1,
 			Parent = buttons,
 			OnClick = function()
-				close()
-				onTravel(data.nextWorld :: number)
+				if onUnlock(data.nextWorld :: number, true) then
+					close()
+				end
 			end,
 		})
+		local coinIcon = Kit.Icons.coin(30, unlock.button:FindFirstChild("Content") :: Instance)
+		coinIcon.LayoutOrder = 0
 		Kit.button({
 			Text = Strings.get("stay"),
 			TextSize = 24,

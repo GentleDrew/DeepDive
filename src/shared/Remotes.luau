@@ -30,6 +30,7 @@ Remotes.Actions = {
 	Tutorial = true,
 	Ready = true,
 	Sell = true,
+	UnlockWorld = true,
 }
 
 return Remotes

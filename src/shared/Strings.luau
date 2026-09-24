@@ -230,6 +230,10 @@ local EN: { [string]: string } = {
 	saved = "Saved",
 	["product.LuckyEnchant"] = "Lucky Enchants x3",
 	["product.LuckyEnchant.desc"] = "Rolls only Galaxy, Lava or GOAT",
+	unlockReady = "World {n} can now be unlocked!",
+	unlockButton = "Unlock  {n}",
+	unlockCard = "Unlock: {n}",
+	unlockTap = "Tap again to unlock!",
 }
 
 local KO: { [string]: string } = {
@@ -457,6 +461,10 @@ local KO: { [string]: string } = {
 	saved = "저장됨",
 	["product.LuckyEnchant"] = "행운 인첸트 x3",
 	["product.LuckyEnchant.desc"] = "갤럭시·용암·GOAT만 나와요",
+	unlockReady = "월드 {n} 해금 가능!",
+	unlockButton = "해금  {n}",
+	unlockCard = "해금: {n}",
+	unlockTap = "한 번 더 누르면 해금!",
 }
 
 local TABLES = { en = EN, ko = KO }

@@ -86,6 +86,7 @@ for _, key in { "tank1a", "tank1b", "tank2a", "pack1a", "pack1b", "fins1a", "mag
 end
 session.profile.gear.equip = { tank = "tank2a", pack = "pack1b", fins = "fins1a", magnet = "magnet1a" }
 session.profile.unlocked = 3
+session.profile.worlds["3"] = { sold = 20, cleared = true, best = 0 }
 session.profile.worlds["1"].sold = 9
 session.profile.tutorial = 7
 Sync.profile(session)
@@ -220,6 +221,20 @@ Engine.wait(0.5)
 moveTo(Layout.origin(1) + Vector3.new(0, -1.6, 0))
 Engine.wait(2.2)
 snap("13_clear")
+do
+	local overlayNow = gui:FindFirstChild("DeepDiveOverlay")
+	local shown = overlayNow and overlayNow:FindFirstChild("Clear", true)
+	if shown then
+		Engine.destroyRaw(shown)
+	end
+	local Clear = Engine.client.module("Players.Diver.PlayerScripts.Client.UI.Clear")
+	local Economy = Engine.client.module("ReplicatedStorage.Shared.Economy")
+	Clear.show({ world = 3, reward = 5200, nextWorld = 4, unlockCost = Economy.unlockCost(4) }, function()
+		return false
+	end, function() end)
+	Engine.wait(1.6)
+	snap("13b_clear_unlock")
+end
 
 -- Blackout.
 local overlay = gui:FindFirstChild("DeepDiveOverlay")

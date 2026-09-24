@@ -169,6 +169,24 @@ function app.sell()
 		Toasts.show(Strings.get(result.err), "bad", utf8.char(0x1F392))
 	end
 end
+-- Pays the unlock fee for a world; travels there on success when `go` is set.
+function app.unlockWorld(world: number, go: boolean?): boolean
+	local result = ClientNet.invoke("UnlockWorld", { world = world })
+	if not result.ok then
+		Sfx.play("Error")
+		if result.err then
+			Toasts.show(Strings.get(result.err), "bad", utf8.char(0x1F512))
+		end
+		return false
+	end
+	Sfx.play("Unlock")
+	Effects.confetti(60)
+	Toasts.show(Strings.get("unlockedNext", { n = world }), "gold", utf8.char(0x1F513))
+	if go then
+		app.travel(world)
+	end
+	return true
+end
 function app.openEgg(world: number)
 	if world ~= State.world then
 		return
@@ -255,6 +273,12 @@ task.spawn(function()
 		local p = State.profile
 		if p then
 			Hud.setBadge("upgrades", GearPanel.anyAffordable(p))
+			local nextWorld = p.unlocked + 1
+			local previous = p.worlds[tostring(p.unlocked)]
+			Hud.setBadge(
+				"worlds",
+				nextWorld <= Config.WorldCount and previous ~= nil and previous.cleared and p.coins >= Economy.unlockCost(nextWorld)
+			)
 			Hud.setBadge("pets", p.coins >= Economy.eggCost(State.world) and next(p.pets) == nil)
 		end
 		task.wait(0.5)

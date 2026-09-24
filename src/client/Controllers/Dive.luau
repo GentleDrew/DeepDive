@@ -145,7 +145,7 @@ function Dive.init(app: any)
 
 	Net.on("cleared", function(payload: any)
 		task.delay(0.8, function()
-			app.Clear.show(payload, app.travel, app.Sfx.play)
+			app.Clear.show(payload, app.unlockWorld, app.Sfx.play)
 		end)
 	end)
 

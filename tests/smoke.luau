@@ -569,8 +569,10 @@ if not quick then
 			end, 4, "cleared push"),
 			"world clear not pushed"
 		)
-		check(s.profile.unlocked == 2, "World 2 should unlock")
 		check(s.profile.worlds["1"].cleared, "World 1 should be cleared")
+		check(s.profile.unlocked == 1, "clearing must not unlock World 2 for free")
+		local clearedPush = Engine.lastPush("cleared", since)
+		check(clearedPush and clearedPush.nextWorld == 2 and clearedPush.unlockCost == Economy.unlockCost(2), "cleared push should offer World 2")
 		-- The celebration popup appears; dismiss it with "Stay" like a player would.
 		local Strings = Engine.client.module(Shared .. "Strings")
 		local overlay = Engine.gui():FindFirstChild("DeepDiveOverlay")
@@ -599,6 +601,16 @@ if not quick then
 				"Stay did not close the clear popup"
 			)
 		end
+		-- Unlocking World 2 costs coins.
+		check(not invoke("UnlockWorld", { world = 3 }).ok, "skipping a world must fail")
+		s.profile.coins = Economy.unlockCost(2) - 1
+		local poor = invoke("UnlockWorld", { world = 2 })
+		check(not poor.ok and poor.err == "notEnough", "unlocking without enough coins must fail")
+		s.profile.coins = Economy.unlockCost(2) + 500
+		local paid = invoke("UnlockWorld", { world = 2 })
+		check(paid.ok and s.profile.unlocked == 2, "UnlockWorld failed: " .. tostring(paid.err))
+		check(s.profile.coins == 500, "the unlock fee was not charged")
+		check(not invoke("UnlockWorld", { world = 2 }).ok, "unlocking twice must fail")
 		Engine.wait(1)
 	end)
 

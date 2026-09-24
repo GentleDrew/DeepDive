@@ -106,12 +106,18 @@ local function clearWorld(session: Session): { [string]: any }
 	local reward = Economy.clearReward(world)
 	profile.coins += reward
 	profile.lifetime += reward
+	-- The next world becomes available to unlock (for a fee) rather than opening right away.
 	local nextWorld = nil
 	if world < Config.WorldCount and profile.unlocked <= world then
-		profile.unlocked = world + 1
 		nextWorld = world + 1
 	end
-	return { world = world, reward = reward, nextWorld = nextWorld, all = world == Config.WorldCount }
+	return {
+		world = world,
+		reward = reward,
+		nextWorld = nextWorld,
+		unlockCost = if nextWorld then Economy.unlockCost(nextWorld) else nil,
+		all = world == Config.WorldCount,
+	}
 end
 
 -- Ends a dive. Treasure stays in the backpack until sold at the sell stand; a rescue (blackout,

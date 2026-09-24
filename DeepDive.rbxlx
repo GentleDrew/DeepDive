@@ -164,8 +164,9 @@ return Color
           <string name="Name">Config</string>
           <string name="Source"><![CDATA[--!strict
 -- Deep Dive tuning values. Pure data (no Roblox datatypes) so the luau/lune test runner can load it.
--- Economy curves were tuned with a pacing simulation (tests/run.luau): World 1 clears in under
--- 2 minutes, the full 20 worlds take an efficient player ~80 minutes (2-3 hours of normal play).
+-- Economy curves were tuned with a pacing simulation (tests/run.luau): World 1 clears in about a
+-- minute, the full 20 worlds (including saving up each unlock fee) take an efficient player
+-- ~2.5 hours, roughly 5-6 hours of normal play.
 
 local Config = {}
 
@@ -240,8 +241,8 @@ Config.PetRarityFactor = { 1, 1.9, 3.6, 7, 16, 40 }
 Config.EggOdds = { 60, 26, 10, 3.5, 0.5 } -- percent for rarity 1..5
 Config.SecretChance = 0.0005 -- 1 in 2000, only in eggs that carry a secret pet
 Config.LuckyMultiplier = 2 -- Lucky Eggs pass: Epic+ odds x2
-Config.EggBaseCost = 200
-Config.EggWorldGrowth = 1.8
+Config.EggBaseCost = 400
+Config.EggWorldGrowth = 1.85
 Config.PetEquipBase = 3
 Config.PetEquipPass = 2
 Config.PetInventoryCap = 60
@@ -256,6 +257,9 @@ Config.RadiusStep = 1.6
 Config.PressureBase = 0.010 -- extra oxygen drain per stud of depth
 Config.PressureStep = 0.0016
 Config.ClearRewardRelics = 60 -- first-clear bonus = this many common relics of that world
+-- Clearing a world makes the next one available; unlocking it costs a fee worth this many
+-- treasure goals of income (see Economy.unlockCost).
+Config.UnlockClears = 3
 
 -- Stat curves the gear tiers map onto (see Data/Gear.luau and Economy.gearValue). `base` and
 -- `growth` shape gear prices: price = GearPriceScale * base * growth ^ (level - 2).
@@ -266,7 +270,7 @@ Config.Upgrades = {
 	{ id = "magnet", max = 15, base = 110, growth = 2.6, color = "#ff6f91" },
 }
 Config.GearCurve = 0.75 -- < 1: early tiers climb the stat curves faster
-Config.GearPriceScale = 0.5
+Config.GearPriceScale = 2
 
 -- Pet mutations (enchanting). An enchant adds one random mutation the pet does not have yet;
 -- multipliers add up (Gold x2 + Lava x5 = x7) and scale the pet's boost.
@@ -1692,6 +1696,20 @@ end
 
 function Economy.clearReward(world: number): number
 	return Economy.nice(Economy.relicValue(world, 1) * Config.ClearRewardRelics)
+end
+
+-- Fee to unlock `world` after clearing the world before it (World 1 is free). It tracks what
+-- a diver earns there: UnlockClears x (one treasure goal of the previous world, sold as commons,
+-- with three Epic pets of that world equipped; the pet part ramps in over the first nine worlds,
+-- before most divers have strong pets).
+function Economy.unlockCost(world: number): number
+	if world <= 1 then
+		return 0
+	end
+	local previous = world - 1
+	local typicalBoost = 3 * Config.PetBaseBoost * Config.PetWorldGrowth ^ (previous - 1) * Config.PetRarityFactor[4]
+	typicalBoost *= math.min(1, previous / 9)
+	return Economy.nice(Config.UnlockClears * Economy.goal(previous) * Economy.relicValue(previous, 1) * (1 + typicalBoost))
 end
 
 function Economy.eggCost(world: number): number
@@ -3968,6 +3986,7 @@ Remotes.Actions = {
 	Tutorial = true,
 	Ready = true,
 	Sell = true,
+	UnlockWorld = true,
 }
 
 return Remotes
@@ -4281,6 +4300,10 @@ local EN: { [string]: string } = {
 	saved = "Saved",
 	["product.LuckyEnchant"] = "Lucky Enchants x3",
 	["product.LuckyEnchant.desc"] = "Rolls only Galaxy, Lava or GOAT",
+	unlockReady = "World {n} can now be unlocked!",
+	unlockButton = "Unlock  {n}",
+	unlockCard = "Unlock: {n}",
+	unlockTap = "Tap again to unlock!",
 }
 
 local KO: { [string]: string } = {
@@ -4508,6 +4531,10 @@ local KO: { [string]: string } = {
 	saved = "저장됨",
 	["product.LuckyEnchant"] = "행운 인첸트 x3",
 	["product.LuckyEnchant.desc"] = "갤럭시·용암·GOAT만 나와요",
+	unlockReady = "월드 {n} 해금 가능!",
+	unlockButton = "해금  {n}",
+	unlockCard = "해금: {n}",
+	unlockTap = "한 번 더 누르면 해금!",
 }
 
 local TABLES = { en = EN, ko = KO }
@@ -5085,7 +5112,14 @@ return ProfileStore
             <string name="Source"><![CDATA[--!strict
 -- Selling, travel, settings, tutorial progress and the client "Ready" handshake.
 
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local Shared = ReplicatedStorage:WaitForChild("Shared")
+local Config = require(Shared.Config)
+local Economy = require(Shared.Economy)
+
 local Net = require(script.Parent.Parent.Net)
+local ProfileStore = require(script.Parent.Parent.ProfileStore)
 local Sessions = require(script.Parent.Parent.Sessions)
 local Sync = require(script.Parent.Parent.Sync)
 local DiveService = require(script.Parent.DiveService)
@@ -5102,6 +5136,32 @@ local function teleport(player: Player, payload: any): (boolean, string?, any)
 		return false, "err.generic"
 	end
 	return DiveService.teleport(session, math.floor(world))
+end
+
+-- Pays the fee for the next world once the world before it is cleared.
+local function unlockWorld(player: Player, payload: any): (boolean, string?, any)
+	local session = Sessions.get(player)
+	if not session or not session.ready then
+		return false, "err.notReady"
+	end
+	local world = if type(payload) == "table" then tonumber(payload.world) else nil
+	local profile = session.profile
+	if not world or world ~= profile.unlocked + 1 or world > Config.WorldCount then
+		return false, "err.generic"
+	end
+	local previous = profile.worlds[tostring(world - 1)]
+	if not previous or not previous.cleared then
+		return false, "err.locked"
+	end
+	local cost = Economy.unlockCost(world)
+	if profile.coins < cost then
+		return false, "notEnough"
+	end
+	profile.coins -= cost
+	profile.unlocked = world
+	Sync.profile(session)
+	task.spawn(ProfileStore.save, player, false)
+	return true, nil, { world = world, cost = cost }
 end
 
 local BOOL_SETTINGS = { music = true, sfx = true, lowFx = true, hidePets = true }
@@ -5157,6 +5217,7 @@ function ActionService.init()
 		return DiveService.sell(session, true)
 	end)
 	Net.on("Teleport", teleport)
+	Net.on("UnlockWorld", unlockWorld)
 	Net.on("Setting", setting)
 	Net.on("Tutorial", tutorial)
 	Net.on("Ready", ready)
@@ -5277,12 +5338,18 @@ local function clearWorld(session: Session): { [string]: any }
 	local reward = Economy.clearReward(world)
 	profile.coins += reward
 	profile.lifetime += reward
+	-- The next world becomes available to unlock (for a fee) rather than opening right away.
 	local nextWorld = nil
 	if world < Config.WorldCount and profile.unlocked <= world then
-		profile.unlocked = world + 1
 		nextWorld = world + 1
 	end
-	return { world = world, reward = reward, nextWorld = nextWorld, all = world == Config.WorldCount }
+	return {
+		world = world,
+		reward = reward,
+		nextWorld = nextWorld,
+		unlockCost = if nextWorld then Economy.unlockCost(nextWorld) else nil,
+		all = world == Config.WorldCount,
+	}
 end
 
 -- Ends a dive. Treasure stays in the backpack until sold at the sell stand; a rescue (blackout,
@@ -9394,7 +9461,7 @@ function Dive.init(app: any)
 
 	Net.on("cleared", function(payload: any)
 		task.delay(0.8, function()
-			app.Clear.show(payload, app.travel, app.Sfx.play)
+			app.Clear.show(payload, app.unlockWorld, app.Sfx.play)
 		end)
 	end)
 
@@ -11341,6 +11408,24 @@ function app.sell()
 		Toasts.show(Strings.get(result.err), "bad", utf8.char(0x1F392))
 	end
 end
+-- Pays the unlock fee for a world; travels there on success when `go` is set.
+function app.unlockWorld(world: number, go: boolean?): boolean
+	local result = ClientNet.invoke("UnlockWorld", { world = world })
+	if not result.ok then
+		Sfx.play("Error")
+		if result.err then
+			Toasts.show(Strings.get(result.err), "bad", utf8.char(0x1F512))
+		end
+		return false
+	end
+	Sfx.play("Unlock")
+	Effects.confetti(60)
+	Toasts.show(Strings.get("unlockedNext", { n = world }), "gold", utf8.char(0x1F513))
+	if go then
+		app.travel(world)
+	end
+	return true
+end
 function app.openEgg(world: number)
 	if world ~= State.world then
 		return
@@ -11427,6 +11512,12 @@ task.spawn(function()
 		local p = State.profile
 		if p then
 			Hud.setBadge("upgrades", GearPanel.anyAffordable(p))
+			local nextWorld = p.unlocked + 1
+			local previous = p.worlds[tostring(p.unlocked)]
+			Hud.setBadge(
+				"worlds",
+				nextWorld <= Config.WorldCount and previous ~= nil and previous.cleared and p.coins >= Economy.unlockCost(nextWorld)
+			)
 			Hud.setBadge("pets", p.coins >= Economy.eggCost(State.world) and next(p.pets) == nil)
 		end
 		task.wait(0.5)
@@ -11867,9 +11958,10 @@ local Clear = {}
 
 local C = Theme.C
 
-export type ClearData = { world: number, reward: number, nextWorld: number?, all: boolean? }
+export type ClearData = { world: number, reward: number, nextWorld: number?, unlockCost: number?, all: boolean? }
 
-function Clear.show(data: ClearData, onTravel: (number) -> (), sfx: (string) -> ())
+-- onUnlock(world, travel) pays the next world's unlock fee and returns true on success.
+function Clear.show(data: ClearData, onUnlock: (number, boolean) -> boolean, sfx: (string) -> ())
 	local root = Kit.new("Frame", {
 		Name = "Clear",
 		BackgroundColor3 = Color3.fromRGB(6, 16, 34),
@@ -11949,7 +12041,7 @@ function Clear.show(data: ClearData, onTravel: (number) -> (), sfx: (string) -> 
 		return "+" .. Format.commas(n)
 	end)
 
-	local subText = if data.all then Strings.get("allCleared") elseif data.nextWorld then Strings.get("unlockedNext", { n = data.nextWorld }) else ""
+	local subText = if data.all then Strings.get("allCleared") elseif data.nextWorld then Strings.get("unlockReady", { n = data.nextWorld }) else ""
 	Kit.text({
 		Text = subText,
 		TextSize = 26,
@@ -11979,18 +12071,22 @@ function Clear.show(data: ClearData, onTravel: (number) -> (), sfx: (string) -> 
 		end)
 	end
 	if data.nextWorld then
-		Kit.button({
-			Text = Strings.get("travelNow"),
-			TextSize = 26,
+		local cost = data.unlockCost or 0
+		local unlock = Kit.button({
+			Text = Strings.get("unlockButton", { n = Format.short(cost) }),
+			TextSize = 24,
 			Palette = "Green",
-			Size = UDim2.fromOffset(250, 60),
+			Size = UDim2.fromOffset(280, 60),
 			LayoutOrder = 1,
 			Parent = buttons,
 			OnClick = function()
-				close()
-				onTravel(data.nextWorld :: number)
+				if onUnlock(data.nextWorld :: number, true) then
+					close()
+				end
 			end,
 		})
+		local coinIcon = Kit.Icons.coin(30, unlock.button:FindFirstChild("Content") :: Instance)
+		coinIcon.LayoutOrder = 0
 		Kit.button({
 			Text = Strings.get("stay"),
 			TextSize = 24,
@@ -15866,6 +15962,8 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Color = require(Shared.Color)
 local Config = require(Shared.Config)
+local Economy = require(Shared.Economy)
+local Format = require(Shared.Format)
 local Strings = require(Shared.Strings)
 local Worlds = require(Shared.Data.Worlds)
 
@@ -15921,6 +16019,15 @@ function WorldsPanel.new(app: any): Panel.PanelApi
 	})
 
 	local cards: { Card } = {}
+	local armed: number? = nil -- world whose unlock waits for a confirming second tap
+	local refresh: () -> ()
+
+	-- The world right after your frontier can be bought once the frontier is cleared.
+	local function buyable(index: number): boolean
+		local profile = app.State.profile
+		return profile ~= nil and index == profile.unlocked + 1 and app.State.progress(profile.unlocked).cleared
+	end
+
 	for index = 1, Config.WorldCount do
 		local data = Worlds.get(index)
 		local a1, a2 = Color.hex(data.accent[1]), Color.hex(data.accent[2])
@@ -16076,6 +16183,30 @@ function WorldsPanel.new(app: any): Panel.PanelApi
 				return
 			end
 			if index > profile.unlocked then
+				if buyable(index) then
+					if profile.coins < Economy.unlockCost(index) then
+						app.Sfx.play("Error")
+						Anim.shake(button, 6)
+						app.Toasts.show(Strings.get("notEnough"), "bad", utf8.char(0x1F512))
+					elseif armed ~= index then
+						app.Sfx.play("Click")
+						armed = index
+						refresh()
+						task.delay(3, function()
+							if armed == index then
+								armed = nil
+								refresh()
+							end
+						end)
+					else
+						armed = nil
+						if app.unlockWorld(index, false) then
+							Anim.pop(button, 0.12)
+						end
+						refresh()
+					end
+					return
+				end
 				app.Sfx.play("Error")
 				Anim.shake(button, 6)
 				app.Toasts.show(Strings.get("lockedHint", { n = index - 1 }), "bad", utf8.char(0x1F512))
@@ -16091,7 +16222,7 @@ function WorldsPanel.new(app: any): Panel.PanelApi
 		end)
 	end
 
-	local function refresh()
+	refresh = function()
 		local profile = app.State.profile
 		panel.setTitle(Strings.get("worldsTitle"))
 		for index, card in cards do
@@ -16101,7 +16232,14 @@ function WorldsPanel.new(app: any): Panel.PanelApi
 			local unlocked = profile ~= nil and index <= profile.unlocked
 			local progress = app.State.progress(index)
 			card.lock.Visible = not unlocked
-			card.lockText.Text = Strings.get("lockedHint", { n = index - 1 })
+			if buyable(index) then
+				local cost = Economy.unlockCost(index)
+				card.lockText.Text = if armed == index then Strings.get("unlockTap") else Strings.get("unlockCard", { n = Format.short(cost) })
+				card.lockText.TextColor3 = if profile and profile.coins >= cost then Color.hex("#ffe27a") else C.White
+			else
+				card.lockText.Text = Strings.get("lockedHint", { n = index - 1 })
+				card.lockText.TextColor3 = C.White
+			end
 			local current = index == app.State.world
 			card.here.Visible = current
 			local hereText = card.here:FindFirstChild("HereText") :: TextLabel?

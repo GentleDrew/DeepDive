@@ -200,6 +200,10 @@ do
 		check(entry.key ~= "Gold", "owned mutation not offered")
 	end
 	check(math.abs(chanceSum - 1) < 1e-9, "mutation chances sum to 1")
+	check(Economy.unlockCost(1) == 0, "World 1 is free")
+	for world = 3, Config.WorldCount do
+		check(Economy.unlockCost(world) > Economy.unlockCost(world - 1), "unlock fee grows at world " .. world)
+	end
 	check(Economy.oxygenDrain(1, 0) == 1, "no pressure at the surface")
 	check(Economy.oxygenDrain(20, Economy.depthStuds(20)) > Economy.oxygenDrain(1, Economy.depthStuds(1)), "deep worlds drain faster")
 	local counts = { 0, 0, 0, 0, 0 }
@@ -353,6 +357,7 @@ do
 	}
 	local coins, eggBank = 0, 0
 	local tiers = { tank = 0, pack = 0, fins = 0, magnet = 0 }
+	local savingTotal = 0
 	local boosts = {}
 	local t = 0
 	local function bestBoost(): number
@@ -399,7 +404,7 @@ do
 	end
 	local rows = {}
 	for world = 1, Config.WorldCount do
-		local sold, started, eggs = 0, t, 0
+		local sold, started, eggs, saving = 0, t, 0, 0
 		while true do
 			local result = dive(world) or dive(math.max(1, world - 1))
 			assert(result, "no viable dive")
@@ -447,6 +452,18 @@ do
 			local chestTime = 2 * depth / (Economy.gearValue("fins", tiers.fins) * 0.8) + 3
 			local chestDrain = 1 + depth * Economy.pressure(world) * 0.7
 			if sold >= Economy.goal(world) and chestTime * chestDrain < Economy.gearValue("tank", tiers.tank) * 0.9 then
+				-- Cleared: keep diving (no more shopping) until the next world's unlock fee is saved.
+				coins += Economy.clearReward(world)
+				local fee = if world < Config.WorldCount then Economy.unlockCost(world + 1) else 0
+				local savingStart = t
+				while coins < fee do
+					local result2 = dive(world) :: any
+					t += result2.time
+					coins += result2.value
+				end
+				coins -= fee
+				saving = t - savingStart
+				savingTotal += saving
 				break
 			end
 			if t - started > 5 * 3600 then
@@ -456,9 +473,10 @@ do
 		table.insert(
 			rows,
 			string.format(
-				"  world %2d: %5.1f min (total %6.1f)  tank %2d pack %2d fins %2d magnet %2d  boost x%s",
+				"  world %2d: %5.1f min (saving %4.1f, total %6.1f)  tank %2d pack %2d fins %2d magnet %2d  boost x%s",
 				world,
 				(t - started) / 60,
+				saving / 60,
 				t / 60,
 				tiers.tank,
 				tiers.pack,
@@ -469,7 +487,8 @@ do
 		)
 	end
 	print(table.concat(rows, "\n"))
-	check(t / 60 > 60 and t / 60 < 150, "efficient full clear takes 1-2.5 hours (" .. math.floor(t / 60) .. " min)")
+	print(string.format("  saving for unlock fees: %.1f min of %.1f", savingTotal / 60, t / 60))
+	check(t / 60 > 120 and t / 60 < 240, "efficient full clear takes 2-4 hours (" .. math.floor(t / 60) .. " min)")
 end
 
 print(string.format("\n%d passed, %d failed", passed, failed))

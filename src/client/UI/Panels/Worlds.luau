@@ -6,6 +6,8 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Color = require(Shared.Color)
 local Config = require(Shared.Config)
+local Economy = require(Shared.Economy)
+local Format = require(Shared.Format)
 local Strings = require(Shared.Strings)
 local Worlds = require(Shared.Data.Worlds)
 
@@ -61,6 +63,15 @@ function WorldsPanel.new(app: any): Panel.PanelApi
 	})
 
 	local cards: { Card } = {}
+	local armed: number? = nil -- world whose unlock waits for a confirming second tap
+	local refresh: () -> ()
+
+	-- The world right after your frontier can be bought once the frontier is cleared.
+	local function buyable(index: number): boolean
+		local profile = app.State.profile
+		return profile ~= nil and index == profile.unlocked + 1 and app.State.progress(profile.unlocked).cleared
+	end
+
 	for index = 1, Config.WorldCount do
 		local data = Worlds.get(index)
 		local a1, a2 = Color.hex(data.accent[1]), Color.hex(data.accent[2])
@@ -216,6 +227,30 @@ function WorldsPanel.new(app: any): Panel.PanelApi
 				return
 			end
 			if index > profile.unlocked then
+				if buyable(index) then
+					if profile.coins < Economy.unlockCost(index) then
+						app.Sfx.play("Error")
+						Anim.shake(button, 6)
+						app.Toasts.show(Strings.get("notEnough"), "bad", utf8.char(0x1F512))
+					elseif armed ~= index then
+						app.Sfx.play("Click")
+						armed = index
+						refresh()
+						task.delay(3, function()
+							if armed == index then
+								armed = nil
+								refresh()
+							end
+						end)
+					else
+						armed = nil
+						if app.unlockWorld(index, false) then
+							Anim.pop(button, 0.12)
+						end
+						refresh()
+					end
+					return
+				end
 				app.Sfx.play("Error")
 				Anim.shake(button, 6)
 				app.Toasts.show(Strings.get("lockedHint", { n = index - 1 }), "bad", utf8.char(0x1F512))
@@ -231,7 +266,7 @@ function WorldsPanel.new(app: any): Panel.PanelApi
 		end)
 	end
 
-	local function refresh()
+	refresh = function()
 		local profile = app.State.profile
 		panel.setTitle(Strings.get("worldsTitle"))
 		for index, card in cards do
@@ -241,7 +276,14 @@ function WorldsPanel.new(app: any): Panel.PanelApi
 			local unlocked = profile ~= nil and index <= profile.unlocked
 			local progress = app.State.progress(index)
 			card.lock.Visible = not unlocked
-			card.lockText.Text = Strings.get("lockedHint", { n = index - 1 })
+			if buyable(index) then
+				local cost = Economy.unlockCost(index)
+				card.lockText.Text = if armed == index then Strings.get("unlockTap") else Strings.get("unlockCard", { n = Format.short(cost) })
+				card.lockText.TextColor3 = if profile and profile.coins >= cost then Color.hex("#ffe27a") else C.White
+			else
+				card.lockText.Text = Strings.get("lockedHint", { n = index - 1 })
+				card.lockText.TextColor3 = C.White
+			end
 			local current = index == app.State.world
 			card.here.Visible = current
 			local hereText = card.here:FindFirstChild("HereText") :: TextLabel?

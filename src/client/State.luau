@@ -106,7 +106,9 @@ function State.boostSum(): number
 end
 
 function State.multiplier(): number
-	return Economy.coinMultiplier(State.boostSum(), State.passes.DoubleCoins == true)
+	local profile = State.profile
+	local boosted = profile ~= nil and profile.boostUntil > os.time()
+	return Economy.coinMultiplier(State.boostSum(), State.passes.DoubleCoins == true, boosted)
 end
 
 function State.equipCap(): number

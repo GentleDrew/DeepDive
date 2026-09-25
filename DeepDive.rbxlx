@@ -307,7 +307,19 @@ Config.Passes = {
 	{ key = "SwiftFins", id = 0, price = 99, color = "#3fd2ff" },
 	-- Cosmetic only (a crown by your name + a gold sparkle trail): no gameplay effect.
 	{ key = "VIPAura", id = 0, price = 299, color = "#ffd23f" },
+	-- Sells your backpack for you the instant you surface, from anywhere (skips the walk to the
+	-- sell stand). Pure convenience: prices are unchanged, it just saves the trip.
+	{ key = "AutoSell", id = 0, price = 249, color = "#ff9a3f" },
+	-- Cosmetic sparkle trail while swimming. No gameplay effect.
+	{ key = "SwimTrail", id = 0, price = 149, color = "#5ee0ff" },
+	-- Cosmetic nameplate border tiers (own both: the higher tier shows). No gameplay effect.
+	{ key = "BorderSilver", id = 0, price = 149, color = "#c9d6de" },
+	{ key = "BorderGold", id = 0, price = 299, color = "#ffd23f" },
+	-- One-time starter bundle (see Config.StarterPackReward). Granted once, on first purchase.
+	{ key = "StarterPack", id = 0, price = 99, color = "#5ee07a" },
 }
+-- One-time StarterPack grant (Profile.starterPackGranted guards against granting it twice).
+Config.StarterPackReward = { coins = 5000, gearKey = "pack1b", enchants = 1 }
 Config.Products = {
 	{ key = "CoinsSmall", id = 0, price = 25, dives = 4, enchants = 0, color = "#ffd84f" },
 	{ key = "CoinsMedium", id = 0, price = 99, dives = 20, enchants = 0, color = "#ffb13f" },
@@ -316,7 +328,23 @@ Config.Products = {
 	{ key = "LuckyEnchant", id = 0, price = 79, dives = 0, enchants = 3, color = "#be68ff" },
 	-- Coins worth exactly the fee to unlock your next world (or a flat bonus once you own World 20).
 	{ key = "UnlockBoost", id = 0, price = 149, dives = 0, enchants = 0, unlockBoost = true, color = "#4fe07a" },
+	-- Unlocks your next world immediately at no coin cost (needs the world before it cleared;
+	-- otherwise grants the same coins as UnlockBoost so the purchase always delivers value).
+	{ key = "InstantUnlock", id = 0, price = 199, dives = 0, enchants = 0, instantUnlock = true, color = "#4fe07a" },
+	-- Doubles coin payouts for Config.TimedBoostMinutes (stacks its own duration; multiplies
+	-- with the 2x Coins pass).
+	{ key = "TimedBoost", id = 0, price = 149, dives = 0, enchants = 0, timedBoost = true, color = "#ff6fb1" },
+	-- Rerolls one of your unlocked pets into a fresh roll from its own world's egg (mutations
+	-- reset). Picks the weakest eligible pet automatically; grants coins if none is eligible.
+	{ key = "PetReroll", id = 0, price = 49, dives = 0, enchants = 0, petReroll = true, color = "#3fd2ff" },
+	-- Guarantees the rarest mutation you don't have yet on one eligible pet (no random roll).
+	-- Picks automatically; grants coins if every pet is already fully mutated.
+	{ key = "GuaranteedMutation", id = 0, price = 129, dives = 0, enchants = 0, guaranteedMutation = true, color = "#9a5cff" },
+	-- Tops your backpack off with common relics of your current world, up to capacity.
+	{ key = "BackpackFill", id = 0, price = 49, dives = 0, enchants = 0, backpackFill = true, color = "#ffb13f" },
 }
+Config.TimedBoostMinutes = 45
+Config.TimedBoostMultiplier = 2
 -- Promo codes redeemable once per player from Settings. Add more anytime; nothing needs
 -- redeploying beyond this list. `coins` and/or `enchants` are granted on a valid, unused code.
 export type PromoCode = { code: string, coins: number?, enchants: number? }
@@ -1979,8 +2007,8 @@ end
 
 -- Multipliers ---------------------------------------------------------------------------------
 
-function Economy.coinMultiplier(boostSum: number, doubleCoins: boolean): number
-	return (1 + boostSum) * (if doubleCoins then 2 else 1)
+function Economy.coinMultiplier(boostSum: number, doubleCoins: boolean, timedBoost: boolean?): number
+	return (1 + boostSum) * (if doubleCoins then 2 else 1) * (if timedBoost then Config.TimedBoostMultiplier else 1)
 end
 
 function Economy.productCoins(dives: number, world: number): number
@@ -3779,6 +3807,8 @@ export type Data = {
 	gear: GearData,
 	enchants: number, -- Lucky Enchant tokens (developer product)
 	redeemed: { [string]: boolean }, -- promo codes already claimed (see Config.PromoCodes)
+	boostUntil: number, -- os.time() the TimedBoost product's 2x coins expires (0 = inactive)
+	starterPackGranted: boolean, -- guards the one-time StarterPack pass grant
 	pets: { [string]: PetEntry },
 	equipped: { string },
 	petSeq: number,
@@ -3804,6 +3834,8 @@ function Profile.new(now: number): Data
 		gear = { owned = {}, equip = {} },
 		enchants = 0,
 		redeemed = {},
+		boostUntil = 0,
+		starterPackGranted = false,
 		pets = {},
 		equipped = {},
 		petSeq = 0,
@@ -3899,6 +3931,8 @@ function Profile.reconcile(raw: any, now: number): Data
 			end
 		end
 	end
+	data.boostUntil = number(raw.boostUntil, 0, 0)
+	data.starterPackGranted = bool(raw.starterPackGranted, false)
 	local count = 0
 	if type(raw.pets) == "table" then
 		for id, entry in raw.pets do
@@ -4386,6 +4420,32 @@ local EN: { [string]: string } = {
 	profilePetsHatched = "Pets hatched",
 	profileWorldsCleared = "Worlds cleared",
 	profileBlackouts = "Blackouts",
+	["pass.AutoSell"] = "Auto-Sell",
+	["pass.AutoSell.desc"] = "Sells your backpack the instant you surface, from anywhere",
+	["pass.SwimTrail"] = "Swim Trail",
+	["pass.SwimTrail.desc"] = "A sparkling trail while you swim (cosmetic only)",
+	["pass.BorderSilver"] = "Silver Border",
+	["pass.BorderSilver.desc"] = "A silver border on your nameplate (cosmetic only)",
+	["pass.BorderGold"] = "Gold Border",
+	["pass.BorderGold.desc"] = "A gold border on your nameplate (cosmetic only)",
+	["pass.StarterPack"] = "Starter Pack",
+	["pass.StarterPack.desc"] = "One-time: coins, a gear piece and an enchant, all at once",
+	["product.InstantUnlock"] = "Instant Unlock",
+	["product.InstantUnlock.desc"] = "Unlocks your next world right now, no coins needed",
+	["product.TimedBoost"] = "Growth Surge",
+	["product.TimedBoost.desc"] = "2x coins for {n} minutes",
+	["product.PetReroll"] = "Pet Reroll",
+	["product.PetReroll.desc"] = "Rerolls your weakest pet into a fresh one from its own egg",
+	["product.GuaranteedMutation"] = "Guaranteed Mutation",
+	["product.GuaranteedMutation.desc"] = "Adds your rarest missing mutation to a pet - no luck involved",
+	["product.BackpackFill"] = "Backpack Fill",
+	["product.BackpackFill.desc"] = "Tops your backpack off with treasure from your current world",
+	["grantedUnlock"] = "World {n} unlocked!",
+	["grantedCoins"] = "+{n} Coins!",
+	["grantedBoost"] = "2x coins for {n} minutes!",
+	["grantedReroll"] = "Rerolled into {name}!",
+	["grantedMutation"] = "{mutation} mutation added!",
+	["grantedFill"] = "Backpack filled (+{n})!",
 }
 
 local KO: { [string]: string } = {
@@ -4638,6 +4698,32 @@ local KO: { [string]: string } = {
 	profilePetsHatched = "부화한 펫",
 	profileWorldsCleared = "클리어한 월드",
 	profileBlackouts = "기절 횟수",
+	["pass.AutoSell"] = "자동 판매",
+	["pass.AutoSell.desc"] = "물 위로 올라오는 순간 어디서든 가방을 자동으로 팔아요",
+	["pass.SwimTrail"] = "수영 트레일",
+	["pass.SwimTrail.desc"] = "헤엄칠 때 반짝이는 트레일(꾸미기 전용)",
+	["pass.BorderSilver"] = "실버 테두리",
+	["pass.BorderSilver.desc"] = "이름표에 은색 테두리(꾸미기 전용)",
+	["pass.BorderGold"] = "골드 테두리",
+	["pass.BorderGold.desc"] = "이름표에 금색 테두리(꾸미기 전용)",
+	["pass.StarterPack"] = "스타터 팩",
+	["pass.StarterPack.desc"] = "1회 한정: 코인 + 장비 1개 + 인첸트를 한 번에",
+	["product.InstantUnlock"] = "즉시 해금권",
+	["product.InstantUnlock.desc"] = "코인 없이 다음 월드를 지금 바로 해금해요",
+	["product.TimedBoost"] = "성장 폭주",
+	["product.TimedBoost.desc"] = "{n}분 동안 코인 2배",
+	["product.PetReroll"] = "펫 리롤권",
+	["product.PetReroll.desc"] = "가장 약한 펫을 같은 알에서 새로 뽑아요",
+	["product.GuaranteedMutation"] = "확정 변이권",
+	["product.GuaranteedMutation.desc"] = "운 없이 가장 희귀한 변이를 펫에 확정으로 추가해요",
+	["product.BackpackFill"] = "가방 즉시 완충",
+	["product.BackpackFill.desc"] = "지금 있는 월드의 유물로 가방을 가득 채워요",
+	["grantedUnlock"] = "월드 {n} 해금!",
+	["grantedCoins"] = "코인 +{n}!",
+	["grantedBoost"] = "{n}분 동안 코인 2배!",
+	["grantedReroll"] = "{name}(으)로 리롤!",
+	["grantedMutation"] = "{mutation} 변이 추가!",
+	["grantedFill"] = "가방이 가득 찼어요 (+{n})!",
 }
 
 local TABLES = { en = EN, ko = KO }
@@ -5552,7 +5638,9 @@ local function endDive(session: Session, reason: string)
 end
 
 -- Sells the whole backpack. Only on the dock, standing at this world's sell stand.
-function DiveService.sell(session: Session, fromPrompt: boolean?): (boolean, string?)
+-- `anywhere` bypasses the distance-to-stand check (the AutoSell pass sells the instant you
+-- surface, wherever that is).
+function DiveService.sell(session: Session, fromPrompt: boolean?, anywhere: boolean?): (boolean, string?)
 	local profile = session.profile
 	local backpack = profile.backpack
 	if session.mode ~= "Dock" then
@@ -5565,11 +5653,13 @@ function DiveService.sell(session: Session, fromPrompt: boolean?): (boolean, str
 	if not root or not aliveHumanoid(session.player) then
 		return false, "err.generic"
 	end
-	local spot = Layout.origin(session.world) + Layout.dock(session.world).sell
-	local offset = root.Position - spot
-	local reach = Config.SellRadius + (if fromPrompt then 8 else 0)
-	if Vector3.new(offset.X, 0, offset.Z).Magnitude > reach or math.abs(offset.Y) > 10 then
-		return false, "sellFar"
+	if not anywhere then
+		local spot = Layout.origin(session.world) + Layout.dock(session.world).sell
+		local offset = root.Position - spot
+		local reach = Config.SellRadius + (if fromPrompt then 8 else 0)
+		if Vector3.new(offset.X, 0, offset.Z).Magnitude > reach or math.abs(offset.Y) > 10 then
+			return false, "sellFar"
+		end
 	end
 	local now = os.clock()
 	if now - session.lastSell < 0.8 then
@@ -5674,6 +5764,9 @@ local function tick(session: Session, dt: number)
 		session.surfacedFor += dt
 		if session.surfacedFor >= Config.Dive.SurfaceHold then
 			endDive(session, "surface")
+			if session.passes.AutoSell and #session.profile.backpack > 0 then
+				DiveService.sell(session, false, true)
+			end
 			return
 		end
 	else
@@ -6427,17 +6520,30 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Config = require(Shared.Config)
 local Economy = require(Shared.Economy)
+local Gear = require(Shared.Data.Gear)
+local Worlds = require(Shared.Data.Worlds)
 
 local Net = require(script.Parent.Parent.Net)
 local ProfileStore = require(script.Parent.Parent.ProfileStore)
 local Sessions = require(script.Parent.Parent.Sessions)
 local Sync = require(script.Parent.Parent.Sync)
+local GearService = require(script.Parent.GearService)
 local PetService = require(script.Parent.PetService)
 
 local PurchaseService = {}
 
 local passById: { [number]: string } = {}
 local productById: { [number]: any } = {}
+
+-- Replicated cosmetics (VIP crown, swim trail, nameplate border): recomputed on join and again
+-- right after any pass purchase, so other clients see the change immediately.
+local function applyCosmetics(session: Sessions.Session)
+	local player = session.player
+	local passes = session.passes
+	player:SetAttribute("VIP", passes.VIPAura == true)
+	player:SetAttribute("Trail", passes.SwimTrail == true)
+	player:SetAttribute("Border", if passes.BorderGold then "Gold" elseif passes.BorderSilver then "Silver" else "")
+end
 
 function PurchaseService.loadPasses(session: Sessions.Session)
 	for _, pass in Config.Passes do
@@ -6450,8 +6556,137 @@ function PurchaseService.loadPasses(session: Sessions.Session)
 			session.passes[pass.key] = false
 		end
 	end
-	-- Replicated so other clients can render the VIP crown/aura.
-	session.player:SetAttribute("VIP", session.passes.VIPAura == true)
+	applyCosmetics(session)
+end
+
+-- The pet with the least valuable boost, skipping locked ones (PetReroll's target).
+local function weakestUnlockedPet(profile: any): string?
+	local worst, worstBoost = nil, math.huge
+	for id, pet in profile.pets do
+		if not pet.l then
+			local boost = Economy.petBoost(pet.s)
+			if boost < worstBoost then
+				worst, worstBoost = id, boost
+			end
+		end
+	end
+	return worst
+end
+
+-- A pet that does not yet have every mutation (GuaranteedMutation's target).
+local function pickMutationTarget(profile: any): string?
+	for id, pet in profile.pets do
+		if #(pet.m or {}) < #Config.Mutations then
+			return id
+		end
+	end
+	return nil
+end
+
+-- The rarest mutation not already in `existing` (Config.Mutations is ordered weakest to strongest).
+local function rarestMissing(existing: { string }?): string?
+	for i = #Config.Mutations, 1, -1 do
+		local key = Config.Mutations[i].key
+		if not (existing and table.find(existing, key)) then
+			return key
+		end
+	end
+	return nil
+end
+
+-- A flat, modest coin grant so a special product always delivers value even when its usual
+-- target (an eligible pet, backpack room, ...) is not available right now.
+local function fallbackCoins(profile: any, amount: number): () -> ()
+	profile.coins += amount
+	profile.lifetime += amount
+	return function()
+		profile.coins -= amount
+		profile.lifetime -= amount
+	end
+end
+
+-- Applies one of the five special products (InstantUnlock, TimedBoost, PetReroll,
+-- GuaranteedMutation, BackpackFill). Returns nil for every other product. Otherwise returns a
+-- revert closure (call it if the save that follows fails) plus a toast key/args to show.
+local function applySpecialProduct(session: Sessions.Session, product: any): ((() -> ())?, string?, any?)
+	local profile = session.profile
+	if product.instantUnlock then
+		local nextWorld = profile.unlocked + 1
+		local previous = profile.worlds[tostring(profile.unlocked)]
+		if nextWorld <= Config.WorldCount and previous and previous.cleared then
+			profile.unlocked = nextWorld
+			return function()
+				profile.unlocked = nextWorld - 1
+			end, "grantedUnlock", { n = nextWorld }
+		end
+		local coins = if profile.unlocked < Config.WorldCount
+			then Economy.unlockCost(profile.unlocked + 1)
+			else Economy.nice(Economy.unlockCost(Config.WorldCount) * 0.15)
+		return fallbackCoins(profile, coins), "grantedCoins", { n = coins }
+	elseif product.timedBoost then
+		local before = profile.boostUntil
+		local extendFrom = math.max(before, os.time())
+		profile.boostUntil = extendFrom + Config.TimedBoostMinutes * 60
+		return function()
+			profile.boostUntil = before
+		end, "grantedBoost", { n = Config.TimedBoostMinutes }
+	elseif product.petReroll then
+		local id = weakestUnlockedPet(profile)
+		if id then
+			local pet = profile.pets[id]
+			local pastPet = Worlds.pets[pet.s]
+			local world = if pastPet then pastPet.world else 1
+			local newKey = Economy.rollPet(world, false, session.rng:NextNumber())
+			local previousSpecies, previousMutations = pet.s, pet.m
+			pet.s = newKey
+			pet.m = nil
+			profile.index[newKey] = true
+			return function()
+				pet.s = previousSpecies
+				pet.m = previousMutations
+			end, "grantedReroll", { key = newKey }
+		end
+		return fallbackCoins(profile, 200), "grantedCoins", { n = 200 }
+	elseif product.guaranteedMutation then
+		local id = pickMutationTarget(profile)
+		local key = id and rarestMissing(profile.pets[id].m)
+		if id and key then
+			local pet = profile.pets[id]
+			local hadList = pet.m ~= nil
+			local list: { string } = pet.m or {}
+			table.insert(list, key)
+			pet.m = list
+			return function()
+				table.remove(list)
+				if not hadList then
+					pet.m = nil
+				end
+			end, "grantedMutation", { mutation = key }
+		end
+		return fallbackCoins(profile, 300), "grantedCoins", { n = 300 }
+	elseif product.backpackFill then
+		local capacity = math.floor(Economy.stat(profile.gear.equip, "pack"))
+		local room = math.max(0, capacity - #profile.backpack)
+		if room > 0 then
+			local relic = Worlds.get(session.world).relics[1]
+			for _ = 1, room do
+				table.insert(profile.backpack, relic.key)
+			end
+			profile.relics[relic.key] = (profile.relics[relic.key] or 0) + room
+			profile.stats.relics += room
+			return function()
+				for _ = 1, room do
+					table.remove(profile.backpack)
+				end
+				profile.relics[relic.key] -= room
+				profile.stats.relics -= room
+			end,
+				"grantedFill",
+				{ n = room }
+		end
+		return fallbackCoins(profile, 150), "grantedCoins", { n = 150 }
+	end
+	return nil, nil, nil
 end
 
 local function processReceipt(receipt: any): Enum.ProductPurchaseDecision
@@ -6469,40 +6704,54 @@ local function processReceipt(receipt: any): Enum.ProductPurchaseDecision
 	if table.find(profile.receipts, receiptId) then
 		return Enum.ProductPurchaseDecision.PurchaseGranted
 	end
-	-- UnlockBoost grants exactly the fee for the next world you can still unlock (or a flat
-	-- bonus once every world is already unlocked).
-	local coins
-	if product.unlockBoost then
-		coins = if profile.unlocked < Config.WorldCount
-			then Economy.unlockCost(profile.unlocked + 1)
-			else Economy.nice(Economy.unlockCost(Config.WorldCount) * 0.15)
-	elseif product.dives > 0 then
-		coins = Economy.productCoins(product.dives, profile.unlocked)
-	else
-		coins = 0
+
+	local revert, toastKey, toastArgs = applySpecialProduct(session, product)
+	local coins, enchants = 0, 0
+	if not toastKey then
+		-- The original coin / enchant products (CoinsSmall..Large, LuckyEnchant, UnlockBoost).
+		if product.unlockBoost then
+			coins = if profile.unlocked < Config.WorldCount
+				then Economy.unlockCost(profile.unlocked + 1)
+				else Economy.nice(Economy.unlockCost(Config.WorldCount) * 0.15)
+		elseif product.dives > 0 then
+			coins = Economy.productCoins(product.dives, profile.unlocked)
+		end
+		enchants = product.enchants or 0
+		profile.coins += coins
+		profile.lifetime += coins
+		profile.enchants += enchants
+		revert = function()
+			profile.coins -= coins
+			profile.lifetime -= coins
+			profile.enchants -= enchants
+		end
 	end
-	local enchants = product.enchants or 0
-	profile.coins += coins
-	profile.lifetime += coins
-	profile.enchants += enchants
+
 	table.insert(profile.receipts, receiptId)
 	while #profile.receipts > 50 do
 		table.remove(profile.receipts, 1)
 	end
 	ProfileStore.markDirty(player)
 	if not ProfileStore.save(player, false) then
-		profile.coins -= coins
-		profile.lifetime -= coins
-		profile.enchants -= enchants
+		if revert then
+			revert()
+		end
 		local index = table.find(profile.receipts, receiptId)
 		if index then
 			table.remove(profile.receipts, index)
 		end
 		return Enum.ProductPurchaseDecision.NotProcessedYet
 	end
+	if product.backpackFill or product.petReroll or product.guaranteedMutation then
+		Sessions.publishPets(session)
+	end
 	Sync.profile(session)
-	Net.push(player, "toast", { key = "thanks", kind = "gold" })
-	Net.push(player, "purchase", { coins = coins, enchants = enchants })
+	if toastKey then
+		Net.push(player, "toast", { key = toastKey, kind = "gold", args = toastArgs })
+	else
+		Net.push(player, "toast", { key = "thanks", kind = "gold" })
+		Net.push(player, "purchase", { coins = coins, enchants = enchants })
+	end
 	return Enum.ProductPurchaseDecision.PurchaseGranted
 end
 
@@ -6523,11 +6772,26 @@ function PurchaseService.init()
 		local session = Sessions.get(player)
 		if purchased and key and session then
 			session.passes[key] = true
+			local profile = session.profile
 			if key == "PetSlots" then
 				PetService.clampEquipped(session)
-			elseif key == "VIPAura" then
-				player:SetAttribute("VIP", true)
+			elseif key == "StarterPack" and not profile.starterPackGranted then
+				profile.starterPackGranted = true
+				local reward = Config.StarterPackReward
+				profile.coins += reward.coins
+				profile.lifetime += reward.coins
+				profile.enchants += reward.enchants or 0
+				local item = Gear.get(reward.gearKey)
+				if item then
+					profile.gear.owned[item.key] = true
+					if item.tier > Gear.tier(profile.gear.equip[item.slot]) then
+						profile.gear.equip[item.slot] = item.key
+					end
+					GearService.dress(session)
+				end
+				task.spawn(ProfileStore.save, player, false)
 			end
+			applyCosmetics(session)
 			Sync.profile(session)
 			Net.push(player, "toast", { key = "thanks", kind = "gold" })
 		end
@@ -6967,7 +7231,8 @@ function Sessions.boostSum(session: Session): number
 end
 
 function Sessions.multiplier(session: Session): number
-	return Economy.coinMultiplier(Sessions.boostSum(session), session.passes.DoubleCoins == true)
+	local boosted = session.profile.boostUntil > os.time()
+	return Economy.coinMultiplier(Sessions.boostSum(session), session.passes.DoubleCoins == true, boosted)
 end
 
 -- Equipped pets as JSON ("species" or "species|Gold,Lava" with mutations), replicated so every
@@ -9644,7 +9909,12 @@ function Dive.init(app: any)
 	end)
 
 	Net.on("toast", function(payload: any)
-		app.Toasts.show(Strings.get(payload.key), payload.kind or "info")
+		local args = payload.args
+		if payload.key == "grantedReroll" and args and args.key then
+			local pet = Worlds.pets[args.key]
+			args = { name = if pet then Strings.name(pet.name) else args.key }
+		end
+		app.Toasts.show(Strings.get(payload.key, args), payload.kind or "info")
 	end)
 
 	Net.on("saved", function()
@@ -10095,6 +10365,7 @@ function Nameplates.init(app: any)
 			amount.Text = Format.short(if type(coins) == "number" then coins else 0)
 		end
 		refresh()
+		local nameStroke = name:FindFirstChildOfClass("UIStroke")
 		local plate: Plate = { gui = gui, name = name, aura = nil, connections = { player:GetAttributeChangedSignal("Coins"):Connect(refresh) } }
 		local root = character:FindFirstChild("HumanoidRootPart") :: BasePart?
 		local function refreshVip()
@@ -10106,9 +10377,17 @@ function Nameplates.init(app: any)
 				plate.aura:Destroy()
 				plate.aura = nil
 			end
+			if nameStroke then
+				local border = player:GetAttribute("Border")
+				nameStroke.Color = if border == "Gold"
+					then Color3.fromRGB(255, 214, 90)
+					elseif border == "Silver" then Color3.fromRGB(210, 220, 232)
+					else Color3.fromRGB(21, 38, 58) -- Theme.C.Ink, the stroke's normal default
+			end
 		end
 		refreshVip()
 		table.insert(plate.connections, player:GetAttributeChangedSignal("VIP"):Connect(refreshVip))
+		table.insert(plate.connections, player:GetAttributeChangedSignal("Border"):Connect(refreshVip))
 		plates[player] = plate
 	end
 
@@ -11252,6 +11531,94 @@ return Swim
           </Item>
           <Item class="ModuleScript" referent="66">
             <Properties>
+              <string name="Name">Trails</string>
+              <string name="Source"><![CDATA[--!strict
+-- SwimTrail pass cosmetic: a sparkling trail behind any diver (including you) who owns it, shown
+-- only while they're actually underwater. No server-replicated "swimming" state is needed - depth
+-- is just read off the character's own position, which always replicates.
+
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
+
+local Shared = ReplicatedStorage:WaitForChild("Shared")
+local Config = require(Shared.Config)
+
+local Trails = {}
+
+local DEPTH_THRESHOLD = 2 -- studs below the surface before the trail shows
+
+local function buildEmitter(root: BasePart): ParticleEmitter
+	local emitter = Instance.new("ParticleEmitter")
+	emitter.Texture = "rbxasset://textures/particles/sparkles_main.dds"
+	emitter.Color = ColorSequence.new(Color3.fromRGB(150, 235, 255), Color3.fromRGB(90, 170, 255))
+	emitter.LightEmission = 0.9
+	emitter.LightInfluence = 0
+	emitter.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.35), NumberSequenceKeypoint.new(1, 0) })
+	emitter.Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.2), NumberSequenceKeypoint.new(1, 1) })
+	emitter.Lifetime = NumberRange.new(0.5, 0.9)
+	emitter.Rate = 0
+	emitter.Speed = NumberRange.new(0.2, 0.8)
+	emitter.SpreadAngle = Vector2.new(40, 40)
+	emitter.Rotation = NumberRange.new(0, 360)
+	emitter.Parent = root
+	return emitter
+end
+
+function Trails.init()
+	local emitters: { [Player]: ParticleEmitter } = {}
+
+	local function clear(player: Player)
+		local emitter = emitters[player]
+		if emitter then
+			emitter:Destroy()
+			emitters[player] = nil
+		end
+	end
+
+	local function refresh(player: Player)
+		local owns = player:GetAttribute("Trail") == true
+		local character = player.Character
+		local root = character and character:FindFirstChild("HumanoidRootPart") :: BasePart?
+		if owns and root and not emitters[player] then
+			emitters[player] = buildEmitter(root)
+		elseif (not owns or not root) and emitters[player] then
+			clear(player)
+		end
+	end
+
+	local function watch(player: Player)
+		player:GetAttributeChangedSignal("Trail"):Connect(function()
+			refresh(player)
+		end)
+		player.CharacterAdded:Connect(function()
+			clear(player)
+			task.defer(refresh, player)
+		end)
+		refresh(player)
+	end
+
+	for _, player in Players:GetPlayers() do
+		watch(player)
+	end
+	Players.PlayerAdded:Connect(watch)
+	Players.PlayerRemoving:Connect(clear)
+
+	RunService.Heartbeat:Connect(function()
+		for player, emitter in emitters do
+			local root = emitter.Parent :: BasePart?
+			local depth = if root then Config.SurfaceY - root.Position.Y else -1
+			emitter.Rate = if depth > DEPTH_THRESHOLD then 10 else 0
+		end
+	end)
+end
+
+return Trails
+]]></string>
+            </Properties>
+          </Item>
+          <Item class="ModuleScript" referent="67">
+            <Properties>
               <string name="Name">WorldProps</string>
               <string name="Source"><![CDATA[--!strict
 -- Client-side life for the current world's props: spinning egg + portal, swaying plants,
@@ -11433,7 +11800,7 @@ return WorldProps
             </Properties>
           </Item>
         </Item>
-        <Item class="LocalScript" referent="67">
+        <Item class="LocalScript" referent="68">
           <Properties>
             <string name="Name">Main</string>
             <string name="Source"><![CDATA[--!strict
@@ -11490,6 +11857,7 @@ local Pets = require(Controllers.Pets)
 local Prompts = require(Controllers.Prompts)
 local Relics = require(Controllers.Relics)
 local Swim = require(Controllers.Swim)
+local Trails = require(Controllers.Trails)
 local WorldProps = require(Controllers.WorldProps)
 
 pcall(function()
@@ -11670,6 +12038,7 @@ WorldProps.init(app)
 Prompts.init(app)
 Tutorial.init(app)
 Nameplates.init(app)
+Trails.init()
 Board.init(app)
 app.Trade = Trade.init(app)
 app.PlayerList = PlayerList.init(function(player)
@@ -11725,7 +12094,7 @@ end)
 ]]></string>
           </Properties>
         </Item>
-        <Item class="ModuleScript" referent="68">
+        <Item class="ModuleScript" referent="69">
           <Properties>
             <string name="Name">Sfx</string>
             <string name="Source"><![CDATA[--!strict
@@ -11907,7 +12276,7 @@ return Sfx
 ]]></string>
           </Properties>
         </Item>
-        <Item class="ModuleScript" referent="69">
+        <Item class="ModuleScript" referent="70">
           <Properties>
             <string name="Name">State</string>
             <string name="Source"><![CDATA[--!strict
@@ -12018,7 +12387,9 @@ function State.boostSum(): number
 end
 
 function State.multiplier(): number
-	return Economy.coinMultiplier(State.boostSum(), State.passes.DoubleCoins == true)
+	local profile = State.profile
+	local boosted = profile ~= nil and profile.boostUntil > os.time()
+	return Economy.coinMultiplier(State.boostSum(), State.passes.DoubleCoins == true, boosted)
 end
 
 function State.equipCap(): number
@@ -12046,11 +12417,11 @@ return State
 ]]></string>
           </Properties>
         </Item>
-        <Item class="Folder" referent="70">
+        <Item class="Folder" referent="71">
           <Properties>
             <string name="Name">UI</string>
           </Properties>
-          <Item class="ModuleScript" referent="71">
+          <Item class="ModuleScript" referent="72">
             <Properties>
               <string name="Name">Anim</string>
               <string name="Source"><![CDATA[--!strict
@@ -12133,7 +12504,7 @@ return Anim
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="72">
+          <Item class="ModuleScript" referent="73">
             <Properties>
               <string name="Name">Clear</string>
               <string name="Source"><![CDATA[--!strict
@@ -12312,7 +12683,7 @@ return Clear
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="73">
+          <Item class="ModuleScript" referent="74">
             <Properties>
               <string name="Name">Effects</string>
               <string name="Source"><![CDATA[--!strict
@@ -12480,7 +12851,7 @@ return Effects
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="74">
+          <Item class="ModuleScript" referent="75">
             <Properties>
               <string name="Name">Gui</string>
               <string name="Source"><![CDATA[--!strict
@@ -12601,7 +12972,7 @@ return Gui
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="75">
+          <Item class="ModuleScript" referent="76">
             <Properties>
               <string name="Name">Hatch</string>
               <string name="Source"><![CDATA[--!strict
@@ -12838,7 +13209,7 @@ return Hatch
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="76">
+          <Item class="ModuleScript" referent="77">
             <Properties>
               <string name="Name">Hud</string>
               <string name="Source"><![CDATA[--!strict
@@ -13394,7 +13765,7 @@ return Hud
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="77">
+          <Item class="ModuleScript" referent="78">
             <Properties>
               <string name="Name">Kit</string>
               <string name="Source"><![CDATA[--!strict
@@ -13956,12 +14327,12 @@ return Kit
 ]]></string>
             </Properties>
           </Item>
-          <Item class="Folder" referent="78">
+          <Item class="Folder" referent="79">
             <Properties>
               <string name="Name">Overlays</string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="79">
+          <Item class="ModuleScript" referent="80">
             <Properties>
               <string name="Name">Panel</string>
               <string name="Source"><![CDATA[--!strict
@@ -14205,11 +14576,11 @@ return Panel
 ]]></string>
             </Properties>
           </Item>
-          <Item class="Folder" referent="80">
+          <Item class="Folder" referent="81">
             <Properties>
               <string name="Name">Panels</string>
             </Properties>
-            <Item class="ModuleScript" referent="81">
+            <Item class="ModuleScript" referent="82">
               <Properties>
                 <string name="Name">Egg</string>
                 <string name="Source"><![CDATA[--!strict
@@ -14523,7 +14894,7 @@ return EggPanel
 ]]></string>
               </Properties>
             </Item>
-            <Item class="ModuleScript" referent="82">
+            <Item class="ModuleScript" referent="83">
               <Properties>
                 <string name="Name">Gear</string>
                 <string name="Source"><![CDATA[--!strict
@@ -14888,7 +15259,7 @@ return GearPanel
 ]]></string>
               </Properties>
             </Item>
-            <Item class="ModuleScript" referent="83">
+            <Item class="ModuleScript" referent="84">
               <Properties>
                 <string name="Name">Pets</string>
                 <string name="Source"><![CDATA[--!strict
@@ -15489,7 +15860,7 @@ return PetsPanel
 ]]></string>
               </Properties>
             </Item>
-            <Item class="ModuleScript" referent="84">
+            <Item class="ModuleScript" referent="85">
               <Properties>
                 <string name="Name">Profile</string>
                 <string name="Source"><![CDATA[--!strict
@@ -15965,7 +16336,7 @@ return ProfilePanel
 ]]></string>
               </Properties>
             </Item>
-            <Item class="ModuleScript" referent="85">
+            <Item class="ModuleScript" referent="86">
               <Properties>
                 <string name="Name">Settings</string>
                 <string name="Source"><![CDATA[--!strict
@@ -16181,7 +16552,7 @@ return SettingsPanel
 ]]></string>
               </Properties>
             </Item>
-            <Item class="ModuleScript" referent="86">
+            <Item class="ModuleScript" referent="87">
               <Properties>
                 <string name="Name">Shop</string>
                 <string name="Source"><![CDATA[--!strict
@@ -16217,6 +16588,16 @@ local ICONS = {
 	LuckyEnchant = utf8.char(0x2728),
 	VIPAura = utf8.char(0x1F451),
 	UnlockBoost = utf8.char(0x1F513),
+	AutoSell = utf8.char(0x1F4B8),
+	SwimTrail = utf8.char(0x2728),
+	BorderSilver = utf8.char(0x1F5BC) .. utf8.char(0xFE0F),
+	BorderGold = utf8.char(0x1F5BC) .. utf8.char(0xFE0F),
+	StarterPack = utf8.char(0x1F381),
+	InstantUnlock = utf8.char(0x1F513),
+	TimedBoost = utf8.char(0x26A1),
+	PetReroll = utf8.char(0x1F3B2),
+	GuaranteedMutation = utf8.char(0x1F52E),
+	BackpackFill = utf8.char(0x1F392),
 }
 
 type Card = { key: string, kind: string, name: TextLabel, desc: TextLabel, buy: Kit.ButtonApi, def: any }
@@ -16356,9 +16737,9 @@ function ShopPanel.new(app: any): Panel.PanelApi
 				c.desc.Text = Strings.get("pass." .. c.key .. ".desc")
 			else
 				c.name.Text = Strings.get("product." .. c.key)
-				c.desc.Text = if c.def.enchants > 0 or c.def.unlockBoost
-					then Strings.get("product." .. c.key .. ".desc")
-					else Strings.get("product.desc", { n = Format.short(Economy.productCoins(c.def.dives, unlocked)) })
+				c.desc.Text = if c.def.dives > 0
+					then Strings.get("product.desc", { n = Format.short(Economy.productCoins(c.def.dives, unlocked)) })
+					else Strings.get("product." .. c.key .. ".desc", { n = Config.TimedBoostMinutes })
 			end
 			if c.kind == "pass" and app.State.passes[c.key] then
 				c.buy.setText(Strings.get("owned"))
@@ -16390,7 +16771,7 @@ return ShopPanel
 ]]></string>
               </Properties>
             </Item>
-            <Item class="ModuleScript" referent="87">
+            <Item class="ModuleScript" referent="88">
               <Properties>
                 <string name="Name">Worlds</string>
                 <string name="Source"><![CDATA[--!strict
@@ -16713,7 +17094,7 @@ return WorldsPanel
               </Properties>
             </Item>
           </Item>
-          <Item class="ModuleScript" referent="88">
+          <Item class="ModuleScript" referent="89">
             <Properties>
               <string name="Name">PlayerList</string>
               <string name="Source"><![CDATA[--!strict
@@ -16891,6 +17272,14 @@ function PlayerList.init(onTrade: ((Player) -> ())?)
 			local row = rows[player] or makeRow(player)
 			row.frame.LayoutOrder = 10 + index
 			row.name.Text = (if player:GetAttribute("VIP") == true then VIP_CROWN else "") .. player.DisplayName
+			local border = player:GetAttribute("Border")
+			local nameStroke = row.name:FindFirstChildOfClass("UIStroke")
+			if nameStroke then
+				nameStroke.Color = if border == "Gold"
+					then Color3.fromRGB(255, 214, 90)
+					elseif border == "Silver" then Color3.fromRGB(210, 220, 232)
+					else Color3.fromRGB(21, 38, 58)
+			end
 			row.coins.Text = Format.short(numberOf(player, "Coins"))
 			row.relics.Text = Format.short(numberOf(player, "Relics"))
 		end
@@ -16904,6 +17293,7 @@ function PlayerList.init(onTrade: ((Player) -> ())?)
 		player:GetAttributeChangedSignal("Coins"):Connect(refresh)
 		player:GetAttributeChangedSignal("Relics"):Connect(refresh)
 		player:GetAttributeChangedSignal("VIP"):Connect(refresh)
+		player:GetAttributeChangedSignal("Border"):Connect(refresh)
 		refresh()
 	end
 	for _, player in Players:GetPlayers() do
@@ -16962,7 +17352,7 @@ return PlayerList
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="89">
+          <Item class="ModuleScript" referent="90">
             <Properties>
               <string name="Name">Screens</string>
               <string name="Source"><![CDATA[--!strict
@@ -17289,7 +17679,7 @@ return Screens
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="90">
+          <Item class="ModuleScript" referent="91">
             <Properties>
               <string name="Name">Theme</string>
               <string name="Source"><![CDATA[--!strict
@@ -17366,7 +17756,7 @@ return Theme
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="91">
+          <Item class="ModuleScript" referent="92">
             <Properties>
               <string name="Name">Toasts</string>
               <string name="Source"><![CDATA[--!strict
@@ -17456,7 +17846,7 @@ return Toasts
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="92">
+          <Item class="ModuleScript" referent="93">
             <Properties>
               <string name="Name">Trade</string>
               <string name="Source"><![CDATA[--!strict
@@ -17934,7 +18324,7 @@ return Trade
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="93">
+          <Item class="ModuleScript" referent="94">
             <Properties>
               <string name="Name">Tutorial</string>
               <string name="Source"><![CDATA[--!strict
@@ -18093,7 +18483,7 @@ return Tutorial
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="94">
+          <Item class="ModuleScript" referent="95">
             <Properties>
               <string name="Name">Viewport</string>
               <string name="Source"><![CDATA[--!strict
@@ -18238,7 +18628,7 @@ return Viewport
             </Properties>
           </Item>
         </Item>
-        <Item class="ModuleScript" referent="95">
+        <Item class="ModuleScript" referent="96">
           <Properties>
             <string name="Name">WorldFx</string>
             <string name="Source"><![CDATA[--!strict
@@ -18392,7 +18782,7 @@ return WorldFx
       </Item>
     </Item>
   </Item>
-  <Item class="Workspace" referent="96">
+  <Item class="Workspace" referent="97">
     <Properties>
       <string name="Name">Workspace</string>
       <float name="FallenPartsDestroyHeight">-1200</float>

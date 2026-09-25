@@ -31,6 +31,16 @@ local ICONS = {
 	LuckyEnchant = utf8.char(0x2728),
 	VIPAura = utf8.char(0x1F451),
 	UnlockBoost = utf8.char(0x1F513),
+	AutoSell = utf8.char(0x1F4B8),
+	SwimTrail = utf8.char(0x2728),
+	BorderSilver = utf8.char(0x1F5BC) .. utf8.char(0xFE0F),
+	BorderGold = utf8.char(0x1F5BC) .. utf8.char(0xFE0F),
+	StarterPack = utf8.char(0x1F381),
+	InstantUnlock = utf8.char(0x1F513),
+	TimedBoost = utf8.char(0x26A1),
+	PetReroll = utf8.char(0x1F3B2),
+	GuaranteedMutation = utf8.char(0x1F52E),
+	BackpackFill = utf8.char(0x1F392),
 }
 
 type Card = { key: string, kind: string, name: TextLabel, desc: TextLabel, buy: Kit.ButtonApi, def: any }
@@ -170,9 +180,9 @@ function ShopPanel.new(app: any): Panel.PanelApi
 				c.desc.Text = Strings.get("pass." .. c.key .. ".desc")
 			else
 				c.name.Text = Strings.get("product." .. c.key)
-				c.desc.Text = if c.def.enchants > 0 or c.def.unlockBoost
-					then Strings.get("product." .. c.key .. ".desc")
-					else Strings.get("product.desc", { n = Format.short(Economy.productCoins(c.def.dives, unlocked)) })
+				c.desc.Text = if c.def.dives > 0
+					then Strings.get("product.desc", { n = Format.short(Economy.productCoins(c.def.dives, unlocked)) })
+					else Strings.get("product." .. c.key .. ".desc", { n = Config.TimedBoostMinutes })
 			end
 			if c.kind == "pass" and app.State.passes[c.key] then
 				c.buy.setText(Strings.get("owned"))

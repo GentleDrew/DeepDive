@@ -181,7 +181,9 @@ local function endDive(session: Session, reason: string)
 end
 
 -- Sells the whole backpack. Only on the dock, standing at this world's sell stand.
-function DiveService.sell(session: Session, fromPrompt: boolean?): (boolean, string?)
+-- `anywhere` bypasses the distance-to-stand check (the AutoSell pass sells the instant you
+-- surface, wherever that is).
+function DiveService.sell(session: Session, fromPrompt: boolean?, anywhere: boolean?): (boolean, string?)
 	local profile = session.profile
 	local backpack = profile.backpack
 	if session.mode ~= "Dock" then
@@ -194,11 +196,13 @@ function DiveService.sell(session: Session, fromPrompt: boolean?): (boolean, str
 	if not root or not aliveHumanoid(session.player) then
 		return false, "err.generic"
 	end
-	local spot = Layout.origin(session.world) + Layout.dock(session.world).sell
-	local offset = root.Position - spot
-	local reach = Config.SellRadius + (if fromPrompt then 8 else 0)
-	if Vector3.new(offset.X, 0, offset.Z).Magnitude > reach or math.abs(offset.Y) > 10 then
-		return false, "sellFar"
+	if not anywhere then
+		local spot = Layout.origin(session.world) + Layout.dock(session.world).sell
+		local offset = root.Position - spot
+		local reach = Config.SellRadius + (if fromPrompt then 8 else 0)
+		if Vector3.new(offset.X, 0, offset.Z).Magnitude > reach or math.abs(offset.Y) > 10 then
+			return false, "sellFar"
+		end
 	end
 	local now = os.clock()
 	if now - session.lastSell < 0.8 then
@@ -303,6 +307,9 @@ local function tick(session: Session, dt: number)
 		session.surfacedFor += dt
 		if session.surfacedFor >= Config.Dive.SurfaceHold then
 			endDive(session, "surface")
+			if session.passes.AutoSell and #session.profile.backpack > 0 then
+				DiveService.sell(session, false, true)
+			end
 			return
 		end
 	else

@@ -94,6 +94,7 @@ function Nameplates.init(app: any)
 			amount.Text = Format.short(if type(coins) == "number" then coins else 0)
 		end
 		refresh()
+		local nameStroke = name:FindFirstChildOfClass("UIStroke")
 		local plate: Plate = { gui = gui, name = name, aura = nil, connections = { player:GetAttributeChangedSignal("Coins"):Connect(refresh) } }
 		local root = character:FindFirstChild("HumanoidRootPart") :: BasePart?
 		local function refreshVip()
@@ -105,9 +106,17 @@ function Nameplates.init(app: any)
 				plate.aura:Destroy()
 				plate.aura = nil
 			end
+			if nameStroke then
+				local border = player:GetAttribute("Border")
+				nameStroke.Color = if border == "Gold"
+					then Color3.fromRGB(255, 214, 90)
+					elseif border == "Silver" then Color3.fromRGB(210, 220, 232)
+					else Color3.fromRGB(21, 38, 58) -- Theme.C.Ink, the stroke's normal default
+			end
 		end
 		refreshVip()
 		table.insert(plate.connections, player:GetAttributeChangedSignal("VIP"):Connect(refreshVip))
+		table.insert(plate.connections, player:GetAttributeChangedSignal("Border"):Connect(refreshVip))
 		plates[player] = plate
 	end
 

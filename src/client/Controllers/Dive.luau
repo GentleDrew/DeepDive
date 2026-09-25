@@ -162,7 +162,12 @@ function Dive.init(app: any)
 	end)
 
 	Net.on("toast", function(payload: any)
-		app.Toasts.show(Strings.get(payload.key), payload.kind or "info")
+		local args = payload.args
+		if payload.key == "grantedReroll" and args and args.key then
+			local pet = Worlds.pets[args.key]
+			args = { name = if pet then Strings.name(pet.name) else args.key }
+		end
+		app.Toasts.show(Strings.get(payload.key, args), payload.kind or "info")
 	end)
 
 	Net.on("saved", function()

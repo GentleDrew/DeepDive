@@ -143,7 +143,19 @@ Config.Passes = {
 	{ key = "SwiftFins", id = 0, price = 99, color = "#3fd2ff" },
 	-- Cosmetic only (a crown by your name + a gold sparkle trail): no gameplay effect.
 	{ key = "VIPAura", id = 0, price = 299, color = "#ffd23f" },
+	-- Sells your backpack for you the instant you surface, from anywhere (skips the walk to the
+	-- sell stand). Pure convenience: prices are unchanged, it just saves the trip.
+	{ key = "AutoSell", id = 0, price = 249, color = "#ff9a3f" },
+	-- Cosmetic sparkle trail while swimming. No gameplay effect.
+	{ key = "SwimTrail", id = 0, price = 149, color = "#5ee0ff" },
+	-- Cosmetic nameplate border tiers (own both: the higher tier shows). No gameplay effect.
+	{ key = "BorderSilver", id = 0, price = 149, color = "#c9d6de" },
+	{ key = "BorderGold", id = 0, price = 299, color = "#ffd23f" },
+	-- One-time starter bundle (see Config.StarterPackReward). Granted once, on first purchase.
+	{ key = "StarterPack", id = 0, price = 99, color = "#5ee07a" },
 }
+-- One-time StarterPack grant (Profile.starterPackGranted guards against granting it twice).
+Config.StarterPackReward = { coins = 5000, gearKey = "pack1b", enchants = 1 }
 Config.Products = {
 	{ key = "CoinsSmall", id = 0, price = 25, dives = 4, enchants = 0, color = "#ffd84f" },
 	{ key = "CoinsMedium", id = 0, price = 99, dives = 20, enchants = 0, color = "#ffb13f" },
@@ -152,7 +164,23 @@ Config.Products = {
 	{ key = "LuckyEnchant", id = 0, price = 79, dives = 0, enchants = 3, color = "#be68ff" },
 	-- Coins worth exactly the fee to unlock your next world (or a flat bonus once you own World 20).
 	{ key = "UnlockBoost", id = 0, price = 149, dives = 0, enchants = 0, unlockBoost = true, color = "#4fe07a" },
+	-- Unlocks your next world immediately at no coin cost (needs the world before it cleared;
+	-- otherwise grants the same coins as UnlockBoost so the purchase always delivers value).
+	{ key = "InstantUnlock", id = 0, price = 199, dives = 0, enchants = 0, instantUnlock = true, color = "#4fe07a" },
+	-- Doubles coin payouts for Config.TimedBoostMinutes (stacks its own duration; multiplies
+	-- with the 2x Coins pass).
+	{ key = "TimedBoost", id = 0, price = 149, dives = 0, enchants = 0, timedBoost = true, color = "#ff6fb1" },
+	-- Rerolls one of your unlocked pets into a fresh roll from its own world's egg (mutations
+	-- reset). Picks the weakest eligible pet automatically; grants coins if none is eligible.
+	{ key = "PetReroll", id = 0, price = 49, dives = 0, enchants = 0, petReroll = true, color = "#3fd2ff" },
+	-- Guarantees the rarest mutation you don't have yet on one eligible pet (no random roll).
+	-- Picks automatically; grants coins if every pet is already fully mutated.
+	{ key = "GuaranteedMutation", id = 0, price = 129, dives = 0, enchants = 0, guaranteedMutation = true, color = "#9a5cff" },
+	-- Tops your backpack off with common relics of your current world, up to capacity.
+	{ key = "BackpackFill", id = 0, price = 49, dives = 0, enchants = 0, backpackFill = true, color = "#ffb13f" },
 }
+Config.TimedBoostMinutes = 45
+Config.TimedBoostMultiplier = 2
 -- Promo codes redeemable once per player from Settings. Add more anytime; nothing needs
 -- redeploying beyond this list. `coins` and/or `enchants` are granted on a valid, unused code.
 export type PromoCode = { code: string, coins: number?, enchants: number? }

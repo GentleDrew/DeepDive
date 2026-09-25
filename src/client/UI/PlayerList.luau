@@ -173,6 +173,14 @@ function PlayerList.init(onTrade: ((Player) -> ())?)
 			local row = rows[player] or makeRow(player)
 			row.frame.LayoutOrder = 10 + index
 			row.name.Text = (if player:GetAttribute("VIP") == true then VIP_CROWN else "") .. player.DisplayName
+			local border = player:GetAttribute("Border")
+			local nameStroke = row.name:FindFirstChildOfClass("UIStroke")
+			if nameStroke then
+				nameStroke.Color = if border == "Gold"
+					then Color3.fromRGB(255, 214, 90)
+					elseif border == "Silver" then Color3.fromRGB(210, 220, 232)
+					else Color3.fromRGB(21, 38, 58)
+			end
 			row.coins.Text = Format.short(numberOf(player, "Coins"))
 			row.relics.Text = Format.short(numberOf(player, "Relics"))
 		end
@@ -186,6 +194,7 @@ function PlayerList.init(onTrade: ((Player) -> ())?)
 		player:GetAttributeChangedSignal("Coins"):Connect(refresh)
 		player:GetAttributeChangedSignal("Relics"):Connect(refresh)
 		player:GetAttributeChangedSignal("VIP"):Connect(refresh)
+		player:GetAttributeChangedSignal("Border"):Connect(refresh)
 		refresh()
 	end
 	for _, player in Players:GetPlayers() do

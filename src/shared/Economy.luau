@@ -310,8 +310,8 @@ end
 
 -- Multipliers ---------------------------------------------------------------------------------
 
-function Economy.coinMultiplier(boostSum: number, doubleCoins: boolean): number
-	return (1 + boostSum) * (if doubleCoins then 2 else 1)
+function Economy.coinMultiplier(boostSum: number, doubleCoins: boolean, timedBoost: boolean?): number
+	return (1 + boostSum) * (if doubleCoins then 2 else 1) * (if timedBoost then Config.TimedBoostMultiplier else 1)
 end
 
 function Economy.productCoins(dives: number, world: number): number

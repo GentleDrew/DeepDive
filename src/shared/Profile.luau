@@ -22,6 +22,8 @@ export type Data = {
 	gear: GearData,
 	enchants: number, -- Lucky Enchant tokens (developer product)
 	redeemed: { [string]: boolean }, -- promo codes already claimed (see Config.PromoCodes)
+	boostUntil: number, -- os.time() the TimedBoost product's 2x coins expires (0 = inactive)
+	starterPackGranted: boolean, -- guards the one-time StarterPack pass grant
 	pets: { [string]: PetEntry },
 	equipped: { string },
 	petSeq: number,
@@ -47,6 +49,8 @@ function Profile.new(now: number): Data
 		gear = { owned = {}, equip = {} },
 		enchants = 0,
 		redeemed = {},
+		boostUntil = 0,
+		starterPackGranted = false,
 		pets = {},
 		equipped = {},
 		petSeq = 0,
@@ -142,6 +146,8 @@ function Profile.reconcile(raw: any, now: number): Data
 			end
 		end
 	end
+	data.boostUntil = number(raw.boostUntil, 0, 0)
+	data.starterPackGranted = bool(raw.starterPackGranted, false)
 	local count = 0
 	if type(raw.pets) == "table" then
 		for id, entry in raw.pets do

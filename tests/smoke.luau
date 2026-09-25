@@ -65,14 +65,16 @@ for _, realm in { Engine.server, Engine.client } do
 	else
 		realmConfig.Products[1].id = 111
 		realmConfig.Passes[1].id = 222
+		local productIds = { UnlockBoost = 333, InstantUnlock = 501, TimedBoost = 502, PetReroll = 503, GuaranteedMutation = 504, BackpackFill = 505 }
 		for _, product in realmConfig.Products do
-			if product.key == "UnlockBoost" then
-				product.id = 333
+			if productIds[product.key] then
+				product.id = productIds[product.key]
 			end
 		end
+		local passIds = { VIPAura = 444, AutoSell = 601, SwimTrail = 602, BorderSilver = 603, BorderGold = 604, StarterPack = 605 }
 		for _, pass in realmConfig.Passes do
-			if pass.key == "VIPAura" then
-				pass.id = 444
+			if passIds[pass.key] then
+				pass.id = passIds[pass.key]
 			end
 		end
 	end
@@ -761,6 +763,107 @@ if not quick then
 		Engine.fire(market, "PromptGamePassPurchaseFinished", player, 444, true)
 		Engine.wait(0.5)
 		check(s.passes.VIPAura == true and player:GetAttribute("VIP") == true, "VIPAura purchase did not set the VIP attribute")
+
+		-- Cosmetic passes: AutoSell (functional), SwimTrail and the two border tiers (attributes).
+		check(not s.passes.AutoSell, "AutoSell should not start owned")
+		Engine.ownedPasses[601] = true
+		Engine.fire(market, "PromptGamePassPurchaseFinished", player, 601, true)
+		Engine.ownedPasses[602] = true
+		Engine.fire(market, "PromptGamePassPurchaseFinished", player, 602, true)
+		Engine.ownedPasses[604] = true
+		Engine.fire(market, "PromptGamePassPurchaseFinished", player, 604, true)
+		Engine.wait(0.5)
+		check(s.passes.AutoSell and s.passes.SwimTrail and s.passes.BorderGold, "cosmetic/convenience passes not applied")
+		check(player:GetAttribute("Trail") == true, "Trail attribute not set")
+		check(player:GetAttribute("Border") == "Gold", "Border attribute should read the best owned tier")
+
+		-- StarterPack: a one-time bundle, granted exactly once even if the event fires again.
+		local beforeStarter = s.profile.coins
+		Engine.ownedPasses[605] = true
+		Engine.fire(market, "PromptGamePassPurchaseFinished", player, 605, true)
+		Engine.wait(0.5)
+		check(s.profile.coins == beforeStarter + Config.StarterPackReward.coins, "StarterPack coins not granted")
+		check(s.profile.gear.owned[Config.StarterPackReward.gearKey], "StarterPack gear not granted")
+		check(s.profile.starterPackGranted, "starterPackGranted flag not set")
+		local afterFirstGrant = s.profile.coins
+		Engine.fire(market, "PromptGamePassPurchaseFinished", player, 605, true)
+		Engine.wait(0.3)
+		check(s.profile.coins == afterFirstGrant, "StarterPack must not grant its bundle twice")
+
+		-- InstantUnlock: eligible (the current frontier world cleared) unlocks the next world for
+		-- free; force that here since it may or may not already be cleared at this point.
+		local frontier = s.profile.unlocked
+		s.profile.worlds[tostring(frontier)] = { sold = 0, cleared = true, best = 0 }
+		check(
+			processReceipt({ PlayerId = 1001, ProductId = 501, PurchaseId = "instant-1" }) == Enum.ProductPurchaseDecision.PurchaseGranted,
+			"InstantUnlock receipt not granted"
+		)
+		check(s.profile.unlocked == frontier + 1, "InstantUnlock should unlock the next world for free")
+		-- Bought again with no next world ready to unlock: must still grant something (coins).
+		local beforeSecondInstant = s.profile.coins
+		check(
+			processReceipt({ PlayerId = 1001, ProductId = 501, PurchaseId = "instant-2" }) == Enum.ProductPurchaseDecision.PurchaseGranted,
+			"InstantUnlock fallback not granted"
+		)
+		check(s.profile.coins > beforeSecondInstant, "InstantUnlock fallback should grant coins")
+
+		-- TimedBoost: doubles the coin multiplier for its duration.
+		check(s.profile.boostUntil <= os.time(), "boostUntil should start inactive")
+		check(
+			processReceipt({ PlayerId = 1001, ProductId = 502, PurchaseId = "boost-1" }) == Enum.ProductPurchaseDecision.PurchaseGranted,
+			"TimedBoost receipt not granted"
+		)
+		check(s.profile.boostUntil > os.time(), "TimedBoost did not set boostUntil")
+
+		-- PetReroll: rerolls the weakest unlocked pet into a new species from the same world
+		-- (mutations reset - that's the reliable signal, since the species could coincidentally
+		-- roll the same key).
+		local rerollTarget
+		for id, pet in s.profile.pets do
+			if not pet.l then
+				rerollTarget = id
+				break
+			end
+		end
+		check(rerollTarget ~= nil, "sanity: at least one unlocked pet to reroll")
+		check(
+			processReceipt({ PlayerId = 1001, ProductId = 503, PurchaseId = "reroll-1" }) == Enum.ProductPurchaseDecision.PurchaseGranted,
+			"PetReroll receipt not granted"
+		)
+		check(s.profile.pets[rerollTarget :: string].m == nil, "a rerolled pet's mutations should reset")
+
+		-- GuaranteedMutation: adds the rarest missing mutation to whichever eligible pet the
+		-- server picks (not necessarily a specific one), so count mutations across every pet.
+		local function totalMutations(): number
+			local total = 0
+			for _, pet in s.profile.pets do
+				total += #(pet.m or {})
+			end
+			return total
+		end
+		local beforeMutations = totalMutations()
+		check(
+			processReceipt({ PlayerId = 1001, ProductId = 504, PurchaseId = "mutate-1" }) == Enum.ProductPurchaseDecision.PurchaseGranted,
+			"GuaranteedMutation receipt not granted"
+		)
+		check(totalMutations() == beforeMutations + 1, "GuaranteedMutation did not add exactly one mutation")
+
+		-- BackpackFill: tops the backpack off with commons of the current world.
+		table.clear(s.profile.backpack)
+		local capacity = math.floor(Economy.stat(s.profile.gear.equip, "pack"))
+		check(
+			processReceipt({ PlayerId = 1001, ProductId = 505, PurchaseId = "fill-1" }) == Enum.ProductPurchaseDecision.PurchaseGranted,
+			"BackpackFill receipt not granted"
+		)
+		check(#s.profile.backpack == capacity, "BackpackFill should top the backpack up to capacity")
+		-- Bought again with a full backpack: must still grant something (coins fallback).
+		local beforeFillFallback = s.profile.coins
+		check(
+			processReceipt({ PlayerId = 1001, ProductId = 505, PurchaseId = "fill-2" }) == Enum.ProductPurchaseDecision.PurchaseGranted,
+			"BackpackFill fallback not granted"
+		)
+		check(s.profile.coins > beforeFillFallback, "a full backpack should fall back to a coin grant")
+		table.clear(s.profile.backpack)
 	end)
 
 	step("promo codes", function()

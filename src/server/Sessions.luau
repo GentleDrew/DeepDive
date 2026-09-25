@@ -95,7 +95,8 @@ function Sessions.boostSum(session: Session): number
 end
 
 function Sessions.multiplier(session: Session): number
-	return Economy.coinMultiplier(Sessions.boostSum(session), session.passes.DoubleCoins == true)
+	local boosted = session.profile.boostUntil > os.time()
+	return Economy.coinMultiplier(Sessions.boostSum(session), session.passes.DoubleCoins == true, boosted)
 end
 
 -- Equipped pets as JSON ("species" or "species|Gold,Lava" with mutations), replicated so every

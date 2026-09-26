@@ -33,6 +33,21 @@ rojo serve                    # Studio의 Rojo 플러그인에서 Connect
 rojo build -o DeepDive.rbxlx  # 플레이스 파일 다시 만들기
 ```
 
+### Edit 모드에서 맵 미리보기
+
+맵(바다·섬·선착장·장식)은 전부 `src/server/World` 코드가 만들기 때문에 Play를 눌러야만 보입니다.
+`tools/studio-plugin/DeepDiveMapPreview.lua`를 로컬 Studio 플러그인으로 설치하면 파일을 열기만 해도
+Workspace에 월드 1이 자동으로 지어져 항상 보이고, 공동 작업자도 Play 없이 바로 확인·작업할 수 있습니다.
+
+1. Studio의 **Plugins** 탭 → **Plugins Folder**를 눌러 로컬 플러그인 폴더를 엽니다.
+2. `tools/studio-plugin/DeepDiveMapPreview.lua` 파일을 그 폴더에 복사합니다.
+3. Studio를 재시작하고 `DeepDive.rbxlx`를 다시 엽니다. Workspace에 `Worlds` 폴더가 자동으로 생깁니다.
+4. `WorldBuilder`/`Decor`/`Terrain` 코드를 고친 뒤 새로 보고 싶으면 **Deep Dive** 툴바의
+   **Rebuild Map Preview** 버튼을 누릅니다.
+
+이 미리보기는 실제 서버 생성 코드를 그대로 재사용하지만, Play를 누르면 `WorldBuilder.init`이
+기존 `Worlds` 폴더를 지우고 항상 새로 짓기 때문에 실제 플레이에는 영향이 없습니다.
+
 ## 퍼블리시 체크리스트
 
 | 항목 | 위치 | 설명 |

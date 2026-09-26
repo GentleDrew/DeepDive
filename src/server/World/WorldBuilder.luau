@@ -168,6 +168,13 @@ local function scanHazards(world: number, folder: Folder, rng: Random, points: {
 end
 
 function WorldBuilder.init()
+	-- Discards any edit-mode preview built by tools/studio-plugin so Play always starts from a
+	-- clean, freshly generated Workspace instead of stacking a second copy on top of it.
+	local preview = Workspace:FindFirstChild("Worlds")
+	if preview then
+		preview:Destroy()
+	end
+
 	root = Instance.new("Folder")
 	root.Name = "Worlds"
 	root.Parent = Workspace

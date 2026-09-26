@@ -9108,6 +9108,13 @@ local function scanHazards(world: number, folder: Folder, rng: Random, points: {
 end
 
 function WorldBuilder.init()
+	-- Discards any edit-mode preview built by tools/studio-plugin so Play always starts from a
+	-- clean, freshly generated Workspace instead of stacking a second copy on top of it.
+	local preview = Workspace:FindFirstChild("Worlds")
+	if preview then
+		preview:Destroy()
+	end
+
 	root = Instance.new("Folder")
 	root.Name = "Worlds"
 	root.Parent = Workspace
@@ -14327,12 +14334,7 @@ return Kit
 ]]></string>
             </Properties>
           </Item>
-          <Item class="Folder" referent="79">
-            <Properties>
-              <string name="Name">Overlays</string>
-            </Properties>
-          </Item>
-          <Item class="ModuleScript" referent="80">
+          <Item class="ModuleScript" referent="79">
             <Properties>
               <string name="Name">Panel</string>
               <string name="Source"><![CDATA[--!strict
@@ -14576,11 +14578,11 @@ return Panel
 ]]></string>
             </Properties>
           </Item>
-          <Item class="Folder" referent="81">
+          <Item class="Folder" referent="80">
             <Properties>
               <string name="Name">Panels</string>
             </Properties>
-            <Item class="ModuleScript" referent="82">
+            <Item class="ModuleScript" referent="81">
               <Properties>
                 <string name="Name">Egg</string>
                 <string name="Source"><![CDATA[--!strict
@@ -14894,7 +14896,7 @@ return EggPanel
 ]]></string>
               </Properties>
             </Item>
-            <Item class="ModuleScript" referent="83">
+            <Item class="ModuleScript" referent="82">
               <Properties>
                 <string name="Name">Gear</string>
                 <string name="Source"><![CDATA[--!strict
@@ -15259,7 +15261,7 @@ return GearPanel
 ]]></string>
               </Properties>
             </Item>
-            <Item class="ModuleScript" referent="84">
+            <Item class="ModuleScript" referent="83">
               <Properties>
                 <string name="Name">Pets</string>
                 <string name="Source"><![CDATA[--!strict
@@ -15860,7 +15862,7 @@ return PetsPanel
 ]]></string>
               </Properties>
             </Item>
-            <Item class="ModuleScript" referent="85">
+            <Item class="ModuleScript" referent="84">
               <Properties>
                 <string name="Name">Profile</string>
                 <string name="Source"><![CDATA[--!strict
@@ -16336,7 +16338,7 @@ return ProfilePanel
 ]]></string>
               </Properties>
             </Item>
-            <Item class="ModuleScript" referent="86">
+            <Item class="ModuleScript" referent="85">
               <Properties>
                 <string name="Name">Settings</string>
                 <string name="Source"><![CDATA[--!strict
@@ -16552,7 +16554,7 @@ return SettingsPanel
 ]]></string>
               </Properties>
             </Item>
-            <Item class="ModuleScript" referent="87">
+            <Item class="ModuleScript" referent="86">
               <Properties>
                 <string name="Name">Shop</string>
                 <string name="Source"><![CDATA[--!strict
@@ -16771,7 +16773,7 @@ return ShopPanel
 ]]></string>
               </Properties>
             </Item>
-            <Item class="ModuleScript" referent="88">
+            <Item class="ModuleScript" referent="87">
               <Properties>
                 <string name="Name">Worlds</string>
                 <string name="Source"><![CDATA[--!strict
@@ -17094,7 +17096,7 @@ return WorldsPanel
               </Properties>
             </Item>
           </Item>
-          <Item class="ModuleScript" referent="89">
+          <Item class="ModuleScript" referent="88">
             <Properties>
               <string name="Name">PlayerList</string>
               <string name="Source"><![CDATA[--!strict
@@ -17352,7 +17354,7 @@ return PlayerList
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="90">
+          <Item class="ModuleScript" referent="89">
             <Properties>
               <string name="Name">Screens</string>
               <string name="Source"><![CDATA[--!strict
@@ -17679,7 +17681,7 @@ return Screens
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="91">
+          <Item class="ModuleScript" referent="90">
             <Properties>
               <string name="Name">Theme</string>
               <string name="Source"><![CDATA[--!strict
@@ -17756,7 +17758,7 @@ return Theme
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="92">
+          <Item class="ModuleScript" referent="91">
             <Properties>
               <string name="Name">Toasts</string>
               <string name="Source"><![CDATA[--!strict
@@ -17846,7 +17848,7 @@ return Toasts
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="93">
+          <Item class="ModuleScript" referent="92">
             <Properties>
               <string name="Name">Trade</string>
               <string name="Source"><![CDATA[--!strict
@@ -18324,7 +18326,7 @@ return Trade
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="94">
+          <Item class="ModuleScript" referent="93">
             <Properties>
               <string name="Name">Tutorial</string>
               <string name="Source"><![CDATA[--!strict
@@ -18483,7 +18485,7 @@ return Tutorial
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="95">
+          <Item class="ModuleScript" referent="94">
             <Properties>
               <string name="Name">Viewport</string>
               <string name="Source"><![CDATA[--!strict
@@ -18628,7 +18630,7 @@ return Viewport
             </Properties>
           </Item>
         </Item>
-        <Item class="ModuleScript" referent="96">
+        <Item class="ModuleScript" referent="95">
           <Properties>
             <string name="Name">WorldFx</string>
             <string name="Source"><![CDATA[--!strict
@@ -18782,7 +18784,7 @@ return WorldFx
       </Item>
     </Item>
   </Item>
-  <Item class="Workspace" referent="97">
+  <Item class="Workspace" referent="96">
     <Properties>
       <string name="Name">Workspace</string>
       <float name="FallenPartsDestroyHeight">-1200</float>

@@ -137,47 +137,47 @@ Config.TradeRequestSeconds = 20
 -- Monetisation. id = 0 means "not created yet": the card shows "Coming soon" and cannot be bought.
 -- Create the passes / products on the Creator Dashboard and paste their ids here.
 Config.Passes = {
-	{ key = "DoubleCoins", id = 0, price = 199, color = "#ffc62e" },
-	{ key = "LuckyEggs", id = 0, price = 249, color = "#be68ff" },
-	{ key = "PetSlots", id = 0, price = 149, color = "#5ee280" },
-	{ key = "SwiftFins", id = 0, price = 99, color = "#3fd2ff" },
+	{ key = "DoubleCoins", id = 2002856341, price = 199, color = "#ffc62e" },
+	{ key = "LuckyEggs", id = 2001476598, price = 249, color = "#be68ff" },
+	{ key = "PetSlots", id = 1999041680, price = 149, color = "#5ee280" },
+	{ key = "SwiftFins", id = 2003210309, price = 99, color = "#3fd2ff" },
 	-- Cosmetic only (a crown by your name + a gold sparkle trail): no gameplay effect.
-	{ key = "VIPAura", id = 0, price = 299, color = "#ffd23f" },
+	{ key = "VIPAura", id = 1998771645, price = 299, color = "#ffd23f" },
 	-- Sells your backpack for you the instant you surface, from anywhere (skips the walk to the
 	-- sell stand). Pure convenience: prices are unchanged, it just saves the trip.
-	{ key = "AutoSell", id = 0, price = 249, color = "#ff9a3f" },
+	{ key = "AutoSell", id = 2001482530, price = 249, color = "#ff9a3f" },
 	-- Cosmetic sparkle trail while swimming. No gameplay effect.
-	{ key = "SwimTrail", id = 0, price = 149, color = "#5ee0ff" },
+	{ key = "SwimTrail", id = 1998447645, price = 149, color = "#5ee0ff" },
 	-- Cosmetic nameplate border tiers (own both: the higher tier shows). No gameplay effect.
-	{ key = "BorderSilver", id = 0, price = 149, color = "#c9d6de" },
-	{ key = "BorderGold", id = 0, price = 299, color = "#ffd23f" },
+	{ key = "BorderSilver", id = 2001254546, price = 149, color = "#c9d6de" },
+	{ key = "BorderGold", id = 2003516280, price = 299, color = "#ffd23f" },
 	-- One-time starter bundle (see Config.StarterPackReward). Granted once, on first purchase.
-	{ key = "StarterPack", id = 0, price = 99, color = "#5ee07a" },
+	{ key = "StarterPack", id = 2001872530, price = 99, color = "#5ee07a" },
 }
 -- One-time StarterPack grant (Profile.starterPackGranted guards against granting it twice).
 Config.StarterPackReward = { coins = 5000, gearKey = "pack1b", enchants = 1 }
 Config.Products = {
-	{ key = "CoinsSmall", id = 0, price = 25, dives = 4, enchants = 0, color = "#ffd84f" },
-	{ key = "CoinsMedium", id = 0, price = 99, dives = 20, enchants = 0, color = "#ffb13f" },
-	{ key = "CoinsLarge", id = 0, price = 299, dives = 75, enchants = 0, color = "#ff8a3f" },
+	{ key = "CoinsSmall", id = 3715542283, price = 25, dives = 4, enchants = 0, color = "#ffd84f" },
+	{ key = "CoinsMedium", id = 3715542400, price = 99, dives = 20, enchants = 0, color = "#ffb13f" },
+	{ key = "CoinsLarge", id = 3715542481, price = 299, dives = 75, enchants = 0, color = "#ff8a3f" },
 	-- Lucky Enchants: free enchants that only roll Galaxy, Lava or GOAT.
-	{ key = "LuckyEnchant", id = 0, price = 79, dives = 0, enchants = 3, color = "#be68ff" },
+	{ key = "LuckyEnchant", id = 3715542792, price = 79, dives = 0, enchants = 3, color = "#be68ff" },
 	-- Coins worth exactly the fee to unlock your next world (or a flat bonus once you own World 20).
-	{ key = "UnlockBoost", id = 0, price = 149, dives = 0, enchants = 0, unlockBoost = true, color = "#4fe07a" },
+	{ key = "UnlockBoost", id = 3715542911, price = 149, dives = 0, enchants = 0, unlockBoost = true, color = "#4fe07a" },
 	-- Unlocks your next world immediately at no coin cost (needs the world before it cleared;
 	-- otherwise grants the same coins as UnlockBoost so the purchase always delivers value).
-	{ key = "InstantUnlock", id = 0, price = 199, dives = 0, enchants = 0, instantUnlock = true, color = "#4fe07a" },
+	{ key = "InstantUnlock", id = 3715543037, price = 199, dives = 0, enchants = 0, instantUnlock = true, color = "#4fe07a" },
 	-- Doubles coin payouts for Config.TimedBoostMinutes (stacks its own duration; multiplies
 	-- with the 2x Coins pass).
-	{ key = "TimedBoost", id = 0, price = 149, dives = 0, enchants = 0, timedBoost = true, color = "#ff6fb1" },
+	{ key = "TimedBoost", id = 3715543178, price = 149, dives = 0, enchants = 0, timedBoost = true, color = "#ff6fb1" },
 	-- Rerolls one of your unlocked pets into a fresh roll from its own world's egg (mutations
 	-- reset). Picks the weakest eligible pet automatically; grants coins if none is eligible.
-	{ key = "PetReroll", id = 0, price = 49, dives = 0, enchants = 0, petReroll = true, color = "#3fd2ff" },
+	{ key = "PetReroll", id = 3715543278, price = 49, dives = 0, enchants = 0, petReroll = true, color = "#3fd2ff" },
 	-- Guarantees the rarest mutation you don't have yet on one eligible pet (no random roll).
 	-- Picks automatically; grants coins if every pet is already fully mutated.
-	{ key = "GuaranteedMutation", id = 0, price = 129, dives = 0, enchants = 0, guaranteedMutation = true, color = "#9a5cff" },
+	{ key = "GuaranteedMutation", id = 3715543343, price = 129, dives = 0, enchants = 0, guaranteedMutation = true, color = "#9a5cff" },
 	-- Tops your backpack off with common relics of your current world, up to capacity.
-	{ key = "BackpackFill", id = 0, price = 49, dives = 0, enchants = 0, backpackFill = true, color = "#ffb13f" },
+	{ key = "BackpackFill", id = 3715543440, price = 49, dives = 0, enchants = 0, backpackFill = true, color = "#ffb13f" },
 }
 Config.TimedBoostMinutes = 45
 Config.TimedBoostMultiplier = 2

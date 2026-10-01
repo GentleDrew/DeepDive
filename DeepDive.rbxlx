@@ -4891,6 +4891,11 @@ local function onPlayerAdded(player: Player)
 	local isOperator = (player.UserId == game.CreatorId and game.CreatorType == Enum.CreatorType.User)
 		or table.find(Config.AdminUserIds, player.UserId) ~= nil
 	player:SetAttribute("Operator", isOperator)
+	-- Operators always have every world open, so testing (relics, hazards, etc.) never waits on
+	-- grinding through the economy to unlock worlds the normal way.
+	if isOperator and profile.unlocked < Config.WorldCount then
+		profile.unlocked = Config.WorldCount
+	end
 	player.RespawnLocation = built.spawn
 	Sync.leaderstats(session)
 	player.CharacterAdded:Connect(function(character)

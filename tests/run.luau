@@ -434,8 +434,6 @@ do
 	check(Rankings.monthId(octFirst) == Rankings.monthId(octFirst - 1) + 1, "months roll over on the 1st")
 	check(Rankings.untilReset("monthly", octFirst - 3600) == 3600, "monthly reset counts down to the 1st")
 	check(Rankings.untilReset("alltime", monday) == nil, "the all-time board never resets")
-	check(table.find(Rankings.Boards, Rankings.boardAt(monday)) ~= nil, "a board is always on display")
-	check(Rankings.boardAt(monday) ~= Rankings.boardAt(monday + Config.BoardRotateSeconds), "boards rotate")
 
 	check(#Config.Tiers == 8, "eight tiers")
 	local weeklyTiers, monthlyTiers = 0, 0

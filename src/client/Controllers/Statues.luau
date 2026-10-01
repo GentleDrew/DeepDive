@@ -1,6 +1,7 @@
 --!strict
--- Labels for the podium statues at the docks (built by StatueService): rank and
--- names on the podium front, and each diver's progress to their next ranking tier above them.
+-- Podium statues at the docks (built by StatueService): shows the statues of the board picked on
+-- the dock board (each podium carries one per board), with rank and names on the podium front and
+-- each diver's progress to their next ranking tier above them.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
@@ -9,6 +10,7 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Strings = require(Shared.Strings)
 
 local TierStyle = require(script.Parent.Parent.UI.TierStyle)
+local Board = require(script.Parent.Board)
 
 local Statues = {}
 
@@ -18,13 +20,36 @@ function Statues.init(app: any)
 	local Kit = app.Kit
 	local signatures: { [BasePart]: string } = {}
 
+	-- Board podiums keep one set of labels per board ("weekly_Display"); the Director's are plain.
+	local function prefix(part: BasePart): string
+		return if part:GetAttribute("Rank") == 0 then "" else Board.selected .. "_"
+	end
+
+	-- Only the picked board's statue on each podium is drawn (locally; the server keeps all three).
+	local function showPicked(part: BasePart)
+		for _, child in part:GetChildren() do
+			local key = child:GetAttribute("Board")
+			if child:IsA("Model") and type(key) == "string" and key ~= "director" then
+				local hidden = if key == Board.selected then 0 else 1
+				for _, d in child:GetDescendants() do
+					if d:IsA("BasePart") then
+						d.LocalTransparencyModifier = hidden
+					elseif d:IsA("Decal") then
+						d.LocalTransparencyModifier = hidden
+					end
+				end
+			end
+		end
+	end
+
 	local function signature(part: BasePart): string
 		return table.concat({
-			tostring(part:GetAttribute("UserId")),
-			tostring(part:GetAttribute("Display")),
-			tostring(part:GetAttribute("Username")),
-			tostring(part:GetAttribute("NextTier")),
-			tostring(part:GetAttribute("NextSeconds")),
+			prefix(part),
+			tostring(part:GetAttribute(prefix(part) .. "UserId")),
+			tostring(part:GetAttribute(prefix(part) .. "Display")),
+			tostring(part:GetAttribute(prefix(part) .. "Username")),
+			tostring(part:GetAttribute(prefix(part) .. "NextTier")),
+			tostring(part:GetAttribute(prefix(part) .. "NextSeconds")),
 			Strings.get("director"),
 			Strings.get("tierMax"),
 		}, "|")
@@ -38,12 +63,13 @@ function Statues.init(app: any)
 		end
 		local rank = part:GetAttribute("Rank")
 		local director = rank == 0
-		local userId = part:GetAttribute("UserId")
+		local key = prefix(part)
+		local userId = part:GetAttribute(key .. "UserId")
 		if not userId then
 			return
 		end
-		local display = tostring(part:GetAttribute("Display") or "")
-		local username = tostring(part:GetAttribute("Username") or "")
+		local display = tostring(part:GetAttribute(key .. "Display") or "")
+		local username = tostring(part:GetAttribute(key .. "Username") or "")
 
 		local front = Instance.new("SurfaceGui")
 		front.Name = "StatueFront"
@@ -88,12 +114,12 @@ function Statues.init(app: any)
 		local title = Instance.new("BillboardGui")
 		title.Name = "StatueTitle"
 		title.Size = UDim2.fromOffset(260, 40)
-		title.StudsOffsetWorldSpace = Vector3.new(0, part.Size.Y / 2 + 11, 0)
+		title.StudsOffsetWorldSpace = Vector3.new(0, part.Size.Y / 2 + (if director then 16 else 11), 0)
 		title.LightInfluence = 0
 		title.MaxDistance = 120
 		title.Parent = part
-		local nextTier = part:GetAttribute("NextTier")
-		local seconds = part:GetAttribute("NextSeconds")
+		local nextTier = part:GetAttribute(key .. "NextTier")
+		local seconds = part:GetAttribute(key .. "NextSeconds")
 		local text = if director
 			then Strings.get("director")
 			elseif type(nextTier) == "number" and type(seconds) == "number" then Strings.get(
@@ -131,6 +157,7 @@ function Statues.init(app: any)
 			if statues then
 				for _, part in statues:GetChildren() do
 					if part:IsA("BasePart") and part:GetAttribute("Rank") ~= nil then
+						showPicked(part)
 						local sig = signature(part)
 						if signatures[part] ~= sig or not part:FindFirstChild("StatueFront") then
 							signatures[part] = sig
@@ -149,6 +176,7 @@ function Statues.init(app: any)
 		end
 	end)
 	app.State.languageChanged:Connect(refresh)
+	Board.selectionChanged:Connect(refresh)
 end
 
 return Statues

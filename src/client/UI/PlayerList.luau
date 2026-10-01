@@ -24,11 +24,11 @@ local VIP_CROWN = utf8.char(0x1F451) .. " "
 local OPERATOR_BADGE = utf8.char(0x1F6E1) .. utf8.char(0xFE0F) .. " " -- shield
 local OPERATOR_RED_DARK = Color3.fromRGB(120, 10, 10)
 local TAG_W = 40
-local WIDTH = 392
+local WIDTH = 430
 local ROW = 38
 -- Columns start after the avatar (42); the trade button (34) follows the relic column and the
--- row keeps an 8px right margin: 42 + 136 + 80 + 62 + 6 + 34 + 8 = 368 = 392 - 16 - 8.
-local NAME_W, COIN_W, RELIC_W = 136, 80, 62
+-- row keeps an 8px right margin: 42 + 174 + 80 + 62 + 6 + 34 + 8 = 406 = 430 - 16 - 8.
+local NAME_W, COIN_W, RELIC_W = 174, 80, 62
 local TRADE_X = 42 + NAME_W + COIN_W + RELIC_W + 6
 
 type Row = { frame: Frame, name: TextLabel, tag: TextLabel, coins: TextLabel, relics: TextLabel, stroke: UIStroke, director: boolean }
@@ -133,6 +133,9 @@ function PlayerList.init(onTrade: ((Player) -> ())?, rankOf: ((number) -> number
 		local name, coins, relics = columns(frame, 17, nil, 2)
 		name.TextTruncate = Enum.TextTruncate.AtEnd
 		name.Size = UDim2.fromOffset(NAME_W - TAG_W - 2, ROW)
+		-- Long names shrink to fit (down to 10px) instead of being cut off.
+		name.TextScaled = true
+		Kit.new("UITextSizeConstraint", { MaxTextSize = 17, MinTextSize = 10, Parent = name })
 		local tag = Kit.text({
 			Name = "RankTag",
 			Text = "",

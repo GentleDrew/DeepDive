@@ -469,8 +469,6 @@ Config.Tiers = {
 	{ hours = 14 * 24, board = "monthly", color = "#ffe14f" },
 	{ hours = 30 * 24, board = "monthly", color = "#e8f6ff", prismatic = true },
 }
--- The ranking board (and the podium statues behind it) cycle weekly -> monthly -> all-time.
-Config.BoardRotateSeconds = 20
 
 return Config
 ]]></string>
@@ -4330,11 +4328,6 @@ function Rankings.untilReset(board: string, now: number): number?
 	return nil
 end
 
--- Which board is on display right now (all servers and clients agree via the clock).
-function Rankings.boardAt(now: number): string
-	return Rankings.Boards[(now // Config.BoardRotateSeconds) % #Rankings.Boards + 1]
-end
-
 -- Starts a new week/month when needed; returns this week's and month's coins earned.
 function Rankings.roll(data: any, now: number): (number, number)
 	local period = data.period
@@ -7799,11 +7792,11 @@ return RewardService
           <Properties>
             <string name="Name">StatueService</string>
             <string name="Source"><![CDATA[--!strict
--- Podium statues: the top 3 of whichever ranking board is on display stand on gold / silver /
--- bronze podiums behind each dock's board (switching with the board every
--- Config.BoardRotateSeconds), and the Director stands on a red podium beside the egg stand.
--- Avatars are built from each player's own outfit. Only worlds someone is in get statues.
--- The podiums carry the names and tier progress as attributes; clients draw the labels.
+-- Podium statues behind each dock's ranking board: gold / silver / bronze podiums carry the top
+-- 3 of every board (weekly, monthly, all-time) at once, and each client shows only the board it
+-- picked on the dock board. The Director stands big beside the sell pad. Avatars are built from
+-- each player's own outfit and prebuilt as soon as the rankings name them. Only worlds someone is
+-- in get statues. Names and tier progress are podium attributes; clients draw the labels.
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -7831,10 +7824,11 @@ local PODIUMS = {
 	{ rank = 2, x = 7.5, height = 3.2, color = Color3.fromRGB(205, 216, 228) },
 	{ rank = 3, x = -7.5, height = 2.2, color = Color3.fromRGB(214, 140, 84) },
 }
-local STATUE_SCALE = 1.25
+local PODIUM_SCALE = 1.25
+local DIRECTOR_SCALE = 2.4
 
-type Slot = { podium: BasePart, userId: number? }
-type WorldStatues = { folder: Folder, slots: { [number]: Slot }, director: Slot?, board: string, at: number }
+type Slot = { podium: BasePart, users: { [string]: number? }, scale: number }
+type WorldStatues = { slots: { [number]: Slot }, director: Slot?, at: number }
 
 local templates: { [number]: Model } = {}
 local failed: { [number]: boolean } = {}
@@ -7856,12 +7850,7 @@ local function template(userId: number): Model?
 			end)
 			if ok and model then
 				for _, d in model:GetDescendants() do
-					if d:IsA("BasePart") then
-						d.Anchored = true
-						d.CanCollide = false
-						d.CanQuery = false
-						d.CanTouch = false
-					elseif d:IsA("Script") or d:IsA("LocalScript") then
+					if d:IsA("Script") or d:IsA("LocalScript") then
 						d:Destroy()
 					end
 				end
@@ -7869,10 +7858,7 @@ local function template(userId: number): Model?
 				if humanoid then
 					humanoid.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None
 				end
-				pcall(function()
-					model:ScaleTo(STATUE_SCALE)
-				end)
-				model.Name = "Statue_" .. userId
+				model.Name = "Avatar_" .. userId
 				model.Parent = cache
 				templates[userId] = model
 			else
@@ -7904,13 +7890,13 @@ local function groundY(position: Vector3, fallback: number, ignore: Instance): n
 	return if hit then hit.Position.Y else fallback
 end
 
-local function podium(folder: Folder, at: CFrame, height: number, color: Color3, name: string): BasePart
-	local base = Build.block(folder, V(6, height, 6), at * cf(0, height / 2, 0), color)
+local function podium(folder: Folder, at: CFrame, size: number, height: number, color: Color3, name: string): BasePart
+	local base = Build.block(folder, V(size, height, size), at * cf(0, height / 2, 0), color)
 	base.Name = name
 	base.Material = Enum.Material.Marble
 	base.CanCollide = true
 	base.CanQuery = true
-	local trim = Build.block(folder, V(6.6, 0.5, 6.6), at * cf(0, height + 0.25, 0), Color3.fromRGB(250, 250, 255))
+	local trim = Build.block(folder, V(size + 0.6, 0.5, size + 0.6), at * cf(0, height + 0.25, 0), Color3.fromRGB(250, 250, 255))
 	trim.CanCollide = true
 	return base
 end
@@ -7936,36 +7922,39 @@ local function build(world: number): WorldStatues?
 		local spot = center * cf(spec.x, 0, 0)
 		local y = groundY(spot.Position, info.landY, built.folder)
 		local at = CFrame.lookAt(V(spot.X, y, spot.Z), V(spawnFlat.X, y, spawnFlat.Z))
-		local part = podium(folder, at, spec.height, spec.color, "Podium" .. spec.rank)
+		local part = podium(folder, at, 6, spec.height, spec.color, "Podium" .. spec.rank)
 		part:SetAttribute("Rank", spec.rank)
-		slots[spec.rank] = { podium = part, userId = nil }
+		slots[spec.rank] = { podium = part, users = {}, scale = PODIUM_SCALE }
 	end
 
-	-- The Director's podium beside the egg stand.
+	-- The Director, big, beside the sell pad.
 	local director: Slot? = nil
 	if Operators.list()[1] then
-		local spot = o + V(dock.egg.X - 10, info.landY, dock.egg.Z - 1)
+		local spot = o + V(dock.sell.X - 13, info.landY, dock.sell.Z - 2)
 		local y = groundY(spot, info.landY, built.folder)
 		local at = CFrame.lookAt(V(spot.X, y, spot.Z), V(spawnFlat.X, y, spawnFlat.Z))
-		local part = podium(folder, at, 3, Color3.fromRGB(24, 18, 22), "DirectorPodium")
-		local glow = Build.block(folder, V(6.2, 0.3, 6.2), at * cf(0, 0.15, 0), Color3.fromRGB(255, 40, 60))
+		local part = podium(folder, at, 9, 3, Color3.fromRGB(24, 18, 22), "DirectorPodium")
+		local glow = Build.block(folder, V(9.4, 0.3, 9.4), at * cf(0, 0.15, 0), Color3.fromRGB(255, 40, 60))
 		glow.Material = Enum.Material.Neon
 		part:SetAttribute("Rank", 0)
-		director = { podium = part, userId = nil }
+		director = { podium = part, users = {}, scale = DIRECTOR_SCALE }
 	end
-	return { folder = folder, slots = slots, director = director, board = "", at = -1 }
+	return { slots = slots, director = director, at = -1 }
 end
 
--- Puts `userId`'s statue on the podium (or clears it). Retries later while the avatar builds.
-local function stand(slot: Slot, userId: number?): boolean
-	local old = slot.podium:FindFirstChild("Statue")
-	if slot.userId == userId and (old or not userId) then
+-- Stands `userId`'s avatar on the podium as `name` (or clears it). Only the root is anchored, so
+-- the avatar's joints assemble it in place instead of leaving its parts scattered. Returns false
+-- while the avatar is still being built.
+local function stand(slot: Slot, key: string, userId: number?): boolean
+	local name = "Statue_" .. key
+	local old = slot.podium:FindFirstChild(name)
+	if slot.users[key] == userId and (old or not userId) then
 		return true
 	end
 	if old then
 		old:Destroy()
 	end
-	slot.userId = nil
+	slot.users[key] = nil
 	if not userId then
 		return true
 	end
@@ -7974,26 +7963,43 @@ local function stand(slot: Slot, userId: number?): boolean
 		return failed[userId] == true
 	end
 	local statue = source:Clone()
-	statue.Name = "Statue"
-	local _, size = statue:GetBoundingBox()
-	local top = slot.podium.CFrame * cf(0, slot.podium.Size.Y / 2 + 0.5 + size.Y / 2, 0)
+	statue.Name = name
+	statue:SetAttribute("Board", key)
+	local root = statue:FindFirstChild("HumanoidRootPart") :: BasePart?
+	for _, d in statue:GetDescendants() do
+		if d:IsA("BasePart") then
+			d.Anchored = d == root
+			d.CanCollide = false
+			d.CanQuery = false
+			d.CanTouch = false
+			d.Massless = true
+		end
+	end
+	pcall(function()
+		statue:ScaleTo(slot.scale)
+	end)
+	local humanoid = statue:FindFirstChildOfClass("Humanoid")
+	local lift = (if humanoid then humanoid.HipHeight else 2) + (if root then root.Size.Y / 2 else 1)
+	local top = slot.podium.CFrame * cf(0, slot.podium.Size.Y / 2 + 0.5 + lift, 0)
+	if root then
+		statue.PrimaryPart = root
+	end
 	statue:PivotTo(top)
 	statue.Parent = slot.podium
-	slot.userId = userId
+	slot.users[key] = userId
 	return true
 end
 
-local function label(slot: Slot, entry: any?, board: string)
-	local part = slot.podium
-	part:SetAttribute("Board", board)
-	part:SetAttribute("UserId", if entry then entry.u else nil)
-	part:SetAttribute("Display", if entry then entry.d else nil)
-	part:SetAttribute("Username", if entry then entry.n else nil)
-	part:SetAttribute("NextTier", if entry then entry.nt else nil)
-	part:SetAttribute("NextSeconds", if entry then entry.ns else nil)
+-- Board-namespaced labels ("weekly_Display", ...) so each client reads the board it picked.
+local function label(part: BasePart, prefix: string, entry: any?)
+	part:SetAttribute(prefix .. "UserId", if entry then entry.u else nil)
+	part:SetAttribute(prefix .. "Display", if entry then entry.d else nil)
+	part:SetAttribute(prefix .. "Username", if entry then entry.n else nil)
+	part:SetAttribute(prefix .. "NextTier", if entry then entry.nt else nil)
+	part:SetAttribute(prefix .. "NextSeconds", if entry then entry.ns else nil)
 end
 
-local function update(world: number)
+local function update(world: number, data: any)
 	local statues = placed[world]
 	if not statues then
 		local made = build(world)
@@ -8003,34 +8009,46 @@ local function update(world: number)
 		statues = made
 		placed[world] = made
 	end
-	local data = LeaderboardService.latest()
-	local board = Rankings.boardAt(os.time())
-	local section = data.boards and data.boards[board]
-	local entries = if section and type(section.entries) == "table" then section.entries else {}
-	local fresh = statues.board ~= board or statues.at ~= data.at
-	for rank, slot in statues.slots do
-		local entry = entries[rank]
-		local done = stand(slot, if entry then entry.u else nil)
-		if fresh then
-			label(slot, entry, board)
-		end
-		if not done then
-			fresh = false -- try again next tick while the avatar loads
+	local fresh = statues.at ~= data.at
+	local done = true
+	for _, board in Rankings.Boards do
+		local section = data.boards and data.boards[board]
+		local entries = if section and type(section.entries) == "table" then section.entries else {}
+		for rank, slot in statues.slots do
+			local entry = entries[rank]
+			done = stand(slot, board, if entry then entry.u else nil) and done
+			if fresh then
+				label(slot.podium, board .. "_", entry)
+			end
 		end
 	end
 	local director = statues.director
 	if director then
 		local id = Operators.list()[1]
-		stand(director, id)
+		stand(director, "director", id)
 		if fresh or director.podium:GetAttribute("Username") == nil then
-			local entry = data.directors and (data.directors[board] or data.directors.alltime)
+			local entry = data.directors and data.directors.alltime
 			local username = if entry then entry.n else directorName(id)
-			label(director, { u = id, d = if entry then entry.d else username, n = username }, "director")
+			label(director.podium, "", { u = id, d = if entry then entry.d else username, n = username })
 		end
 	end
-	statues.board = board
-	if fresh then
+	if fresh and done then
 		statues.at = data.at
+	end
+end
+
+-- Builds every avatar the rankings name (and the Director's) ahead of time.
+local function preload(data: any)
+	local first = Operators.list()[1]
+	if first then
+		template(first)
+	end
+	for _, board in Rankings.Boards do
+		local section = data.boards and data.boards[board]
+		local entries = if section and type(section.entries) == "table" then section.entries else {}
+		for rank = 1, math.min(3, #entries) do
+			template(entries[rank].u)
+		end
 	end
 end
 
@@ -8040,7 +8058,8 @@ function StatueService.init()
 	cache.Parent = ServerStorage
 	task.spawn(function()
 		while true do
-			task.wait(1)
+			local data = LeaderboardService.latest()
+			preload(data)
 			local occupied: { [number]: boolean } = {}
 			for _, session in Sessions.all() do
 				if session.ready then
@@ -8049,12 +8068,13 @@ function StatueService.init()
 			end
 			for world in occupied do
 				local ok, err = pcall(function()
-					update(world)
+					update(world, data)
 				end)
 				if not ok then
 					warn("[DeepDive] Statues for world " .. world .. " failed: " .. tostring(err))
 				end
 			end
+			task.wait(0.5)
 		end
 	end)
 end
@@ -10904,8 +10924,8 @@ return Ambience
               <string name="Name">Board</string>
               <string name="Source"><![CDATA[--!strict
 -- Draws the ranking board at the current world's dock from the JSON the server publishes in
--- ReplicatedStorage. Cycles weekly -> monthly -> all-time every Config.BoardRotateSeconds (in step
--- with the podium statues), with the Director in their own row above the ranked divers.
+-- ReplicatedStorage. Arrows on the board switch between weekly (the default), monthly and all-time;
+-- the podium statues beside it follow the same choice. The Director has their own row on top.
 
 local HttpService = game:GetService("HttpService")
 local Players = game:GetService("Players")
@@ -10916,6 +10936,7 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Format = require(Shared.Format)
 local Rankings = require(Shared.Rankings)
 local Remotes = require(Shared.Remotes)
+local Signal = require(Shared.Signal)
 local Strings = require(Shared.Strings)
 
 local TierStyle = require(script.Parent.Parent.UI.TierStyle)
@@ -10925,6 +10946,10 @@ local Board = {}
 local MEDALS = { utf8.char(0x1F947), utf8.char(0x1F948), utf8.char(0x1F949) }
 local ROW = 36
 local data: any = { boards = {}, directors = {} }
+
+-- The board this player picked with the arrows (the statues follow it too).
+Board.selected = "weekly"
+Board.selectionChanged = Signal.new()
 
 -- Weekly rank of a UserId (1..10) on the published board, for the player list's "#N" tags.
 function Board.weeklyRank(userId: number): number?
@@ -10943,7 +10968,6 @@ function Board.init(app: any)
 	local Kit = app.Kit
 	local current: SurfaceGui? = nil
 	local localPlayer = Players.LocalPlayer
-	local shown = ""
 
 	local function decode()
 		local value = ReplicatedStorage:FindFirstChild(Remotes.Board)
@@ -11036,8 +11060,7 @@ function Board.init(app: any)
 		if not screen or not screen:IsA("BasePart") then
 			return
 		end
-		local board = Rankings.boardAt(os.time())
-		shown = board
+		local board = Board.selected
 		local section = data.boards[board] or {}
 		local entries = if type(section.entries) == "table" then section.entries else {}
 		local gui = Instance.new("SurfaceGui")
@@ -11046,20 +11069,44 @@ function Board.init(app: any)
 		gui.SizingMode = Enum.SurfaceGuiSizingMode.PixelsPerStud
 		gui.PixelsPerStud = 40
 		gui.LightInfluence = 0
-		gui.Parent = screen
+		-- Drawn on the board but parented to PlayerGui, the only place a SurfaceGui takes clicks.
+		gui.Adornee = screen
+		gui.ResetOnSpawn = false
+		gui.Parent = app.Gui.promptParent
 		current = gui
 		local root = Kit.new("Frame", { BackgroundTransparency = 1, Size = UDim2.fromScale(1, 1), Parent = gui })
 		Kit.padding(root, 10, 20, 10, 20)
 		Kit.list(root, Enum.FillDirection.Vertical, 3, Enum.HorizontalAlignment.Center, Enum.VerticalAlignment.Top)
+		local titleRow = Kit.new("Frame", { BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 50), LayoutOrder = 1, Parent = root })
 		Kit.text({
 			Text = utf8.char(0x1F3C6) .. "  " .. Strings.get("board." .. board),
-			TextSize = 40,
+			TextSize = 38,
 			Color = Color3.fromRGB(255, 222, 92),
 			Stroke = 4,
-			Size = UDim2.new(1, 0, 0, 46),
-			LayoutOrder = 1,
-			Parent = root,
+			Size = UDim2.new(1, -130, 1, 0),
+			Position = UDim2.fromScale(0.5, 0),
+			AnchorPoint = Vector2.new(0.5, 0),
+			Parent = titleRow,
 		})
+		for _, side in { -1, 1 } do
+			Kit.button({
+				Name = if side < 0 then "BoardPrev" else "BoardNext",
+				Text = if side < 0 then "<" else ">",
+				TextSize = 30,
+				Palette = "Gold",
+				Size = UDim2.fromOffset(56, 46),
+				Position = if side < 0 then UDim2.fromOffset(0, 2) else UDim2.new(1, 0, 0, 2),
+				AnchorPoint = Vector2.new(if side < 0 then 0 else 1, 0),
+				Radius = 14,
+				Parent = titleRow,
+				OnClick = function()
+					local index = table.find(Rankings.Boards, Board.selected) or 1
+					Board.selected = Rankings.Boards[(index - 1 + side) % #Rankings.Boards + 1]
+					Board.selectionChanged:Fire(Board.selected)
+					render()
+				end,
+			})
+		end
 		local subtitle = if section.reset
 			then Strings.get("boardResets", { t = Strings.duration(section.reset - (os.time() - (data.at or os.time()))) })
 			else Strings.get("boardForever")
@@ -11121,11 +11168,14 @@ function Board.init(app: any)
 		task.delay(0.5, render)
 	end)
 	app.State.languageChanged:Connect(render)
-	-- Rotation, and the world folder may still be building when we first look.
+	-- The world folder may still be building when we first look; the reset countdown ticks too.
 	task.spawn(function()
+		local age = 0
 		while true do
 			task.wait(1)
-			if Rankings.boardAt(os.time()) ~= shown or not current then
+			age += 1
+			if not current or not current.Adornee or not current.Adornee.Parent or age >= 30 then
+				age = 0
 				render()
 			end
 		end
@@ -12522,8 +12572,9 @@ return Relics
             <Properties>
               <string name="Name">Statues</string>
               <string name="Source"><![CDATA[--!strict
--- Labels for the podium statues at the docks (built by StatueService): rank and
--- names on the podium front, and each diver's progress to their next ranking tier above them.
+-- Podium statues at the docks (built by StatueService): shows the statues of the board picked on
+-- the dock board (each podium carries one per board), with rank and names on the podium front and
+-- each diver's progress to their next ranking tier above them.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
@@ -12532,6 +12583,7 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Strings = require(Shared.Strings)
 
 local TierStyle = require(script.Parent.Parent.UI.TierStyle)
+local Board = require(script.Parent.Board)
 
 local Statues = {}
 
@@ -12541,13 +12593,36 @@ function Statues.init(app: any)
 	local Kit = app.Kit
 	local signatures: { [BasePart]: string } = {}
 
+	-- Board podiums keep one set of labels per board ("weekly_Display"); the Director's are plain.
+	local function prefix(part: BasePart): string
+		return if part:GetAttribute("Rank") == 0 then "" else Board.selected .. "_"
+	end
+
+	-- Only the picked board's statue on each podium is drawn (locally; the server keeps all three).
+	local function showPicked(part: BasePart)
+		for _, child in part:GetChildren() do
+			local key = child:GetAttribute("Board")
+			if child:IsA("Model") and type(key) == "string" and key ~= "director" then
+				local hidden = if key == Board.selected then 0 else 1
+				for _, d in child:GetDescendants() do
+					if d:IsA("BasePart") then
+						d.LocalTransparencyModifier = hidden
+					elseif d:IsA("Decal") then
+						d.LocalTransparencyModifier = hidden
+					end
+				end
+			end
+		end
+	end
+
 	local function signature(part: BasePart): string
 		return table.concat({
-			tostring(part:GetAttribute("UserId")),
-			tostring(part:GetAttribute("Display")),
-			tostring(part:GetAttribute("Username")),
-			tostring(part:GetAttribute("NextTier")),
-			tostring(part:GetAttribute("NextSeconds")),
+			prefix(part),
+			tostring(part:GetAttribute(prefix(part) .. "UserId")),
+			tostring(part:GetAttribute(prefix(part) .. "Display")),
+			tostring(part:GetAttribute(prefix(part) .. "Username")),
+			tostring(part:GetAttribute(prefix(part) .. "NextTier")),
+			tostring(part:GetAttribute(prefix(part) .. "NextSeconds")),
 			Strings.get("director"),
 			Strings.get("tierMax"),
 		}, "|")
@@ -12561,12 +12636,13 @@ function Statues.init(app: any)
 		end
 		local rank = part:GetAttribute("Rank")
 		local director = rank == 0
-		local userId = part:GetAttribute("UserId")
+		local key = prefix(part)
+		local userId = part:GetAttribute(key .. "UserId")
 		if not userId then
 			return
 		end
-		local display = tostring(part:GetAttribute("Display") or "")
-		local username = tostring(part:GetAttribute("Username") or "")
+		local display = tostring(part:GetAttribute(key .. "Display") or "")
+		local username = tostring(part:GetAttribute(key .. "Username") or "")
 
 		local front = Instance.new("SurfaceGui")
 		front.Name = "StatueFront"
@@ -12611,12 +12687,12 @@ function Statues.init(app: any)
 		local title = Instance.new("BillboardGui")
 		title.Name = "StatueTitle"
 		title.Size = UDim2.fromOffset(260, 40)
-		title.StudsOffsetWorldSpace = Vector3.new(0, part.Size.Y / 2 + 11, 0)
+		title.StudsOffsetWorldSpace = Vector3.new(0, part.Size.Y / 2 + (if director then 16 else 11), 0)
 		title.LightInfluence = 0
 		title.MaxDistance = 120
 		title.Parent = part
-		local nextTier = part:GetAttribute("NextTier")
-		local seconds = part:GetAttribute("NextSeconds")
+		local nextTier = part:GetAttribute(key .. "NextTier")
+		local seconds = part:GetAttribute(key .. "NextSeconds")
 		local text = if director
 			then Strings.get("director")
 			elseif type(nextTier) == "number" and type(seconds) == "number" then Strings.get(
@@ -12654,6 +12730,7 @@ function Statues.init(app: any)
 			if statues then
 				for _, part in statues:GetChildren() do
 					if part:IsA("BasePart") and part:GetAttribute("Rank") ~= nil then
+						showPicked(part)
 						local sig = signature(part)
 						if signatures[part] ~= sig or not part:FindFirstChild("StatueFront") then
 							signatures[part] = sig
@@ -12672,6 +12749,7 @@ function Statues.init(app: any)
 		end
 	end)
 	app.State.languageChanged:Connect(refresh)
+	Board.selectionChanged:Connect(refresh)
 end
 
 return Statues
@@ -19807,11 +19885,11 @@ local VIP_CROWN = utf8.char(0x1F451) .. " "
 local OPERATOR_BADGE = utf8.char(0x1F6E1) .. utf8.char(0xFE0F) .. " " -- shield
 local OPERATOR_RED_DARK = Color3.fromRGB(120, 10, 10)
 local TAG_W = 40
-local WIDTH = 392
+local WIDTH = 430
 local ROW = 38
 -- Columns start after the avatar (42); the trade button (34) follows the relic column and the
--- row keeps an 8px right margin: 42 + 136 + 80 + 62 + 6 + 34 + 8 = 368 = 392 - 16 - 8.
-local NAME_W, COIN_W, RELIC_W = 136, 80, 62
+-- row keeps an 8px right margin: 42 + 174 + 80 + 62 + 6 + 34 + 8 = 406 = 430 - 16 - 8.
+local NAME_W, COIN_W, RELIC_W = 174, 80, 62
 local TRADE_X = 42 + NAME_W + COIN_W + RELIC_W + 6
 
 type Row = { frame: Frame, name: TextLabel, tag: TextLabel, coins: TextLabel, relics: TextLabel, stroke: UIStroke, director: boolean }
@@ -19916,6 +19994,9 @@ function PlayerList.init(onTrade: ((Player) -> ())?, rankOf: ((number) -> number
 		local name, coins, relics = columns(frame, 17, nil, 2)
 		name.TextTruncate = Enum.TextTruncate.AtEnd
 		name.Size = UDim2.fromOffset(NAME_W - TAG_W - 2, ROW)
+		-- Long names shrink to fit (down to 10px) instead of being cut off.
+		name.TextScaled = true
+		Kit.new("UITextSizeConstraint", { MaxTextSize = 17, MinTextSize = 10, Parent = name })
 		local tag = Kit.text({
 			Name = "RankTag",
 			Text = "",

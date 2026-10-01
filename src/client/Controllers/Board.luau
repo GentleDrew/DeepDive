@@ -1,7 +1,7 @@
 --!strict
 -- Draws the ranking board at the current world's dock from the JSON the server publishes in
--- ReplicatedStorage. Cycles weekly -> monthly -> all-time every Config.BoardRotateSeconds (in step
--- with the podium statues), with the Director in their own row above the ranked divers.
+-- ReplicatedStorage. Arrows on the board switch between weekly (the default), monthly and all-time;
+-- the podium statues beside it follow the same choice. The Director has their own row on top.
 
 local HttpService = game:GetService("HttpService")
 local Players = game:GetService("Players")
@@ -12,6 +12,7 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Format = require(Shared.Format)
 local Rankings = require(Shared.Rankings)
 local Remotes = require(Shared.Remotes)
+local Signal = require(Shared.Signal)
 local Strings = require(Shared.Strings)
 
 local TierStyle = require(script.Parent.Parent.UI.TierStyle)
@@ -21,6 +22,10 @@ local Board = {}
 local MEDALS = { utf8.char(0x1F947), utf8.char(0x1F948), utf8.char(0x1F949) }
 local ROW = 36
 local data: any = { boards = {}, directors = {} }
+
+-- The board this player picked with the arrows (the statues follow it too).
+Board.selected = "weekly"
+Board.selectionChanged = Signal.new()
 
 -- Weekly rank of a UserId (1..10) on the published board, for the player list's "#N" tags.
 function Board.weeklyRank(userId: number): number?
@@ -39,7 +44,6 @@ function Board.init(app: any)
 	local Kit = app.Kit
 	local current: SurfaceGui? = nil
 	local localPlayer = Players.LocalPlayer
-	local shown = ""
 
 	local function decode()
 		local value = ReplicatedStorage:FindFirstChild(Remotes.Board)
@@ -132,8 +136,7 @@ function Board.init(app: any)
 		if not screen or not screen:IsA("BasePart") then
 			return
 		end
-		local board = Rankings.boardAt(os.time())
-		shown = board
+		local board = Board.selected
 		local section = data.boards[board] or {}
 		local entries = if type(section.entries) == "table" then section.entries else {}
 		local gui = Instance.new("SurfaceGui")
@@ -142,20 +145,44 @@ function Board.init(app: any)
 		gui.SizingMode = Enum.SurfaceGuiSizingMode.PixelsPerStud
 		gui.PixelsPerStud = 40
 		gui.LightInfluence = 0
-		gui.Parent = screen
+		-- Drawn on the board but parented to PlayerGui, the only place a SurfaceGui takes clicks.
+		gui.Adornee = screen
+		gui.ResetOnSpawn = false
+		gui.Parent = app.Gui.promptParent
 		current = gui
 		local root = Kit.new("Frame", { BackgroundTransparency = 1, Size = UDim2.fromScale(1, 1), Parent = gui })
 		Kit.padding(root, 10, 20, 10, 20)
 		Kit.list(root, Enum.FillDirection.Vertical, 3, Enum.HorizontalAlignment.Center, Enum.VerticalAlignment.Top)
+		local titleRow = Kit.new("Frame", { BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 50), LayoutOrder = 1, Parent = root })
 		Kit.text({
 			Text = utf8.char(0x1F3C6) .. "  " .. Strings.get("board." .. board),
-			TextSize = 40,
+			TextSize = 38,
 			Color = Color3.fromRGB(255, 222, 92),
 			Stroke = 4,
-			Size = UDim2.new(1, 0, 0, 46),
-			LayoutOrder = 1,
-			Parent = root,
+			Size = UDim2.new(1, -130, 1, 0),
+			Position = UDim2.fromScale(0.5, 0),
+			AnchorPoint = Vector2.new(0.5, 0),
+			Parent = titleRow,
 		})
+		for _, side in { -1, 1 } do
+			Kit.button({
+				Name = if side < 0 then "BoardPrev" else "BoardNext",
+				Text = if side < 0 then "<" else ">",
+				TextSize = 30,
+				Palette = "Gold",
+				Size = UDim2.fromOffset(56, 46),
+				Position = if side < 0 then UDim2.fromOffset(0, 2) else UDim2.new(1, 0, 0, 2),
+				AnchorPoint = Vector2.new(if side < 0 then 0 else 1, 0),
+				Radius = 14,
+				Parent = titleRow,
+				OnClick = function()
+					local index = table.find(Rankings.Boards, Board.selected) or 1
+					Board.selected = Rankings.Boards[(index - 1 + side) % #Rankings.Boards + 1]
+					Board.selectionChanged:Fire(Board.selected)
+					render()
+				end,
+			})
+		end
 		local subtitle = if section.reset
 			then Strings.get("boardResets", { t = Strings.duration(section.reset - (os.time() - (data.at or os.time()))) })
 			else Strings.get("boardForever")
@@ -217,11 +244,14 @@ function Board.init(app: any)
 		task.delay(0.5, render)
 	end)
 	app.State.languageChanged:Connect(render)
-	-- Rotation, and the world folder may still be building when we first look.
+	-- The world folder may still be building when we first look; the reset countdown ticks too.
 	task.spawn(function()
+		local age = 0
 		while true do
 			task.wait(1)
-			if Rankings.boardAt(os.time()) ~= shown or not current then
+			age += 1
+			if not current or not current.Adornee or not current.Adornee.Parent or age >= 30 then
+				age = 0
 				render()
 			end
 		end

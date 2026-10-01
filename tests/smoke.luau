@@ -411,7 +411,8 @@ step("nameplates, player list, leaderboard", function()
 		"leaderboard never listed the diver"
 	)
 	local board = worldFolder(1):FindFirstChild("BoardScreen", true)
-	check(board ~= nil and board:FindFirstChild("LeaderboardGui") ~= nil, "dock leaderboard board not drawn")
+	local boardGui = Engine.gui():FindFirstChild("LeaderboardGui")
+	check(board ~= nil and boardGui ~= nil and boardGui.Adornee == board, "dock leaderboard board not drawn")
 end)
 
 if not quick then
@@ -970,6 +971,7 @@ if not quick then
 	end)
 
 	step("rankings, statues and community", function()
+		local Strings = Engine.client.module(Shared .. "Strings")
 		local s = session()
 		local folder = worldFolder(s.world)
 		local podium = nil
@@ -977,7 +979,10 @@ if not quick then
 			Engine.waitFor(function()
 				local statues = folder and folder:FindFirstChild("Statues")
 				podium = statues and statues:FindFirstChild("Podium1")
-				return podium ~= nil and podium:GetAttribute("UserId") == player.UserId and podium:FindFirstChild("Statue") ~= nil
+				return podium ~= nil
+					and podium:GetAttribute("weekly_UserId") == player.UserId
+					and podium:FindFirstChild("Statue_weekly") ~= nil
+					and podium:FindFirstChild("Statue_monthly") ~= nil
 			end, 20, "podium statue"),
 			"the top diver's statue never stood on the first podium"
 		)
@@ -988,10 +993,36 @@ if not quick then
 				end, 3, "statue labels"),
 				"statue labels not drawn"
 			)
-			check(podium:GetAttribute("Display") ~= nil and podium:GetAttribute("Username") ~= nil, "statue names missing")
+			check(podium:GetAttribute("weekly_Display") ~= nil and podium:GetAttribute("weekly_Username") ~= nil, "statue names missing")
+			-- Assembled avatar: only the root is anchored, so the joints hold the body together.
+			local statue = podium:FindFirstChild("Statue_weekly")
+			local root = statue and statue:FindFirstChild("HumanoidRootPart")
+			local head = statue and statue:FindFirstChild("Head")
+			check(root ~= nil and root.Anchored and head ~= nil and not head.Anchored, "statue should hang on its anchored root")
+			-- The board opens on weekly; its arrow switches to monthly and the statues follow.
+			local function hiddenWeekly(): boolean
+				local part = statue and statue:FindFirstChild("UpperTorso")
+				return part ~= nil and part.LocalTransparencyModifier == 1
+			end
+			check(not hiddenWeekly(), "weekly statues should show first")
+			local nextButton = Engine.gui():FindFirstChild("BoardNext", true)
+			check(nextButton ~= nil, "board arrow missing")
+			if nextButton then
+				Engine.click(nextButton)
+				check(Engine.waitFor(hiddenWeekly, 3, "board switch"), "picking another board should switch the statues")
+				local title = Engine.gui():FindFirstChild("LeaderboardGui")
+				local found = false
+				for _, d in (if title then title:GetDescendants() else {}) do
+					if d:IsA("TextLabel") and string.find(d.Text, Strings.get("board.monthly"), 1, true) then
+						found = true
+					end
+				end
+				check(found, "the board should show the monthly ranking after the arrow")
+			end
 		end
 		local statues = folder and folder:FindFirstChild("Statues")
-		check(statues ~= nil and statues:FindFirstChild("DirectorPodium") ~= nil, "Director podium missing beside the egg")
+		local director = statues and statues:FindFirstChild("DirectorPodium")
+		check(director ~= nil, "Director podium missing beside the sell pad")
 		local board = game:GetService("HttpService"):JSONDecode(rawGame:GetService("ReplicatedStorage").LeaderboardData.Value)
 		for _, name in { "weekly", "monthly", "alltime" } do
 			check(board.boards[name] ~= nil and #board.boards[name].entries > 0, name .. " board empty")

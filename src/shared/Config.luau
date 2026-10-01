@@ -305,7 +305,5 @@ Config.Tiers = {
 	{ hours = 14 * 24, board = "monthly", color = "#ffe14f" },
 	{ hours = 30 * 24, board = "monthly", color = "#e8f6ff", prismatic = true },
 }
--- The ranking board (and the podium statues behind it) cycle weekly -> monthly -> all-time.
-Config.BoardRotateSeconds = 20
 
 return Config

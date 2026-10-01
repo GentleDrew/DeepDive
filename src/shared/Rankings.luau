@@ -38,11 +38,6 @@ function Rankings.untilReset(board: string, now: number): number?
 	return nil
 end
 
--- Which board is on display right now (all servers and clients agree via the clock).
-function Rankings.boardAt(now: number): string
-	return Rankings.Boards[(now // Config.BoardRotateSeconds) % #Rankings.Boards + 1]
-end
-
 -- Starts a new week/month when needed; returns this week's and month's coins earned.
 function Rankings.roll(data: any, now: number): (number, number)
 	local period = data.period

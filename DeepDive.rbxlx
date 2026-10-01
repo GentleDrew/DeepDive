@@ -9021,9 +9021,14 @@ local function scanPoints(world: number, folder: Folder, rng: Random): ({ Vector
 	local info = Layout.info(world)
 	local params = scanParams(folder)
 	local bands = {
-		{ inner = info.midRadius + 1, outer = info.radius - 3, quota = math.floor(POINT_COUNT * 0.3) },
-		{ inner = info.deepRadius + 1, outer = info.midRadius - 2, quota = math.floor(POINT_COUNT * 0.35) },
-		{ inner = 2, outer = info.deepRadius - 3, quota = POINT_COUNT - math.floor(POINT_COUNT * 0.3) - math.floor(POINT_COUNT * 0.35) },
+		{ inner = info.midRadius + 1, outer = info.radius - 3, quota = math.floor(POINT_COUNT * 0.3), floorDepth = info.shelfDepth },
+		{ inner = info.deepRadius + 1, outer = info.midRadius - 2, quota = math.floor(POINT_COUNT * 0.35), floorDepth = info.midDepth },
+		{
+			inner = 2,
+			outer = info.deepRadius - 3,
+			quota = POINT_COUNT - math.floor(POINT_COUNT * 0.3) - math.floor(POINT_COUNT * 0.35),
+			floorDepth = info.depth,
+		},
 	}
 	local points: { Vector3 } = {}
 	local depths: { number } = {}
@@ -9052,6 +9057,30 @@ local function scanPoints(world: number, folder: Folder, rng: Random): ({ Vector
 					table.insert(depths, math.clamp(depth / info.depth, 0, 1))
 					placed += 1
 				end
+			end
+		end
+		-- Real voxel terrain (coarse resolution, odd island shapes on some "kit" types) can make
+		-- the raycast scan above miss far more than in flatter worlds, leaving a band short or
+		-- empty. Fill any shortfall analytically from the lagoon geometry Terrain.buildIsland
+		-- actually carved, so no band — and no world — ever ends up with zero relics.
+		local fallbackAttempts = 0
+		while placed < band.quota and fallbackAttempts < band.quota * 6 + 20 do
+			fallbackAttempts += 1
+			local a = rng:NextNumber(0, math.pi * 2)
+			local r = rng:NextNumber(band.inner, band.outer)
+			local lx, lz = math.cos(a) * r, math.sin(a) * r
+			local p = info.origin + Vector3.new(lx, -band.floorDepth + 1.7, lz)
+			local farEnough = true
+			for _, other in points do
+				if (other - p).Magnitude < POINT_SPACING then
+					farEnough = false
+					break
+				end
+			end
+			if farEnough then
+				table.insert(points, p)
+				table.insert(depths, math.clamp(band.floorDepth / info.depth, 0, 1))
+				placed += 1
 			end
 		end
 	end

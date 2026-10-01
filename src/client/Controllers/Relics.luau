@@ -23,6 +23,8 @@ type Entry = {
 	point: number,
 	key: string,
 	model: Model,
+	aura: BasePart,
+	auraSize: number,
 	base: Vector3,
 	phase: number,
 	collecting: boolean,
@@ -30,6 +32,7 @@ type Entry = {
 }
 
 local RARITY_LIGHT = { 7, 9, 11, 14, 18 }
+local RARITY_AURA = { 2.0, 2.4, 2.9, 3.5, 4.3 } -- glow bubble diameter in studs, by rarity
 
 function Relics.init(app: any)
 	local folder = Instance.new("Folder")
@@ -114,6 +117,23 @@ function Relics.init(app: any)
 			highlight.FillTransparency = if relic.rarity >= 5 then 0.75 else 1
 			highlight.DepthMode = Enum.HighlightDepthMode.Occluded
 			highlight.Parent = model
+			-- Soft glowing aura bubble so relics read from a distance, not just up close.
+			local auraColor = app.Theme.rarityColor(relic.rarity)
+			local aura = Instance.new("Part")
+			aura.Name = "Aura"
+			aura.Shape = Enum.PartType.Ball
+			aura.Material = Enum.Material.Neon
+			aura.Color = auraColor
+			aura.Transparency = 0.6
+			aura.Anchored = true
+			aura.CanCollide = false
+			aura.CanQuery = false
+			aura.CanTouch = false
+			aura.CastShadow = false
+			local size = RARITY_AURA[relic.rarity] or 2
+			aura.Size = Vector3.new(size, size, size)
+			aura.CFrame = root.CFrame
+			aura.Parent = model
 			templates[key] = model
 			return model:Clone()
 		end
@@ -142,7 +162,26 @@ function Relics.init(app: any)
 		local model = template(key)
 		model:PivotTo(CFrame.new(base))
 		model.Parent = folder
-		entries[point] = { point = point, key = key, model = model, base = base, phase = math.random() * 6.28, collecting = false, started = 0 }
+		local relic = Worlds.relics[key]
+		local aura = model:FindFirstChild("Aura") :: BasePart
+		entries[point] = {
+			point = point,
+			key = key,
+			model = model,
+			aura = aura,
+			auraSize = RARITY_AURA[relic.rarity] or 2,
+			base = base,
+			phase = math.random() * 6.28,
+			collecting = false,
+			started = 0,
+		}
+	end
+
+	-- A collected point refilled with a fresh relic (DiveService's respawn timer).
+	function Relics.spawn(point: number, key: string)
+		if not entries[point] and not pending[point] then
+			spawnRelic(point, key)
+		end
 	end
 
 	local function spawnChest(world: number)
@@ -284,6 +323,12 @@ function Relics.init(app: any)
 			entry.model:PivotTo(
 				CFrame.new(entry.base + Vector3.new(0, bob, 0)) * CFrame.Angles(0.25 * math.sin(t + entry.phase), t * 0.9 + entry.phase, 0)
 			)
+			if entry.aura then
+				local pulse = 0.5 + 0.5 * math.sin(t * 2.4 + entry.phase)
+				entry.aura.Transparency = 0.55 + 0.25 * pulse
+				local scale = entry.auraSize * (0.88 + 0.16 * pulse)
+				entry.aura.Size = Vector3.new(scale, scale, scale)
+			end
 			if canCollect and rootPosition and (rootPosition - entry.base).Magnitude <= magnet then
 				if dive.cargo + pendingCount >= capacity then
 					if t - lastFullToast > 3 then

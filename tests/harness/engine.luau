@@ -2162,6 +2162,9 @@ end)
 getter("DataModel", "CreatorId", function()
 	return 0
 end)
+getter("DataModel", "CreatorType", function()
+	return Enum.CreatorType.User
+end)
 getter("DataModel", "PlaceVersion", function()
 	return 1
 end)

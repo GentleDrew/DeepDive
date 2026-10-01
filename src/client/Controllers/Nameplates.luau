@@ -10,15 +10,25 @@ local Format = require(Shared.Format)
 
 local Nameplates = {}
 
-type Plate = { gui: BillboardGui, name: TextLabel, aura: ParticleEmitter?, connections: { RBXScriptConnection } }
+type Plate = {
+	gui: BillboardGui,
+	name: TextLabel,
+	aura: ParticleEmitter?,
+	auraKind: string?, -- "operator" | "vip", so switching between them swaps the aura's color
+	connections: { RBXScriptConnection },
+}
 
 local VIP_CROWN = utf8.char(0x1F451) .. " "
+local OPERATOR_BADGE = utf8.char(0x1F6E1) .. utf8.char(0xFE0F) .. " " -- shield
+local OPERATOR_RED = Color3.fromRGB(255, 70, 70)
+local OPERATOR_RED_DARK = Color3.fromRGB(120, 10, 10)
+local INK = Color3.fromRGB(21, 38, 58) -- Theme.C.Ink, the stroke's normal default
 
--- Gold sparkle worn by VIPAura pass owners, attached to the root part.
-local function auraEmitter(root: BasePart): ParticleEmitter
+-- Sparkle worn around the root part: gold for VIPAura owners, red for the game's Operator.
+local function auraEmitter(root: BasePart, colorA: Color3, colorB: Color3): ParticleEmitter
 	local emitter = Instance.new("ParticleEmitter")
 	emitter.Texture = "rbxasset://textures/particles/sparkles_main.dds"
-	emitter.Color = ColorSequence.new(Color3.fromRGB(255, 226, 130), Color3.fromRGB(255, 190, 40))
+	emitter.Color = ColorSequence.new(colorA, colorB)
 	emitter.LightEmission = 1
 	emitter.LightInfluence = 0
 	emitter.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.4), NumberSequenceKeypoint.new(1, 0) })
@@ -95,26 +105,39 @@ function Nameplates.init(app: any)
 		end
 		refresh()
 		local nameStroke = name:FindFirstChildOfClass("UIStroke")
-		local plate: Plate = { gui = gui, name = name, aura = nil, connections = { player:GetAttributeChangedSignal("Coins"):Connect(refresh) } }
+		local plate: Plate =
+			{ gui = gui, name = name, aura = nil, auraKind = nil, connections = { player:GetAttributeChangedSignal("Coins"):Connect(refresh) } }
 		local root = character:FindFirstChild("HumanoidRootPart") :: BasePart?
 		local function refreshVip()
+			-- Operator (the game's creator, see Config.AdminUserIds) outranks VIP and borders.
+			local operator = player:GetAttribute("Operator") == true
 			local vip = player:GetAttribute("VIP") == true
-			name.Text = (if vip then VIP_CROWN else "") .. player.DisplayName
-			if vip and not plate.aura and root then
-				plate.aura = auraEmitter(root)
-			elseif not vip and plate.aura then
-				plate.aura:Destroy()
-				plate.aura = nil
+			name.Text = (if operator then OPERATOR_BADGE elseif vip then VIP_CROWN else "") .. player.DisplayName
+			name.TextColor3 = if operator then OPERATOR_RED elseif isMe then Color3.fromRGB(255, 236, 150) else Color3.new(1, 1, 1)
+			local wantKind = if operator then "operator" elseif vip then "vip" else nil
+			if wantKind ~= plate.auraKind then
+				if plate.aura then
+					plate.aura:Destroy()
+					plate.aura = nil
+				end
+				if wantKind and root then
+					plate.aura = if wantKind == "operator"
+						then auraEmitter(root, Color3.fromRGB(255, 120, 120), OPERATOR_RED)
+						else auraEmitter(root, Color3.fromRGB(255, 226, 130), Color3.fromRGB(255, 190, 40))
+				end
+				plate.auraKind = wantKind
 			end
 			if nameStroke then
 				local border = player:GetAttribute("Border")
-				nameStroke.Color = if border == "Gold"
-					then Color3.fromRGB(255, 214, 90)
+				nameStroke.Color = if operator
+					then OPERATOR_RED_DARK
+					elseif border == "Gold" then Color3.fromRGB(255, 214, 90)
 					elseif border == "Silver" then Color3.fromRGB(210, 220, 232)
-					else Color3.fromRGB(21, 38, 58) -- Theme.C.Ink, the stroke's normal default
+					else INK
 			end
 		end
 		refreshVip()
+		table.insert(plate.connections, player:GetAttributeChangedSignal("Operator"):Connect(refreshVip))
 		table.insert(plate.connections, player:GetAttributeChangedSignal("VIP"):Connect(refreshVip))
 		table.insert(plate.connections, player:GetAttributeChangedSignal("Border"):Connect(refreshVip))
 		plates[player] = plate

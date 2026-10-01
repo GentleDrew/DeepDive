@@ -90,6 +90,11 @@ function Dive.init(app: any)
 		end
 	end)
 
+	-- A point you emptied earlier in this dive just refilled with a new relic.
+	Net.on("relicSpawn", function(payload: any)
+		app.Relics.spawn(payload.point, payload.key)
+	end)
+
 	Net.on("reject", function(payload: any)
 		app.Relics.restore(payload.point)
 		if payload.reason == "full" then

@@ -6,6 +6,7 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
+local Config = require(Shared.Config)
 local Layout = require(Shared.Layout)
 
 local Net = require(script.Parent.Net)
@@ -97,6 +98,10 @@ local function onPlayerAdded(player: Player)
 	end
 	PetService.clampEquipped(session)
 	player:SetAttribute("World", session.world)
+	-- Red nameplate + aura: the game's creator (or anyone listed in Config.AdminUserIds).
+	local isOperator = (player.UserId == game.CreatorId and game.CreatorType == Enum.CreatorType.User)
+		or table.find(Config.AdminUserIds, player.UserId) ~= nil
+	player:SetAttribute("Operator", isOperator)
 	player.RespawnLocation = built.spawn
 	Sync.leaderstats(session)
 	player.CharacterAdded:Connect(function(character)

@@ -399,6 +399,19 @@ local function onCollect(player: Player, layoutId: any, point: any)
 		discovered = discovered,
 		total = profile.relics[key],
 	})
+	-- The spot refills with a fresh relic after a short delay, as long as this is still the same
+	-- dive (otherwise the next rollLayout already reseeds every point from scratch).
+	local capturedLayout = session.layoutId
+	local depth = built.depths[point]
+	task.delay(Config.Dive.RelicRespawnMin + session.rng:NextNumber() * (Config.Dive.RelicRespawnMax - Config.Dive.RelicRespawnMin), function()
+		if session.layoutId ~= capturedLayout or (session.mode ~= "Diving" and session.mode ~= "Rescue") or session.relics[point] then
+			return
+		end
+		local rarity = Economy.rollRarity(depth * 0.95, session.rng:NextNumber())
+		local newKey = Worlds.get(session.world).relics[rarity].key
+		session.relics[point] = newKey
+		Net.push(player, "relicSpawn", { point = point, key = newKey })
+	end)
 end
 
 local function onHazard(player: Player, index: any)

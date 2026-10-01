@@ -181,6 +181,11 @@ Config.SchemaVersion = 1
 -- default is English, which renders entirely in FredokaOne.
 Config.DefaultLanguage = "en"
 
+-- The game's creator (game.CreatorId, when solo-owned) always gets the red "Operator" nameplate
+-- and aura, free. Add other UserIds here too (co-developers, moderators) if you want them to have
+-- it as well, or if the experience is group-owned (game.CreatorId is then the group, not a player).
+Config.AdminUserIds = {}
+
 Config.WorldCount = 20
 Config.WorldSpacing = 1000
 Config.WorldColumns = 5
@@ -205,7 +210,9 @@ Config.Dive = {
 	SubmergeDepth = 3.2, -- root depth at which a dive starts (head fully under)
 	SurfaceDepth = 2.4, -- root depth above which the diver counts as surfaced
 	SurfaceHold = 0.25,
-	ActiveRelics = 20,
+	ActiveRelics = 30, -- matches World/WorldBuilder's POINT_COUNT: every scanned spot holds a relic
+	RelicRespawnMin = 6, -- a collected point refills with a fresh relic after this many seconds...
+	RelicRespawnMax = 14, -- ...up to this many, as long as you're still diving the same layout
 	CollectTolerance = 10,
 	CollectPerSecond = 14,
 	BlackoutKeep = 0.5,
@@ -4788,6 +4795,7 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
+local Config = require(Shared.Config)
 local Layout = require(Shared.Layout)
 
 local Net = require(script.Parent.Net)
@@ -4879,6 +4887,10 @@ local function onPlayerAdded(player: Player)
 	end
 	PetService.clampEquipped(session)
 	player:SetAttribute("World", session.world)
+	-- Red nameplate + aura: the game's creator (or anyone listed in Config.AdminUserIds).
+	local isOperator = (player.UserId == game.CreatorId and game.CreatorType == Enum.CreatorType.User)
+		or table.find(Config.AdminUserIds, player.UserId) ~= nil
+	player:SetAttribute("Operator", isOperator)
 	player.RespawnLocation = built.spawn
 	Sync.leaderstats(session)
 	player.CharacterAdded:Connect(function(character)
@@ -5856,6 +5868,19 @@ local function onCollect(player: Player, layoutId: any, point: any)
 		discovered = discovered,
 		total = profile.relics[key],
 	})
+	-- The spot refills with a fresh relic after a short delay, as long as this is still the same
+	-- dive (otherwise the next rollLayout already reseeds every point from scratch).
+	local capturedLayout = session.layoutId
+	local depth = built.depths[point]
+	task.delay(Config.Dive.RelicRespawnMin + session.rng:NextNumber() * (Config.Dive.RelicRespawnMax - Config.Dive.RelicRespawnMin), function()
+		if session.layoutId ~= capturedLayout or (session.mode ~= "Diving" and session.mode ~= "Rescue") or session.relics[point] then
+			return
+		end
+		local rarity = Economy.rollRarity(depth * 0.95, session.rng:NextNumber())
+		local newKey = Worlds.get(session.world).relics[rarity].key
+		session.relics[point] = newKey
+		Net.push(player, "relicSpawn", { point = point, key = newKey })
+	end)
 end
 
 local function onHazard(player: Player, index: any)
@@ -9837,6 +9862,11 @@ function Dive.init(app: any)
 		end
 	end)
 
+	-- A point you emptied earlier in this dive just refilled with a new relic.
+	Net.on("relicSpawn", function(payload: any)
+		app.Relics.spawn(payload.point, payload.key)
+	end)
+
 	Net.on("reject", function(payload: any)
 		app.Relics.restore(payload.point)
 		if payload.reason == "full" then
@@ -10281,15 +10311,25 @@ local Format = require(Shared.Format)
 
 local Nameplates = {}
 
-type Plate = { gui: BillboardGui, name: TextLabel, aura: ParticleEmitter?, connections: { RBXScriptConnection } }
+type Plate = {
+	gui: BillboardGui,
+	name: TextLabel,
+	aura: ParticleEmitter?,
+	auraKind: string?, -- "operator" | "vip", so switching between them swaps the aura's color
+	connections: { RBXScriptConnection },
+}
 
 local VIP_CROWN = utf8.char(0x1F451) .. " "
+local OPERATOR_BADGE = utf8.char(0x1F6E1) .. utf8.char(0xFE0F) .. " " -- shield
+local OPERATOR_RED = Color3.fromRGB(255, 70, 70)
+local OPERATOR_RED_DARK = Color3.fromRGB(120, 10, 10)
+local INK = Color3.fromRGB(21, 38, 58) -- Theme.C.Ink, the stroke's normal default
 
--- Gold sparkle worn by VIPAura pass owners, attached to the root part.
-local function auraEmitter(root: BasePart): ParticleEmitter
+-- Sparkle worn around the root part: gold for VIPAura owners, red for the game's Operator.
+local function auraEmitter(root: BasePart, colorA: Color3, colorB: Color3): ParticleEmitter
 	local emitter = Instance.new("ParticleEmitter")
 	emitter.Texture = "rbxasset://textures/particles/sparkles_main.dds"
-	emitter.Color = ColorSequence.new(Color3.fromRGB(255, 226, 130), Color3.fromRGB(255, 190, 40))
+	emitter.Color = ColorSequence.new(colorA, colorB)
 	emitter.LightEmission = 1
 	emitter.LightInfluence = 0
 	emitter.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.4), NumberSequenceKeypoint.new(1, 0) })
@@ -10366,26 +10406,39 @@ function Nameplates.init(app: any)
 		end
 		refresh()
 		local nameStroke = name:FindFirstChildOfClass("UIStroke")
-		local plate: Plate = { gui = gui, name = name, aura = nil, connections = { player:GetAttributeChangedSignal("Coins"):Connect(refresh) } }
+		local plate: Plate =
+			{ gui = gui, name = name, aura = nil, auraKind = nil, connections = { player:GetAttributeChangedSignal("Coins"):Connect(refresh) } }
 		local root = character:FindFirstChild("HumanoidRootPart") :: BasePart?
 		local function refreshVip()
+			-- Operator (the game's creator, see Config.AdminUserIds) outranks VIP and borders.
+			local operator = player:GetAttribute("Operator") == true
 			local vip = player:GetAttribute("VIP") == true
-			name.Text = (if vip then VIP_CROWN else "") .. player.DisplayName
-			if vip and not plate.aura and root then
-				plate.aura = auraEmitter(root)
-			elseif not vip and plate.aura then
-				plate.aura:Destroy()
-				plate.aura = nil
+			name.Text = (if operator then OPERATOR_BADGE elseif vip then VIP_CROWN else "") .. player.DisplayName
+			name.TextColor3 = if operator then OPERATOR_RED elseif isMe then Color3.fromRGB(255, 236, 150) else Color3.new(1, 1, 1)
+			local wantKind = if operator then "operator" elseif vip then "vip" else nil
+			if wantKind ~= plate.auraKind then
+				if plate.aura then
+					plate.aura:Destroy()
+					plate.aura = nil
+				end
+				if wantKind and root then
+					plate.aura = if wantKind == "operator"
+						then auraEmitter(root, Color3.fromRGB(255, 120, 120), OPERATOR_RED)
+						else auraEmitter(root, Color3.fromRGB(255, 226, 130), Color3.fromRGB(255, 190, 40))
+				end
+				plate.auraKind = wantKind
 			end
 			if nameStroke then
 				local border = player:GetAttribute("Border")
-				nameStroke.Color = if border == "Gold"
-					then Color3.fromRGB(255, 214, 90)
+				nameStroke.Color = if operator
+					then OPERATOR_RED_DARK
+					elseif border == "Gold" then Color3.fromRGB(255, 214, 90)
 					elseif border == "Silver" then Color3.fromRGB(210, 220, 232)
-					else Color3.fromRGB(21, 38, 58) -- Theme.C.Ink, the stroke's normal default
+					else INK
 			end
 		end
 		refreshVip()
+		table.insert(plate.connections, player:GetAttributeChangedSignal("Operator"):Connect(refreshVip))
 		table.insert(plate.connections, player:GetAttributeChangedSignal("VIP"):Connect(refreshVip))
 		table.insert(plate.connections, player:GetAttributeChangedSignal("Border"):Connect(refreshVip))
 		plates[player] = plate
@@ -10722,6 +10775,8 @@ type Entry = {
 	point: number,
 	key: string,
 	model: Model,
+	aura: BasePart,
+	auraSize: number,
 	base: Vector3,
 	phase: number,
 	collecting: boolean,
@@ -10729,6 +10784,7 @@ type Entry = {
 }
 
 local RARITY_LIGHT = { 7, 9, 11, 14, 18 }
+local RARITY_AURA = { 2.0, 2.4, 2.9, 3.5, 4.3 } -- glow bubble diameter in studs, by rarity
 
 function Relics.init(app: any)
 	local folder = Instance.new("Folder")
@@ -10813,6 +10869,23 @@ function Relics.init(app: any)
 			highlight.FillTransparency = if relic.rarity >= 5 then 0.75 else 1
 			highlight.DepthMode = Enum.HighlightDepthMode.Occluded
 			highlight.Parent = model
+			-- Soft glowing aura bubble so relics read from a distance, not just up close.
+			local auraColor = app.Theme.rarityColor(relic.rarity)
+			local aura = Instance.new("Part")
+			aura.Name = "Aura"
+			aura.Shape = Enum.PartType.Ball
+			aura.Material = Enum.Material.Neon
+			aura.Color = auraColor
+			aura.Transparency = 0.6
+			aura.Anchored = true
+			aura.CanCollide = false
+			aura.CanQuery = false
+			aura.CanTouch = false
+			aura.CastShadow = false
+			local size = RARITY_AURA[relic.rarity] or 2
+			aura.Size = Vector3.new(size, size, size)
+			aura.CFrame = root.CFrame
+			aura.Parent = model
 			templates[key] = model
 			return model:Clone()
 		end
@@ -10841,7 +10914,26 @@ function Relics.init(app: any)
 		local model = template(key)
 		model:PivotTo(CFrame.new(base))
 		model.Parent = folder
-		entries[point] = { point = point, key = key, model = model, base = base, phase = math.random() * 6.28, collecting = false, started = 0 }
+		local relic = Worlds.relics[key]
+		local aura = model:FindFirstChild("Aura") :: BasePart
+		entries[point] = {
+			point = point,
+			key = key,
+			model = model,
+			aura = aura,
+			auraSize = RARITY_AURA[relic.rarity] or 2,
+			base = base,
+			phase = math.random() * 6.28,
+			collecting = false,
+			started = 0,
+		}
+	end
+
+	-- A collected point refilled with a fresh relic (DiveService's respawn timer).
+	function Relics.spawn(point: number, key: string)
+		if not entries[point] and not pending[point] then
+			spawnRelic(point, key)
+		end
 	end
 
 	local function spawnChest(world: number)
@@ -10983,6 +11075,12 @@ function Relics.init(app: any)
 			entry.model:PivotTo(
 				CFrame.new(entry.base + Vector3.new(0, bob, 0)) * CFrame.Angles(0.25 * math.sin(t + entry.phase), t * 0.9 + entry.phase, 0)
 			)
+			if entry.aura then
+				local pulse = 0.5 + 0.5 * math.sin(t * 2.4 + entry.phase)
+				entry.aura.Transparency = 0.55 + 0.25 * pulse
+				local scale = entry.auraSize * (0.88 + 0.16 * pulse)
+				entry.aura.Size = Vector3.new(scale, scale, scale)
+			end
 			if canCollect and rootPosition and (rootPosition - entry.base).Magnitude <= magnet then
 				if dive.cargo + pendingCount >= capacity then
 					if t - lastFullToast > 3 then
@@ -17119,6 +17217,9 @@ local PlayerList = {}
 
 local C = Theme.C
 local VIP_CROWN = utf8.char(0x1F451) .. " "
+local OPERATOR_BADGE = utf8.char(0x1F6E1) .. utf8.char(0xFE0F) .. " " -- shield
+local OPERATOR_RED = Color3.fromRGB(255, 70, 70)
+local OPERATOR_RED_DARK = Color3.fromRGB(120, 10, 10)
 local WIDTH = 392
 local ROW = 38
 -- Columns start after the avatar (42); the trade button (34) follows the relic column and the
@@ -17271,12 +17372,17 @@ function PlayerList.init(onTrade: ((Player) -> ())?)
 		for index, player in list do
 			local row = rows[player] or makeRow(player)
 			row.frame.LayoutOrder = 10 + index
-			row.name.Text = (if player:GetAttribute("VIP") == true then VIP_CROWN else "") .. player.DisplayName
+			-- Operator (the game's creator) outranks VIP and nameplate borders.
+			local operator = player:GetAttribute("Operator") == true
+			local vip = player:GetAttribute("VIP") == true
+			row.name.Text = (if operator then OPERATOR_BADGE elseif vip then VIP_CROWN else "") .. player.DisplayName
+			row.name.TextColor3 = if operator then OPERATOR_RED elseif player == localPlayer then Color3.fromRGB(255, 232, 140) else C.White
 			local border = player:GetAttribute("Border")
 			local nameStroke = row.name:FindFirstChildOfClass("UIStroke")
 			if nameStroke then
-				nameStroke.Color = if border == "Gold"
-					then Color3.fromRGB(255, 214, 90)
+				nameStroke.Color = if operator
+					then OPERATOR_RED_DARK
+					elseif border == "Gold" then Color3.fromRGB(255, 214, 90)
 					elseif border == "Silver" then Color3.fromRGB(210, 220, 232)
 					else Color3.fromRGB(21, 38, 58)
 			end
@@ -17294,6 +17400,7 @@ function PlayerList.init(onTrade: ((Player) -> ())?)
 		player:GetAttributeChangedSignal("Relics"):Connect(refresh)
 		player:GetAttributeChangedSignal("VIP"):Connect(refresh)
 		player:GetAttributeChangedSignal("Border"):Connect(refresh)
+		player:GetAttributeChangedSignal("Operator"):Connect(refresh)
 		refresh()
 	end
 	for _, player in Players:GetPlayers() do

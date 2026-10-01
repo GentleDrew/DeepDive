@@ -20,6 +20,9 @@ local PlayerList = {}
 
 local C = Theme.C
 local VIP_CROWN = utf8.char(0x1F451) .. " "
+local OPERATOR_BADGE = utf8.char(0x1F6E1) .. utf8.char(0xFE0F) .. " " -- shield
+local OPERATOR_RED = Color3.fromRGB(255, 70, 70)
+local OPERATOR_RED_DARK = Color3.fromRGB(120, 10, 10)
 local WIDTH = 392
 local ROW = 38
 -- Columns start after the avatar (42); the trade button (34) follows the relic column and the
@@ -172,12 +175,17 @@ function PlayerList.init(onTrade: ((Player) -> ())?)
 		for index, player in list do
 			local row = rows[player] or makeRow(player)
 			row.frame.LayoutOrder = 10 + index
-			row.name.Text = (if player:GetAttribute("VIP") == true then VIP_CROWN else "") .. player.DisplayName
+			-- Operator (the game's creator) outranks VIP and nameplate borders.
+			local operator = player:GetAttribute("Operator") == true
+			local vip = player:GetAttribute("VIP") == true
+			row.name.Text = (if operator then OPERATOR_BADGE elseif vip then VIP_CROWN else "") .. player.DisplayName
+			row.name.TextColor3 = if operator then OPERATOR_RED elseif player == localPlayer then Color3.fromRGB(255, 232, 140) else C.White
 			local border = player:GetAttribute("Border")
 			local nameStroke = row.name:FindFirstChildOfClass("UIStroke")
 			if nameStroke then
-				nameStroke.Color = if border == "Gold"
-					then Color3.fromRGB(255, 214, 90)
+				nameStroke.Color = if operator
+					then OPERATOR_RED_DARK
+					elseif border == "Gold" then Color3.fromRGB(255, 214, 90)
 					elseif border == "Silver" then Color3.fromRGB(210, 220, 232)
 					else Color3.fromRGB(21, 38, 58)
 			end
@@ -195,6 +203,7 @@ function PlayerList.init(onTrade: ((Player) -> ())?)
 		player:GetAttributeChangedSignal("Relics"):Connect(refresh)
 		player:GetAttributeChangedSignal("VIP"):Connect(refresh)
 		player:GetAttributeChangedSignal("Border"):Connect(refresh)
+		player:GetAttributeChangedSignal("Operator"):Connect(refresh)
 		refresh()
 	end
 	for _, player in Players:GetPlayers() do

@@ -17,6 +17,11 @@ Config.SchemaVersion = 1
 -- default is English, which renders entirely in FredokaOne.
 Config.DefaultLanguage = "en"
 
+-- The game's creator (game.CreatorId, when solo-owned) always gets the red "Operator" nameplate
+-- and aura, free. Add other UserIds here too (co-developers, moderators) if you want them to have
+-- it as well, or if the experience is group-owned (game.CreatorId is then the group, not a player).
+Config.AdminUserIds = {}
+
 Config.WorldCount = 20
 Config.WorldSpacing = 1000
 Config.WorldColumns = 5
@@ -41,7 +46,9 @@ Config.Dive = {
 	SubmergeDepth = 3.2, -- root depth at which a dive starts (head fully under)
 	SurfaceDepth = 2.4, -- root depth above which the diver counts as surfaced
 	SurfaceHold = 0.25,
-	ActiveRelics = 20,
+	ActiveRelics = 30, -- matches World/WorldBuilder's POINT_COUNT: every scanned spot holds a relic
+	RelicRespawnMin = 6, -- a collected point refills with a fresh relic after this many seconds...
+	RelicRespawnMax = 14, -- ...up to this many, as long as you're still diving the same layout
 	CollectTolerance = 10,
 	CollectPerSecond = 14,
 	BlackoutKeep = 0.5,

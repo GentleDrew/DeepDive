@@ -290,7 +290,7 @@ local function entry(row: Row, board: string, rank: number): Entry
 	local name = names[row.u] or { n = "Diver", d = "Diver" }
 	local h = holds[row.u] or { w = 0, m = 0 }
 	local e: Entry = { u = row.u, n = name.n, d = name.d, v = row.v, t = Rankings.tier(h) }
-	if rank <= 3 then
+	if rank <= 3 and board ~= "alltime" then
 		local nextTier, seconds = Rankings.nextTier(holdsOf(row.u), board)
 		e.nt = nextTier
 		e.ns = if seconds then math.ceil(seconds) else nil

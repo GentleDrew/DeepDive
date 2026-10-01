@@ -6991,7 +6991,7 @@ local function entry(row: Row, board: string, rank: number): Entry
 	local name = names[row.u] or { n = "Diver", d = "Diver" }
 	local h = holds[row.u] or { w = 0, m = 0 }
 	local e: Entry = { u = row.u, n = name.n, d = name.d, v = row.v, t = Rankings.tier(h) }
-	if rank <= 3 then
+	if rank <= 3 and board ~= "alltime" then
 		local nextTier, seconds = Rankings.nextTier(holdsOf(row.u), board)
 		e.nt = nextTier
 		e.ns = if seconds then math.ceil(seconds) else nil
@@ -7794,7 +7794,7 @@ return RewardService
             <string name="Source"><![CDATA[--!strict
 -- Podium statues behind each dock's ranking board: gold / silver / bronze podiums carry the top
 -- 3 of every board (weekly, monthly, all-time) at once, and each client shows only the board it
--- picked on the dock board. The Director stands big beside the gear shop kiosk. Avatars are built from
+-- picked on the dock board. The Director stands big behind the egg stand. Avatars are built from
 -- each player's own outfit and prebuilt as soon as the rankings name them. Only worlds someone is
 -- in get statues. Names and tier progress are podium attributes; clients draw the labels.
 
@@ -7890,6 +7890,30 @@ local function groundY(position: Vector3, fallback: number, ignore: Instance): n
 	return if hit then hit.Position.Y else fallback
 end
 
+-- Removes decoration (rocks, plants, props) standing inside a box around `at` (half-widths along
+-- its X and Z axes), so nothing pokes through the podiums.
+local function clearDecor(worldFolder: Instance, at: CFrame, halfX: number, halfZ: number)
+	local decor = worldFolder:FindFirstChild("Decor")
+	if not decor then
+		return
+	end
+	for _, item in decor:GetChildren() do
+		local position: Vector3? = nil
+		if item:IsA("Model") then
+			local box = item:GetBoundingBox()
+			position = box.Position
+		elseif item:IsA("BasePart") then
+			position = item.Position
+		end
+		if position then
+			local localPoint = at:PointToObjectSpace(position)
+			if math.abs(localPoint.X) <= halfX and math.abs(localPoint.Z) <= halfZ then
+				item:Destroy()
+			end
+		end
+	end
+end
+
 local function podium(folder: Folder, at: CFrame, size: number, height: number, color: Color3, name: string): BasePart
 	local base = Build.block(folder, V(size, height, size), at * cf(0, height / 2, 0), color)
 	base.Name = name
@@ -7915,25 +7939,28 @@ local function build(world: number): WorldStatues?
 	folder.Parent = built.folder
 
 	local boardAt = CFrame.lookAt(o + V(dock.board.X, info.landY, dock.board.Z), spawnFlat)
-	-- Left of the board as you face it from the spawn, and a little further back.
-	local center = boardAt * cf(24, 0, 10)
+	-- One straight row left of the board (as you face it from the spawn), a little further back:
+	-- every podium shares the row's facing and base height.
+	local center = (boardAt * cf(24, 0, 10)).Position
+	local baseY = groundY(center, info.landY, built.folder)
+	local row = CFrame.lookAt(V(center.X, baseY, center.Z), V(spawnFlat.X, baseY, spawnFlat.Z))
+	clearDecor(built.folder, row, 14, 8)
 	local slots: { [number]: Slot } = {}
 	for _, spec in PODIUMS do
-		local spot = center * cf(spec.x, 0, 0)
-		local y = groundY(spot.Position, info.landY, built.folder)
-		local at = CFrame.lookAt(V(spot.X, y, spot.Z), V(spawnFlat.X, y, spawnFlat.Z))
-		local part = podium(folder, at, 6, spec.height, spec.color, "Podium" .. spec.rank)
+		local part = podium(folder, row * cf(spec.x, 0, 0), 6, spec.height, spec.color, "Podium" .. spec.rank)
 		part:SetAttribute("Rank", spec.rank)
 		slots[spec.rank] = { podium = part, users = {}, scale = PODIUM_SCALE }
 	end
 
-	-- The Director, big, beside the gear shop kiosk with room to walk between them.
+	-- The Director, big, behind the egg stand (on the far side from the spawn).
 	local director: Slot? = nil
 	if Operators.list()[1] then
-		local kiosk = CFrame.lookAt(o + V(dock.kiosk.X, info.landY, dock.kiosk.Z), spawnFlat)
-		local spot = (kiosk * cf(-17, 0, 2)).Position
+		local egg = o + V(dock.egg.X, info.landY, dock.egg.Z)
+		local away = V(egg.X - spawnFlat.X, 0, egg.Z - spawnFlat.Z).Unit
+		local spot = egg + away * 13
 		local y = groundY(spot, info.landY, built.folder)
 		local at = CFrame.lookAt(V(spot.X, y, spot.Z), V(spawnFlat.X, y, spawnFlat.Z))
+		clearDecor(built.folder, at, 7, 7)
 		local part = podium(folder, at, 9, 3, Color3.fromRGB(24, 18, 22), "DirectorPodium")
 		local glow = Build.block(folder, V(9.4, 0.3, 9.4), at * cf(0, 0.15, 0), Color3.fromRGB(255, 40, 60))
 		glow.Material = Enum.Material.Neon
@@ -12747,6 +12774,10 @@ function Statues.init(app: any)
 		})
 		user.TextTruncate = Enum.TextTruncate.AtEnd
 
+		-- Tier countdowns matter on the weekly and monthly boards only (they are what earn tiers).
+		if not director and Board.selected == "alltime" then
+			return
+		end
 		local title = Instance.new("BillboardGui")
 		title.Name = "StatueTitle"
 		title.Size = UDim2.fromOffset(260, 40)

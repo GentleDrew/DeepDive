@@ -1033,8 +1033,32 @@ if not quick then
 			check(BoardModule.selected == "weekly", "the left arrow should step back to weekly")
 		end
 		local statues = folder and folder:FindFirstChild("Statues")
+		-- The podiums stand in one straight row, clear of decoration and dock structures.
+		local p1 = statues and statues:FindFirstChild("Podium1")
+		local p2 = statues and statues:FindFirstChild("Podium2")
+		local p3 = statues and statues:FindFirstChild("Podium3")
+		if p1 and p2 and p3 then
+			local row = p1.CFrame
+			for _, other in { p2, p3 } do
+				local offset = row:PointToObjectSpace(other.CFrame.Position)
+				check(math.abs(offset.Z) < 0.01 and other.CFrame.LookVector:Dot(row.LookVector) > 0.999, "podiums should stand in one straight row")
+				check(math.abs((other.CFrame.Y - other.Size.Y / 2) - (p1.CFrame.Y - p1.Size.Y / 2)) < 0.01, "podiums should share a base height")
+			end
+			for _, child in folder:GetDescendants() do
+				local readable, position = pcall(function()
+					return child.CFrame.Position
+				end)
+				if readable and child:IsA("BasePart") and not child:IsDescendantOf(statues) and child.Transparency < 1 then
+					for _, pod in { p1, p2, p3 } do
+						local localPoint = pod.CFrame:PointToObjectSpace(position)
+						local inside = math.abs(localPoint.X) < pod.Size.X / 2 + 0.5 and math.abs(localPoint.Z) < pod.Size.Z / 2 + 0.5
+						check(not inside, "something overlaps a statue podium: " .. child:GetFullName())
+					end
+				end
+			end
+		end
 		local director = statues and statues:FindFirstChild("DirectorPodium")
-		check(director ~= nil, "Director podium missing beside the gear shop")
+		check(director ~= nil, "Director podium missing behind the egg stand")
 		local board = game:GetService("HttpService"):JSONDecode(rawGame:GetService("ReplicatedStorage").LeaderboardData.Value)
 		for _, name in { "weekly", "monthly", "alltime" } do
 			check(board.boards[name] ~= nil and #board.boards[name].entries > 0, name .. " board empty")

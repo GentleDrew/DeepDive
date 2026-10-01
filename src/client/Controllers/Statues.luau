@@ -111,6 +111,10 @@ function Statues.init(app: any)
 		})
 		user.TextTruncate = Enum.TextTruncate.AtEnd
 
+		-- Tier countdowns matter on the weekly and monthly boards only (they are what earn tiers).
+		if not director and Board.selected == "alltime" then
+			return
+		end
 		local title = Instance.new("BillboardGui")
 		title.Name = "StatueTitle"
 		title.Size = UDim2.fromOffset(260, 40)

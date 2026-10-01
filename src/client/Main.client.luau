@@ -32,12 +32,16 @@ local ProfilePanel = require(UI.Panels.Profile)
 local PlayerList = require(UI.PlayerList)
 local Trade = require(UI.Trade)
 local PetsPanel = require(UI.Panels.Pets)
+local RewardsPanel = require(UI.Panels.Rewards)
+local Offers = require(UI.Offers)
+local RightRail = require(UI.RightRail)
 local SettingsPanel = require(UI.Panels.Settings)
 local ShopPanel = require(UI.Panels.Shop)
 local GearPanel = require(UI.Panels.Gear)
 local WorldsPanel = require(UI.Panels.Worlds)
 
 local ClientNet = require(script.Parent.ClientNet)
+local Music = require(script.Parent.Music)
 local Sfx = require(script.Parent.Sfx)
 local State = require(script.Parent.State)
 local WorldFx = require(script.Parent.WorldFx)
@@ -76,6 +80,10 @@ State.languageChanged:Connect(function(lang)
 end)
 State.settingsChanged:Connect(function(settings)
 	Sfx.setEnabled(settings.sfx)
+	Music.setEnabled(settings.music)
+end)
+Music.follow(function()
+	return State.dive.inWater
 end)
 
 Kit.clickSound = function()
@@ -140,6 +148,8 @@ function app.setSetting(key: string, value: any)
 			State.languageChanged:Fire(value)
 		elseif key == "sfx" then
 			Sfx.setEnabled(value)
+		elseif key == "music" then
+			Music.setEnabled(value)
 		end
 	end
 	ClientNet.invoke("Setting", { key = key, value = value })
@@ -163,6 +173,9 @@ end
 function app.openProfile()
 	panels.profile.open()
 end
+function app.openRewards()
+	panels.rewards.open()
+end
 function app.sell()
 	local result = ClientNet.invoke("Sell")
 	if not result.ok and result.err and result.err ~= "err.busy" then
@@ -177,6 +190,9 @@ function app.unlockWorld(world: number, go: boolean?): boolean
 		Sfx.play("Error")
 		if result.err then
 			Toasts.show(Strings.get(result.err), "bad", utf8.char(0x1F512))
+		end
+		if result.err == "notEnough" then
+			Offers.trigger("unlock")
 		end
 		return false
 	end
@@ -212,6 +228,8 @@ panels.shop = ShopPanel.new(app)
 panels.settings = SettingsPanel.new(app)
 panels.egg = EggPanel.new(app)
 panels.profile = ProfilePanel.new(app)
+panels.rewards = RewardsPanel.new(app)
+RewardsPanel.track(app)
 for _, panel in panels do
 	local previous = panel.onClose
 	panel.onClose = function()
@@ -222,6 +240,11 @@ for _, panel in panels do
 	end
 end
 
+app.Offers = Offers
+Offers.init(app, function()
+	return RightRail.starterLeft(app)
+end)
+RightRail.init(app, app.openRewards)
 Dive.init(app)
 Ambience.init(app)
 Swim.init(app)
@@ -263,9 +286,20 @@ task.wait(0.4)
 Screens.hideLoading()
 
 local profile = State.profile
+if profile then
+	Music.setEnabled(profile.settings.music)
+end
 if profile and profile.stats.dives > 0 then
 	task.delay(1.2, function()
 		Toasts.show(Strings.get("welcomeBack"), "blue", utf8.char(0x1F30A))
+	end)
+end
+-- Returning divers (past the tutorial) see today's login reward straight away.
+if profile and profile.tutorial >= 7 and RewardsPanel.anyReady(app) then
+	task.delay(2.5, function()
+		if not app.isUiBlocking() then
+			app.openRewards()
+		end
 	end)
 end
 

@@ -32,6 +32,8 @@ Remotes.Actions = {
 	Sell = true,
 	UnlockWorld = true,
 	RedeemCode = true,
+	ClaimDaily = true,
+	ClaimPlaytime = true,
 }
 
 return Remotes

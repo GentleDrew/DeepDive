@@ -49,6 +49,9 @@ function Dive.init(app: any)
 			app.Sfx.play("Blackout")
 			app.Screens.blackout()
 			State.diveChanged:Fire()
+			task.delay(4, function()
+				app.Offers.trigger("blackout")
+			end)
 		end
 	end)
 
@@ -87,6 +90,7 @@ function Dive.init(app: any)
 		end
 		if payload.capacity and payload.cargo >= payload.capacity then
 			app.Toasts.show(Strings.get("backpackFull"), "blue", utf8.char(0x1F392))
+			app.Offers.trigger("full")
 		end
 	end)
 

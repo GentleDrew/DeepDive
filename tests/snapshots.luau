@@ -278,5 +278,25 @@ Engine.invokeAs(friend, "TradeReady", { ready = true })
 Engine.wait(0.9)
 snap("16_trade")
 
+ClientNet.invoke("TradeCancel")
+Engine.wait(0.5)
+local Panels = Engine.client.module("Players.Diver.PlayerScripts.Client.UI.Panel")
+Panels.closeAll()
+session.profile.play.seconds = 16 * 60
+Sync.profile(session)
+Engine.wait(0.5)
+local rewardsButton = Engine.gui():FindFirstChild("RewardsButton", true)
+if rewardsButton then
+	Engine.click(rewardsButton)
+	Engine.wait(0.8)
+	snap("17_panel_rewards")
+	Panels.closeAll()
+	Engine.wait(0.5)
+end
+local Offers = Engine.client.module("Players.Diver.PlayerScripts.Client.UI.Offers")
+Offers.trigger("double")
+Engine.wait(0.8)
+snap("18_offer")
+
 Engine.running = false
 process.exit(0)

@@ -228,10 +228,50 @@ Config.SoundIds = {
 	Error = "",
 	Blackout = "",
 }
--- Optional background music (rbxassetid://...). Empty = silent.
-Config.Music = {
-	Surface = "",
-	Underwater = "",
+-- Background music: these play shuffled, back to back, for as long as the Music setting is on.
+Config.MusicTracks = {
+	"rbxassetid://90752425060144", -- Puyaya
+	"rbxassetid://113701688350194", -- Mayaya
+	"rbxassetid://100256195388464", -- Heyaya
+	"rbxassetid://134192020743091", -- Kayaya
+	"rbxassetid://97032382875419", -- Kuyaya
 }
+Config.MusicVolume = 0.35
+Config.MusicUnderwaterVolume = 0.2
+
+-- Daily login rewards: one claim per UTC day. Claiming the day after your last claim moves the
+-- streak on; missing a day starts it over at Day 1. After Day 7 the cycle repeats.
+-- `dives` scales coins to the player's progress (Economy.productCoins, like the coin packs).
+Config.DailyRewards = {
+	{ dives = 0.5 },
+	{ dives = 0.75 },
+	{ dives = 1, enchants = 1 },
+	{ dives = 1.25 },
+	{ dives = 1.5 },
+	{ dives = 2 },
+	{ dives = 3, enchants = 2, boostMinutes = 15 },
+}
+
+-- Playtime rewards: each tier unlocks after that many minutes played today (UTC) and can be
+-- claimed once per day.
+Config.PlaytimeRewards = {
+	{ minutes = 5, dives = 0.3 },
+	{ minutes = 15, dives = 0.5 },
+	{ minutes = 30, dives = 0.8 },
+	{ minutes = 45, dives = 1, enchants = 1 },
+	{ minutes = 60, dives = 1.2 },
+	{ minutes = 90, dives = 1.5, boostMinutes = 10 },
+}
+
+-- The starter pack sits on the right of the HUD for this many hours after a player's first
+-- visit, with a real countdown. Afterwards it is still sold in the shop, just not advertised.
+Config.StarterOfferHours = 48
+
+-- Purchase offers (small pop-ups): never in the first minute, at most this often, each offer at
+-- most once per OfferRepeat, and at most OfferMaxPerSession per visit.
+Config.OfferFirstDelay = 180
+Config.OfferGap = 240
+Config.OfferRepeat = 900
+Config.OfferMaxPerSession = 6
 
 return Config

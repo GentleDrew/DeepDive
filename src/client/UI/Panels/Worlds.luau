@@ -232,6 +232,7 @@ function WorldsPanel.new(app: any): Panel.PanelApi
 						app.Sfx.play("Error")
 						Anim.shake(button, 6)
 						app.Toasts.show(Strings.get("notEnough"), "bad", utf8.char(0x1F512))
+						app.Offers.trigger("unlock")
 					elseif armed ~= index then
 						app.Sfx.play("Click")
 						armed = index

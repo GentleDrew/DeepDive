@@ -380,6 +380,17 @@ end)
 
 step("nameplates, player list, leaderboard", function()
 	local gui = Engine.gui()
+	-- New divers see the starter pack advertised bottom-right (only when it has a real id).
+	local starter = gui:FindFirstChild("StarterOffer", true)
+	check(starter ~= nil, "starter pack card missing from the HUD")
+	if starter and not mobile then
+		check(
+			Engine.waitFor(function()
+				return starter.Visible
+			end, 3, "starter card"),
+			"starter pack card should show for a new diver"
+		)
+	end
 	local plate = gui:FindFirstChild("DeepDiveNameplate")
 	check(plate ~= nil, "no nameplate above the diver")
 	local list = gui:FindFirstChild("PlayerList", true)
@@ -895,6 +906,41 @@ if not quick then
 		check(not bogus.ok and bogus.err == "codeInvalid", "an unknown code must fail")
 		local empty = invoke("RedeemCode", { code = "" })
 		check(not empty.ok, "an empty code must fail")
+	end)
+
+	step("rewards, offers and music", function()
+		local Panel = Engine.client.module("Players.Diver.PlayerScripts.Client.UI.Panel")
+		local s = session()
+		local before = s.profile.coins
+		local daily = invoke("ClaimDaily")
+		check(daily.ok and daily.data and daily.data.day == 1, "ClaimDaily failed: " .. tostring(daily.err))
+		check(s.profile.coins > before, "the daily reward should pay coins")
+		local again = invoke("ClaimDaily")
+		check(not again.ok and again.err == "rewardClaimed", "the daily reward must not pay twice in a day")
+		local early = invoke("ClaimPlaytime", { tier = 2 })
+		check(not early.ok and early.err == "rewardLocked", "playtime tier 2 must be locked this early")
+		s.profile.play.seconds = Config.PlaytimeRewards[2].minutes * 60 + 1
+		local tier = invoke("ClaimPlaytime", { tier = 2 })
+		check(tier.ok, "ClaimPlaytime tier 2 failed: " .. tostring(tier.err))
+		local twice = invoke("ClaimPlaytime", { tier = 2 })
+		check(not twice.ok and twice.err == "rewardClaimed", "a playtime tier must not pay twice")
+		check(not invoke("ClaimPlaytime", { tier = "x" }).ok, "a junk playtime tier must be rejected")
+
+		local button = Engine.gui():FindFirstChild("RewardsButton", true)
+		check(button ~= nil, "Rewards button missing from the HUD")
+		if button then
+			Engine.click(button)
+			Engine.wait(0.6)
+			local panelApi = Panel.current()
+			check(panelApi ~= nil and panelApi.root:FindFirstChild("ClaimDaily", true) ~= nil, "Rewards panel did not open from the HUD")
+			Engine.wait(1.2)
+			Panel.closeAll()
+			Engine.wait(0.4)
+		end
+		check(Engine.gui():FindFirstChild("Offer", true) ~= nil, "offer card missing")
+
+		local track = rawGame:GetService("SoundService"):FindFirstChild("Track")
+		check(track ~= nil and string.find(track.SoundId, "rbxassetid://", 1, true) ~= nil, "background music is not playing")
 	end)
 
 	step("profile panel and playtime", function()

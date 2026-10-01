@@ -12,6 +12,7 @@ local Economy = require(Shared.Economy)
 local Layout = require(Shared.Layout)
 local Profile = require(Shared.Profile)
 local Remotes = require(Shared.Remotes)
+local Rewards = require(Shared.Rewards)
 local Worlds = require(Shared.Data.Worlds)
 
 local Net = require(script.Parent.Parent.Net)
@@ -270,6 +271,7 @@ end
 
 local function tick(session: Session, dt: number)
 	session.profile.stats.playtime += dt
+	Rewards.addPlaytime(session.profile, dt, os.time())
 	if session.mode == "Travel" or session.mode == "Rescue" then
 		return
 	end

@@ -79,6 +79,15 @@ function Format.seconds(s: number): string
 	return string.format("%d:%02d", s // 60, s % 60)
 end
 
+-- Countdown clock: "h:mm:ss" (or "m:ss" under an hour).
+function Format.clock(s: number): string
+	s = math.max(0, math.floor(s))
+	if s < 3600 then
+		return string.format("%d:%02d", s // 60, s % 60)
+	end
+	return string.format("%d:%02d:%02d", s // 3600, (s % 3600) // 60, s % 60)
+end
+
 -- Days since the Unix epoch (UTC) into a proleptic-Gregorian y/m/d triple. Portable, pure-Luau
 -- date math (Howard Hinnant's algorithm) since Roblox's os library has no os.date.
 local function civilFromDays(z: number): (number, number, number)

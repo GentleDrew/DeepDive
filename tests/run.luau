@@ -6,6 +6,7 @@ local Config = require("../src/shared/Config")
 local Economy = require("../src/shared/Economy")
 local Format = require("../src/shared/Format")
 local Profile = require("../src/shared/Profile")
+local Rewards = require("../src/shared/Rewards")
 local Strings = require("../src/shared/Strings")
 local Worlds = require("../src/shared/Data/Worlds")
 local Gear = require("../src/shared/Data/Gear")
@@ -352,6 +353,70 @@ do
 	end
 	check(#Profile.reconcile({ backpack = huge }, 5).backpack == Config.BackpackHardCap, "backpack capped")
 	check(#Profile.new(5).backpack == 0, "new profiles start with an empty backpack")
+end
+
+section("Daily and playtime rewards")
+do
+	local DAY = 86400
+	local t0 = 20000 * DAY + 3600
+	local p = Profile.new(t0)
+	p.unlocked = 3
+
+	-- Daily streak: first claim is Day 1, a second claim the same day is refused.
+	local ok, err, reward, day = Rewards.claimDaily(p, t0)
+	check(ok and day == 1 and reward and reward.coins == Economy.productCoins(Config.DailyRewards[1].dives, 3), "first daily claim pays Day 1")
+	check(p.coins == (reward and reward.coins or -1) and p.lifetime == p.coins, "daily coins land in coins and lifetime")
+	ok, err = Rewards.claimDaily(p, t0 + 600)
+	check(not ok and err == "rewardClaimed", "second daily claim on the same day is refused")
+	check(not Rewards.daily(p, t0 + 600).claimable, "daily reads as claimed for the rest of the day")
+
+	-- Consecutive days walk the cycle; Day 7 carries enchants and a boost; Day 8 wraps to Day 1.
+	local enchantsBefore = p.enchants
+	for n = 2, 7 do
+		ok, _, _, day = Rewards.claimDaily(p, t0 + (n - 1) * DAY)
+		check(ok and day == n, "consecutive claim " .. n .. " pays Day " .. n)
+	end
+	check(p.daily.streak == 7, "streak counts seven days")
+	check(p.enchants == enchantsBefore + Config.DailyRewards[3].enchants + Config.DailyRewards[7].enchants, "Day 3 and Day 7 enchants granted")
+	check(p.boostUntil == t0 + 6 * DAY + Config.DailyRewards[7].boostMinutes * 60, "Day 7 starts a coin boost")
+	ok, _, _, day = Rewards.claimDaily(p, t0 + 7 * DAY)
+	check(ok and day == 1 and p.daily.streak == 8, "the cycle wraps to Day 1 after Day 7 (streak keeps counting)")
+
+	-- Missing a day starts over.
+	local state = Rewards.daily(p, t0 + 9 * DAY)
+	check(state.claimable and state.day == 1 and state.streak == 1, "a missed day resets the streak to Day 1")
+
+	-- Boosts stack onto a running boost instead of replacing it.
+	local q = Profile.new(t0)
+	q.boostUntil = t0 + 600
+	Rewards.grant(q, { coins = 0, enchants = 0, boostMinutes = 10 }, t0)
+	check(q.boostUntil == t0 + 1200, "reward boost minutes stack onto a running boost")
+
+	-- Playtime tiers: locked until enough minutes today, claimable once, reset at UTC midnight.
+	local r = Profile.new(t0)
+	ok, err = Rewards.claimPlaytime(r, 1, t0)
+	check(not ok and err == "rewardLocked", "playtime tier 1 is locked at 0 minutes")
+	Rewards.addPlaytime(r, Config.PlaytimeRewards[1].minutes * 60, t0)
+	ok = Rewards.claimPlaytime(r, 1, t0)
+	check(ok, "playtime tier 1 claimable once its minutes are played")
+	ok, err = Rewards.claimPlaytime(r, 1, t0)
+	check(not ok and err == "rewardClaimed", "playtime tier 1 cannot be claimed twice in a day")
+	ok, err = Rewards.claimPlaytime(r, 2, t0)
+	check(not ok and err == "rewardLocked", "playtime tier 2 still locked")
+	ok, err = Rewards.claimPlaytime(r, 99, t0)
+	check(not ok and err == "err.generic", "unknown playtime tier is rejected")
+	Rewards.addPlaytime(r, 30, t0 + DAY)
+	check(r.play.seconds == 30 and #r.play.claimed == 0, "playtime and claimed tiers reset on a new UTC day")
+	check(Rewards.untilReset(t0) == DAY - 3600, "reset countdown reaches the next UTC midnight")
+
+	-- Save repair keeps valid reward progress and drops junk.
+	local repaired =
+		Profile.reconcile({ daily = { last = 20001, streak = 4 }, play = { day = 20001, seconds = 900, claimed = { 1, 1, 2, 99, "x" } } }, t0)
+	check(repaired.daily.last == 20001 and repaired.daily.streak == 4, "daily progress survives repair")
+	check(repaired.play.seconds == 900 and #repaired.play.claimed == 2, "playtime claims are deduplicated and validated")
+	local junk = Profile.reconcile({ daily = "bad", play = { seconds = -5, claimed = "nope" } }, t0)
+	check(junk.daily.last == 0 and junk.play.seconds == 0 and #junk.play.claimed == 0, "corrupt reward data falls back to defaults")
+	check(#Config.MusicTracks > 0, "background music tracks configured")
 end
 
 section("Pacing simulation (efficient player)")

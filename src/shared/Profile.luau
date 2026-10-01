@@ -24,6 +24,8 @@ export type Data = {
 	redeemed: { [string]: boolean }, -- promo codes already claimed (see Config.PromoCodes)
 	boostUntil: number, -- os.time() the TimedBoost product's 2x coins expires (0 = inactive)
 	starterPackGranted: boolean, -- guards the one-time StarterPack pass grant
+	daily: { last: number, streak: number }, -- UTC day index of the last daily claim (see Rewards)
+	play: { day: number, seconds: number, claimed: { number } }, -- today's playtime + claimed tiers
 	pets: { [string]: PetEntry },
 	equipped: { string },
 	petSeq: number,
@@ -51,6 +53,8 @@ function Profile.new(now: number): Data
 		redeemed = {},
 		boostUntil = 0,
 		starterPackGranted = false,
+		daily = { last = 0, streak = 0 },
+		play = { day = 0, seconds = 0, claimed = {} },
 		pets = {},
 		equipped = {},
 		petSeq = 0,
@@ -148,6 +152,21 @@ function Profile.reconcile(raw: any, now: number): Data
 	end
 	data.boostUntil = number(raw.boostUntil, 0, 0)
 	data.starterPackGranted = bool(raw.starterPackGranted, false)
+	if type(raw.daily) == "table" then
+		data.daily.last = math.floor(number(raw.daily.last, 0, 0))
+		data.daily.streak = math.floor(number(raw.daily.streak, 0, 0))
+	end
+	if type(raw.play) == "table" then
+		data.play.day = math.floor(number(raw.play.day, 0, 0))
+		data.play.seconds = number(raw.play.seconds, 0, 0)
+		if type(raw.play.claimed) == "table" then
+			for _, tier in raw.play.claimed do
+				if type(tier) == "number" and Config.PlaytimeRewards[tier] and not table.find(data.play.claimed, tier) then
+					table.insert(data.play.claimed, tier)
+				end
+			end
+		end
+	end
 	local count = 0
 	if type(raw.pets) == "table" then
 		for id, entry in raw.pets do

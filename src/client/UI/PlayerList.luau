@@ -15,14 +15,15 @@ local Anim = require(script.Parent.Anim)
 local Gui = require(script.Parent.Gui)
 local Kit = require(script.Parent.Kit)
 local Theme = require(script.Parent.Theme)
+local TierStyle = require(script.Parent.TierStyle)
 
 local PlayerList = {}
 
 local C = Theme.C
 local VIP_CROWN = utf8.char(0x1F451) .. " "
 local OPERATOR_BADGE = utf8.char(0x1F6E1) .. utf8.char(0xFE0F) .. " " -- shield
-local OPERATOR_RED = Color3.fromRGB(255, 70, 70)
 local OPERATOR_RED_DARK = Color3.fromRGB(120, 10, 10)
+local TAG_W = 40
 local WIDTH = 392
 local ROW = 38
 -- Columns start after the avatar (42); the trade button (34) follows the relic column and the
@@ -30,9 +31,10 @@ local ROW = 38
 local NAME_W, COIN_W, RELIC_W = 136, 80, 62
 local TRADE_X = 42 + NAME_W + COIN_W + RELIC_W + 6
 
-type Row = { frame: Frame, name: TextLabel, coins: TextLabel, relics: TextLabel, stroke: UIStroke, glow: UIStroke? }
+type Row = { frame: Frame, name: TextLabel, tag: TextLabel, coins: TextLabel, relics: TextLabel, stroke: UIStroke, director: boolean }
 
-function PlayerList.init(onTrade: ((Player) -> ())?)
+-- `rankOf` gives a UserId's weekly ranking position (shown as "#N" after the name).
+function PlayerList.init(onTrade: ((Player) -> ())?, rankOf: ((number) -> number?)?)
 	pcall(function()
 		StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.PlayerList, false)
 	end)
@@ -130,9 +132,17 @@ function PlayerList.init(onTrade: ((Player) -> ())?)
 		Kit.stroke(avatar, C.Outline, 2)
 		local name, coins, relics = columns(frame, 17, nil, 2)
 		name.TextTruncate = Enum.TextTruncate.AtEnd
-		if player == localPlayer then
-			name.TextColor3 = Color3.fromRGB(255, 232, 140)
-		end
+		name.Size = UDim2.fromOffset(NAME_W - TAG_W - 2, ROW)
+		local tag = Kit.text({
+			Name = "RankTag",
+			Text = "",
+			TextSize = 15,
+			Stroke = 2,
+			Size = UDim2.fromOffset(TAG_W, ROW),
+			Position = UDim2.fromOffset(42 + NAME_W - TAG_W, 0),
+			XAlign = Enum.TextXAlignment.Left,
+			Parent = frame,
+		})
 		coins.TextColor3 = Color3.fromRGB(255, 222, 92)
 		relics.TextColor3 = Color3.fromRGB(150, 230, 255)
 		if player ~= localPlayer and onTrade then
@@ -153,7 +163,7 @@ function PlayerList.init(onTrade: ((Player) -> ())?)
 				end,
 			})
 		end
-		local row = { frame = frame, name = name, coins = coins, relics = relics, stroke = stroke, glow = nil }
+		local row = { frame = frame, name = name, tag = tag, coins = coins, relics = relics, stroke = stroke, director = false }
 		rows[player] = row
 		return row
 	end
@@ -175,16 +185,29 @@ function PlayerList.init(onTrade: ((Player) -> ())?)
 		for index, player in list do
 			local row = rows[player] or makeRow(player)
 			row.frame.LayoutOrder = 10 + index
-			-- Operator (the game's creator) outranks VIP and nameplate borders.
+			-- The Director (Operator) outranks tiers, VIP and nameplate borders.
 			local operator = player:GetAttribute("Operator") == true
 			local vip = player:GetAttribute("VIP") == true
 			row.name.Text = (if operator then OPERATOR_BADGE elseif vip then VIP_CROWN else "") .. player.DisplayName
-			row.name.TextColor3 = if operator then OPERATOR_RED elseif player == localPlayer then Color3.fromRGB(255, 232, 140) else C.White
-			if operator and not row.glow then
-				row.glow = Kit.neon(row.name, OPERATOR_RED)
-			elseif not operator and row.glow then
-				row.glow:Destroy()
-				row.glow = nil
+			if operator and not row.director then
+				-- Black row, red chroma border, red chroma name and a "DIR" tag.
+				row.director = true
+				row.frame.BackgroundColor3 = Color3.fromRGB(6, 6, 8)
+				row.frame.BackgroundTransparency = 0.1
+				row.stroke.Enabled = true
+				row.stroke.Thickness = 2.5
+				row.stroke.Color = Color3.new(1, 1, 1)
+				TierStyle.director(row.stroke)
+				TierStyle.director(row.name)
+				row.tag.Text = "DIR"
+				TierStyle.director(row.tag)
+			end
+			if not operator then
+				local fallback = if player == localPlayer then Color3.fromRGB(255, 232, 140) else C.White
+				TierStyle.apply(row.name, tonumber(player:GetAttribute("Tier")) or 0, fallback)
+				local rank = if rankOf then rankOf(player.UserId) else nil
+				row.tag.Text = if rank then "#" .. rank else ""
+				row.tag.TextColor3 = if rank and rank <= 3 then Color3.fromRGB(255, 214, 90) else Color3.fromRGB(190, 214, 240)
 			end
 			local border = player:GetAttribute("Border")
 			local nameStroke = row.name:FindFirstChildOfClass("UIStroke")
@@ -210,6 +233,7 @@ function PlayerList.init(onTrade: ((Player) -> ())?)
 		player:GetAttributeChangedSignal("VIP"):Connect(refresh)
 		player:GetAttributeChangedSignal("Border"):Connect(refresh)
 		player:GetAttributeChangedSignal("Operator"):Connect(refresh)
+		player:GetAttributeChangedSignal("Tier"):Connect(refresh)
 		refresh()
 	end
 	for _, player in Players:GetPlayers() do

@@ -34,6 +34,7 @@ Remotes.Actions = {
 	RedeemCode = true,
 	ClaimDaily = true,
 	ClaimPlaytime = true,
+	ClaimGroup = true,
 }
 
 return Remotes

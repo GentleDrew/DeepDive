@@ -3,10 +3,12 @@
 -- (backpack full, blacked out, short on coins) plus an occasional rotating suggestion. Rate
 -- limited by Config.OfferGap / OfferRepeat / OfferMaxPerSession, and never over an open panel.
 
+local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Config = require(Shared.Config)
+local Economy = require(Shared.Economy)
 local Format = require(Shared.Format)
 local Strings = require(Shared.Strings)
 
@@ -31,10 +33,13 @@ local REASONS: { [string]: { key: string, line: string, icon: string } } = {
 	double = { key = "DoubleCoins", line = "offer.double", icon = utf8.char(0x1F4B0) },
 	boost = { key = "TimedBoost", line = "offer.boost", icon = utf8.char(0x26A1) },
 	eggs = { key = "LuckyEggs", line = "offer.eggs", icon = utf8.char(0x1F340) },
+	rank = { key = "TimedBoost", line = "offer.rank", icon = utf8.char(0x1F4C8) },
+	rankDouble = { key = "DoubleCoins", line = "offer.rank", icon = utf8.char(0x1F3C6) },
+	coins = { key = "CoinsMedium", line = "offer.coins", icon = utf8.char(0x1F4B0) },
 }
-local ROTATION = { "starter", "double", "boost", "eggs" }
 
-function Offers.init(app: any, starterLeft: () -> number?)
+-- `rankOf` gives a UserId's weekly ranking position (nil when outside the top 10).
+function Offers.init(app: any, starterLeft: () -> number?, rankOf: (number) -> number?)
 	local card = Kit.new("Frame", {
 		Name = "Offer",
 		BackgroundColor3 = Color3.new(1, 1, 1),
@@ -217,18 +222,43 @@ function Offers.init(app: any, starterLeft: () -> number?)
 		return true
 	end
 
-	-- The occasional suggestion: first after OfferFirstDelay, then roughly every OfferGap.
+	-- What this diver is missing right now, most relevant first: the starter pack, a push up the
+	-- weekly ranking, the next world's fee, pets, then general boosts.
+	local function needs(): { string }
+		local list = { "starter" }
+		local profile = app.State.profile
+		if not profile then
+			return list
+		end
+		local rank = rankOf(Players.LocalPlayer.UserId)
+		if not rank or rank > 3 then
+			table.insert(list, "rank")
+			table.insert(list, "rankDouble")
+		end
+		local nextWorld = profile.unlocked + 1
+		local current = profile.worlds[tostring(profile.unlocked)]
+		if nextWorld <= Config.WorldCount and current and current.cleared and profile.coins < Economy.unlockCost(nextWorld) then
+			table.insert(list, "unlock")
+		end
+		if next(profile.pets) == nil then
+			table.insert(list, "eggs")
+		end
+		for _, reason in { "full", "double", "boost", "eggs", "coins" } do
+			table.insert(list, reason)
+		end
+		return list
+	end
+
+	-- A suggestion every OfferGap (3 minutes), the first after OfferFirstDelay.
 	task.spawn(function()
-		local index = 0
 		task.wait(Config.OfferFirstDelay)
 		while true do
-			for _ = 1, #ROTATION do
-				index = index % #ROTATION + 1
-				if Offers.trigger(ROTATION[index]) then
+			for _, reason in needs() do
+				if Offers.trigger(reason) then
 					break
 				end
 			end
-			task.wait(Config.OfferGap + math.random(0, 60))
+			task.wait(Config.OfferGap)
 		end
 	end)
 end

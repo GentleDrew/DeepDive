@@ -79,6 +79,27 @@ function Kit.neon(gui: GuiObject, color: Color3): UIStroke
 	return glow
 end
 
+-- Animated "chroma" colour sweep: a looping gradient sliding across `parent` (a text label,
+-- frame or UIStroke). Text and strokes take the gradient's colours directly, so labels should use
+-- a white TextColor3.
+function Kit.chroma(parent: Instance, colors: { Color3 }, seconds: number?): UIGradient
+	local keypoints = {}
+	local count = #colors
+	for i = 0, count do
+		table.insert(keypoints, ColorSequenceKeypoint.new(i / count, colors[i % count + 1]))
+	end
+	local gradient = Kit.new("UIGradient", {
+		Name = "Chroma",
+		Color = ColorSequence.new(keypoints),
+		Offset = Vector2.new(-0.5, 0),
+		Parent = parent,
+	}) :: UIGradient
+	TweenService:Create(gradient, TweenInfo.new(seconds or 2.4, Enum.EasingStyle.Linear, Enum.EasingDirection.InOut, -1, true), {
+		Offset = Vector2.new(0.5, 0),
+	}):Play()
+	return gradient
+end
+
 function Kit.gradient(gui: GuiObject, top: Color3, bottom: Color3, rotation: number?): UIGradient
 	return Kit.new("UIGradient", { Color = ColorSequence.new(top, bottom), Rotation = rotation or 90, Parent = gui })
 end

@@ -4,6 +4,7 @@
 local MarketplaceService = game:GetService("MarketplaceService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local UserInputService = game:GetService("UserInputService")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Config = require(Shared.Config)
@@ -100,6 +101,29 @@ function PetsPanel.new(app: any): Panel.PanelApi
 		Size = UDim2.new(1, -330, 0, 80),
 		Position = UDim2.fromOffset(0, 220),
 		Parent = body,
+	})
+
+	-- Drag a card onto the bin to delete it (locked pets are refused by the server).
+	local trash = Kit.new("Frame", {
+		Name = "TrashZone",
+		BackgroundColor3 = C.Red,
+		BackgroundTransparency = 0.1,
+		Size = UDim2.fromOffset(260, 70),
+		Position = UDim2.new(0.5, -165, 1, -14),
+		AnchorPoint = Vector2.new(0.5, 1),
+		Visible = false,
+		ZIndex = 30,
+		Parent = body,
+	}) :: Frame
+	Kit.corner(trash, 18)
+	local trashStroke = Kit.stroke(trash, C.White, 3)
+	local trashLabel = Kit.text({
+		Text = "",
+		TextSize = 22,
+		Size = UDim2.fromScale(1, 1),
+		ZIndex = 31,
+		StrokeColor = C.RedDark,
+		Parent = trash,
 	})
 
 	-- Detail -------------------------------------------------------------------------------------
@@ -415,6 +439,139 @@ function PetsPanel.new(app: any): Panel.PanelApi
 		refreshDetail()
 	end
 
+	local dragging: { id: string, ghost: GuiObject, input: InputObject }? = nil
+	local justDragged = false
+
+	local function overTrash(position: Vector3): boolean
+		local at, size = trash.AbsolutePosition, trash.AbsoluteSize
+		return position.X >= at.X and position.X <= at.X + size.X and position.Y >= at.Y and position.Y <= at.Y + size.Y
+	end
+
+	local function moveGhost(position: Vector3)
+		local current = dragging
+		if not current then
+			return
+		end
+		local canvas = app.Gui.panels
+		current.ghost.Position =
+			UDim2.fromOffset((position.X - canvas.AbsolutePosition.X) / app.Gui.scale, (position.Y - canvas.AbsolutePosition.Y) / app.Gui.scale)
+		local hot = overTrash(position)
+		trash.BackgroundColor3 = if hot then C.RedDark else C.Red
+		trashStroke.Thickness = if hot then 5 else 3
+	end
+
+	local function startDrag(id: string, frame: TextButton, input: InputObject)
+		if dragging then
+			return
+		end
+		local ghost = frame:Clone() :: GuiObject
+		ghost.Name = "DragGhost"
+		ghost.Size = UDim2.fromOffset(92, 110)
+		ghost.AnchorPoint = Vector2.new(0.5, 0.5)
+		ghost.ZIndex = 60
+		ghost.Parent = app.Gui.panels
+		dragging = { id = id, ghost = ghost, input = input }
+		grid.ScrollingEnabled = false
+		trash.Visible = true
+		trashLabel.Text = utf8.char(0x1F5D1) .. "  " .. Strings.get("dropToDelete")
+		app.Sfx.play("Click")
+		moveGhost(input.Position)
+	end
+
+	local function endDrag(position: Vector3?)
+		local current = dragging
+		if not current then
+			return
+		end
+		dragging = nil
+		current.ghost:Destroy()
+		grid.ScrollingEnabled = true
+		trash.Visible = false
+		justDragged = true
+		task.delay(0.1, function()
+			justDragged = false
+		end)
+		if position and overTrash(position) then
+			local profile = app.State.profile
+			local pet = profile and profile.pets[current.id]
+			if pet and pet.l then
+				app.Sfx.play("Error")
+				app.Toasts.show(Strings.get("petLocked"), "bad", utf8.char(0x1F512))
+				return
+			end
+			local result = app.Net.invoke("DeletePet", { id = current.id })
+			if result.ok then
+				app.Sfx.play("Sell")
+				app.Toasts.show(Strings.get("petDeleted"), "info", utf8.char(0x1F5D1))
+				if selected == current.id then
+					selected = nil
+				end
+			else
+				app.Sfx.play("Error")
+				app.Toasts.show(Strings.get(result.err or "err.generic"), "bad")
+			end
+		end
+	end
+
+	UserInputService.InputChanged:Connect(function(input: InputObject)
+		local current = dragging
+		if current and (input == current.input or input.UserInputType == Enum.UserInputType.MouseMovement) then
+			moveGhost(input.Position)
+		end
+	end)
+	UserInputService.InputEnded:Connect(function(input: InputObject)
+		local current = dragging
+		if
+			current
+			and (input == current.input or input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch)
+		then
+			endDrag(input.Position)
+		end
+	end)
+
+	-- Mouse: drag once the pointer moves a little. Touch: press and hold (so swipes still scroll).
+	local function hookDrag(id: string, frame: TextButton)
+		frame.InputBegan:Connect(function(input: InputObject)
+			local mouse = input.UserInputType == Enum.UserInputType.MouseButton1
+			if not mouse and input.UserInputType ~= Enum.UserInputType.Touch then
+				return
+			end
+			local origin = input.Position
+			local released = false
+			local moved: RBXScriptConnection? = nil
+			local ended: RBXScriptConnection? = nil
+			local function cleanup()
+				released = true
+				if moved then
+					moved:Disconnect()
+				end
+				if ended then
+					ended:Disconnect()
+				end
+			end
+			ended = UserInputService.InputEnded:Connect(function(other: InputObject)
+				if other == input or (mouse and other.UserInputType == Enum.UserInputType.MouseButton1) then
+					cleanup()
+				end
+			end)
+			if mouse then
+				moved = UserInputService.InputChanged:Connect(function(other: InputObject)
+					if other.UserInputType == Enum.UserInputType.MouseMovement and (other.Position - origin).Magnitude > 10 then
+						cleanup()
+						startDrag(id, frame, input)
+					end
+				end)
+			else
+				task.delay(0.35, function()
+					if not released and (input.Position - origin).Magnitude < 14 then
+						cleanup()
+						startDrag(id, frame, input)
+					end
+				end)
+			end
+		end)
+	end
+
 	local function buildCard(id: string, key: string, mutations: { string }?, order: number): TextButton
 		local data = Worlds.pets[key]
 		local rarity = Config.Rarities[data.rarity]
@@ -495,10 +652,14 @@ function PetsPanel.new(app: any): Panel.PanelApi
 			view.setSpin(false)
 		end)
 		frame.Activated:Connect(function()
+			if justDragged then
+				return
+			end
 			app.Sfx.play("Click")
 			select(id)
 			Anim.pop(frame, 0.1)
 		end)
+		hookDrag(id, frame)
 		cards[id] = { frame = frame, view = view, key = key, look = key .. table.concat(mutations or {}, ",") }
 		return frame
 	end

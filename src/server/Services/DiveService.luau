@@ -430,7 +430,7 @@ local function onHazard(player: Player, index: any)
 		return
 	end
 	session.lastHazard = now
-	session.oxygen = math.max(0, session.oxygen - Config.Dive.HazardPenalty)
+	session.oxygen = math.max(0, session.oxygen - session.oxygenMax * Config.Dive.HazardPenalty)
 	Net.push(player, "oxygen", { value = session.oxygen, max = session.oxygenMax, hit = true })
 end
 

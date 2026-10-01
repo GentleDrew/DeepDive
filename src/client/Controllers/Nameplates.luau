@@ -8,6 +8,8 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Format = require(Shared.Format)
 
+local TierStyle = require(script.Parent.Parent.UI.TierStyle)
+
 local Nameplates = {}
 
 type Plate = {
@@ -120,7 +122,11 @@ function Nameplates.init(app: any)
 			local operator = player:GetAttribute("Operator") == true
 			local vip = player:GetAttribute("VIP") == true
 			name.Text = (if operator then OPERATOR_BADGE elseif vip then VIP_CROWN else "") .. player.DisplayName
-			name.TextColor3 = if operator then OPERATOR_RED elseif isMe then Color3.fromRGB(255, 236, 150) else Color3.new(1, 1, 1)
+			if operator then
+				TierStyle.apply(name, 0, OPERATOR_RED)
+			else
+				TierStyle.apply(name, tonumber(player:GetAttribute("Tier")) or 0, if isMe then Color3.fromRGB(255, 236, 150) else Color3.new(1, 1, 1))
+			end
 			local wantKind = if operator then "operator" elseif vip then "vip" else nil
 			if wantKind ~= plate.auraKind then
 				if plate.aura then
@@ -151,6 +157,7 @@ function Nameplates.init(app: any)
 		end
 		refreshVip()
 		table.insert(plate.connections, player:GetAttributeChangedSignal("Operator"):Connect(refreshVip))
+		table.insert(plate.connections, player:GetAttributeChangedSignal("Tier"):Connect(refreshVip))
 		table.insert(plate.connections, player:GetAttributeChangedSignal("VIP"):Connect(refreshVip))
 		table.insert(plate.connections, player:GetAttributeChangedSignal("Border"):Connect(refreshVip))
 		plates[player] = plate

@@ -20,6 +20,7 @@ export type Pet = {
 	accent: string,
 	style: string?,
 	secret: boolean,
+	limited: boolean?, -- sold for Robux, never hatched
 }
 export type Sky = {
 	time: number,
@@ -1179,6 +1180,20 @@ for index, raw in RAW do
 	table.insert(Worlds.list, world)
 	Worlds.byKey[world.key] = world
 end
+
+-- Limited pets: sold for Robux (Config.Products), never found in eggs.
+Worlds.pets.godShark = {
+	key = "godShark",
+	world = #Worlds.list,
+	rarity = 6,
+	name = { en = "GOD Shark", ko = "갓 샤크" },
+	shape = "godshark",
+	color = "#8fd8ff",
+	accent = "#ffffff",
+	style = nil,
+	secret = false,
+	limited = true,
+}
 
 function Worlds.get(index: number): World
 	return Worlds.list[math.clamp(math.floor(index), 1, #Worlds.list)]

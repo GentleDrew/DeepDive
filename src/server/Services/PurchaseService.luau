@@ -9,6 +9,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Config = require(Shared.Config)
 local Economy = require(Shared.Economy)
+local Profile = require(Shared.Profile)
 local Gear = require(Shared.Data.Gear)
 local Worlds = require(Shared.Data.Worlds)
 
@@ -65,7 +66,7 @@ end
 -- A pet that does not yet have every mutation (GuaranteedMutation's target).
 local function pickMutationTarget(profile: any): string?
 	for id, pet in profile.pets do
-		if #(pet.m or {}) < #Config.Mutations then
+		if Economy.regularMutations(pet.m) < #Config.Mutations then
 			return id
 		end
 	end
@@ -174,6 +175,12 @@ local function applySpecialProduct(session: Sessions.Session, product: any): (((
 				{ n = room }
 		end
 		return fallbackCoins(profile, 150), "grantedCoins", { n = 150 }
+	elseif product.godShark then
+		local id = Profile.addPet(profile, "godShark", { "GOD" })
+		Sessions.publishPets(session)
+		return function()
+			profile.pets[id] = nil
+		end, "grantedGodShark", nil
 	end
 	return nil, nil, nil
 end

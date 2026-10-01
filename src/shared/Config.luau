@@ -52,7 +52,7 @@ Config.Dive = {
 	CollectTolerance = 10,
 	CollectPerSecond = 14,
 	BlackoutKeep = 0.5,
-	HazardPenalty = 5,
+	HazardPenalty = 0.2, -- each hazard hit costs this share of your max oxygen
 	HazardImmunity = 1.25,
 	OxygenWarn = 0.35,
 	OxygenDanger = 0.18,
@@ -101,6 +101,9 @@ Config.RadiusBase = 74
 Config.RadiusStep = 1.6
 Config.PressureBase = 0.010 -- extra oxygen drain per stud of depth
 Config.PressureStep = 0.0016
+-- Extra pressure that grows with the square of the world number: barely felt early, it makes the
+-- last worlds hard even with top gear (dive, farm a while, surface).
+Config.PressureCurve = 0.00006
 Config.ClearRewardRelics = 60 -- first-clear bonus = this many common relics of that world
 -- Clearing a world makes the next one available; unlocking world N costs a fee worth
 -- UnlockClears[N] treasure goals of income (see Economy.unlockCost). The curve keeps the first
@@ -133,6 +136,13 @@ Config.Mutations = {
 	{ key = "Lava", mult = 5, weight = 7.5, color = "#ff5a1f" },
 	{ key = "GOAT", mult = 6, weight = 2.5, color = "#ff4fd8" },
 }
+-- Limited mutations come pre-applied on limited pets only: never rolled by enchanting, but they
+-- add their multiplier like any other and the pet can still be enchanted with the regular ones.
+Config.LimitedMutations = {
+	{ key = "GOD", mult = 8, weight = 0, color = "#fff06a" },
+}
+-- Limited pets (Robux only, never in eggs) are this many times the last world's secret pet.
+Config.LimitedPetFactor = 1.5
 -- Enchant price = this x the egg price of the pet's world, by mutations already on the pet.
 Config.MutationCost = { 3, 8, 20, 50, 120 }
 
@@ -185,6 +195,8 @@ Config.Products = {
 	{ key = "GuaranteedMutation", id = 3715543343, price = 129, dives = 0, enchants = 0, guaranteedMutation = true, color = "#9a5cff" },
 	-- Tops your backpack off with common relics of your current world, up to capacity.
 	{ key = "BackpackFill", id = 3715543440, price = 49, dives = 0, enchants = 0, backpackFill = true, color = "#ffb13f" },
+	-- Limited GOD Shark: fill in the developer product id from the Creator Dashboard.
+	{ key = "GodShark", id = 0, price = 399, dives = 0, enchants = 0, godShark = true, color = "#7fd3ff" },
 }
 Config.TimedBoostMinutes = 45
 Config.TimedBoostMultiplier = 2
@@ -267,11 +279,33 @@ Config.PlaytimeRewards = {
 -- visit, with a real countdown. Afterwards it is still sold in the shop, just not advertised.
 Config.StarterOfferHours = 48
 
--- Purchase offers (small pop-ups): never in the first minute, at most this often, each offer at
--- most once per OfferRepeat, and at most OfferMaxPerSession per visit.
-Config.OfferFirstDelay = 180
-Config.OfferGap = 240
-Config.OfferRepeat = 900
-Config.OfferMaxPerSession = 6
+-- Purchase offers (small pop-ups): one every OfferGap seconds (the first after OfferFirstDelay),
+-- picked by what the diver is missing; the same item at most once per OfferRepeat.
+Config.OfferFirstDelay = 90
+Config.OfferGap = 180
+Config.OfferRepeat = 540
+Config.OfferMaxPerSession = 60
+
+-- The community group players are invited to join (0 = the group that owns the experience).
+-- Joining pays a one-time reward worth GroupRewardDives of coin packs plus enchants.
+Config.GroupId = 0
+Config.GroupRewardDives = 3
+Config.GroupRewardEnchants = 1
+
+-- Ranking tiers: earned by holding a top-3 spot on a ranking board for a total number of hours
+-- (tiers 1-6 on the weekly board, 7-8 on the monthly board). Earned tiers are permanent and show
+-- as the diver's name colour. Red is reserved for the Director (Operator).
+Config.Tiers = {
+	{ hours = 10, board = "weekly", color = "#5ee6a8" },
+	{ hours = 24, board = "weekly", color = "#4fd8ff" },
+	{ hours = 72, board = "weekly", color = "#4f86ff" },
+	{ hours = 100, board = "weekly", color = "#a66bff" },
+	{ hours = 120, board = "weekly", color = "#ff6fd1" },
+	{ hours = 140, board = "weekly", color = "#ffa73f" },
+	{ hours = 14 * 24, board = "monthly", color = "#ffe14f" },
+	{ hours = 30 * 24, board = "monthly", color = "#e8f6ff", prismatic = true },
+}
+-- The ranking board (and the podium statues behind it) cycle weekly -> monthly -> all-time.
+Config.BoardRotateSeconds = 20
 
 return Config

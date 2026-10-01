@@ -7,6 +7,7 @@ local Economy = require("../src/shared/Economy")
 local Format = require("../src/shared/Format")
 local Profile = require("../src/shared/Profile")
 local Rewards = require("../src/shared/Rewards")
+local Rankings = require("../src/shared/Rankings")
 local Strings = require("../src/shared/Strings")
 local Worlds = require("../src/shared/Data/Worlds")
 local Gear = require("../src/shared/Data/Gear")
@@ -417,6 +418,88 @@ do
 	local junk = Profile.reconcile({ daily = "bad", play = { seconds = -5, claimed = "nope" } }, t0)
 	check(junk.daily.last == 0 and junk.play.seconds == 0 and #junk.play.claimed == 0, "corrupt reward data falls back to defaults")
 	check(#Config.MusicTracks > 0, "background music tracks configured")
+end
+
+section("Rankings and tiers")
+do
+	local DAY = 86400
+	-- 2026-09-28 was a Monday.
+	local monday = 20724 * DAY
+	check(Format.date(monday) == "2026.09.28", "test anchor is 2026-09-28")
+	check(Rankings.weekId(monday) == Rankings.weekId(monday + 6 * DAY + 86399), "a week runs Monday to Sunday")
+	check(Rankings.weekId(monday - 1) == Rankings.weekId(monday) - 1, "weeks roll over at Monday 00:00 UTC")
+	check(Rankings.untilReset("weekly", monday + 3600) == 7 * DAY - 3600, "weekly reset counts down to next Monday")
+	local octFirst = 20727 * DAY
+	check(Format.date(octFirst) == "2026.10.01", "test anchor is 2026-10-01")
+	check(Rankings.monthId(octFirst) == Rankings.monthId(octFirst - 1) + 1, "months roll over on the 1st")
+	check(Rankings.untilReset("monthly", octFirst - 3600) == 3600, "monthly reset counts down to the 1st")
+	check(Rankings.untilReset("alltime", monday) == nil, "the all-time board never resets")
+	check(table.find(Rankings.Boards, Rankings.boardAt(monday)) ~= nil, "a board is always on display")
+	check(Rankings.boardAt(monday) ~= Rankings.boardAt(monday + Config.BoardRotateSeconds), "boards rotate")
+
+	check(#Config.Tiers == 8, "eight tiers")
+	local weeklyTiers, monthlyTiers = 0, 0
+	for _, tier in Config.Tiers do
+		if tier.board == "weekly" then
+			weeklyTiers += 1
+		elseif tier.board == "monthly" then
+			monthlyTiers += 1
+		end
+	end
+	check(weeklyTiers == 6 and monthlyTiers == 2, "six weekly tiers and two monthly tiers")
+	local H = 3600
+	check(Rankings.tier({ w = 0, m = 0 }) == 0, "no hold time, no tier")
+	check(Rankings.tier({ w = 10 * H, m = 0 }) == 1, "10h in the weekly top 3 earns tier 1")
+	check(Rankings.tier({ w = 140 * H, m = 0 }) == 6, "140h earns tier 6")
+	check(Rankings.tier({ w = 140 * H, m = 14 * 24 * H }) == 7, "two weeks in the monthly top 3 earns tier 7")
+	check(Rankings.tier({ w = 140 * H, m = 30 * 24 * H }) == 8, "a month in the monthly top 3 earns tier 8")
+	local nextTier, left = Rankings.nextTier({ w = 4 * H, m = 0 }, "weekly")
+	check(nextTier == 1 and left == 6 * H, "next weekly tier and time left")
+	nextTier, left = Rankings.nextTier({ w = 200 * H, m = 0 }, "monthly")
+	check(nextTier == 7 and left == 14 * 24 * H, "next monthly tier and time left")
+	check(Rankings.nextTier({ w = 200 * H, m = 31 * 24 * H }, "alltime") == nil, "nothing left after tier 8")
+
+	local p = Profile.new(monday)
+	p.lifetime = 5000
+	local weekly, monthly = Rankings.roll(p, monday)
+	check(weekly == 0 and monthly == 0, "a new period starts from the current lifetime")
+	p.lifetime = 7500
+	weekly, monthly = Rankings.roll(p, monday + DAY)
+	check(weekly == 2500 and monthly == 2500, "period scores count coins earned since the period began")
+	weekly = Rankings.roll(p, monday + 7 * DAY)
+	check(weekly == 0, "the weekly score resets next week")
+end
+
+section("Limited GOD Shark")
+do
+	local shark = Worlds.pets.godShark
+	check(shark ~= nil and shark.limited == true, "GOD Shark is a limited pet")
+	local best = 0
+	for key, pet in Worlds.pets do
+		if not pet.limited then
+			best = math.max(best, Economy.petBoost(key))
+		end
+	end
+	check(Economy.petBoost("godShark") > best, "GOD Shark beats every hatchable pet (World 20 included)")
+	check(Economy.petPower("godShark", { "GOD" }) == Economy.petBoost("godShark") * 8, "the GOD enchant is x8")
+	check(Economy.petPower("godShark", { "GOD", "Gold" }) == Economy.petBoost("godShark") * 10, "GOD stacks with regular enchants")
+	check(Economy.mutateCost("godShark", { "GOD" }) ~= nil, "a GOD Shark can still be enchanted")
+	check(Economy.regularMutations({ "GOD", "Gold" }) == 1, "GOD does not count as a regular enchant")
+	for roll = 0, 0.99, 0.01 do
+		check(Economy.rollMutation({}, roll) ~= "GOD", "enchanting never rolls GOD")
+	end
+	for _, world in Worlds.list do
+		for _, entry in Economy.eggChances(world.index, true) do
+			check(entry.key ~= "godShark", "GOD Shark never hatches from an egg")
+		end
+	end
+	local p = Profile.new(0)
+	local id = Profile.addPet(p, "godShark", { "GOD" })
+	local repaired = Profile.reconcile(p, 0)
+	check(
+		repaired.pets[id] and repaired.pets[id].s == "godShark" and repaired.pets[id].m and repaired.pets[id].m[1] == "GOD",
+		"a GOD Shark survives save repair"
+	)
 end
 
 section("Pacing simulation (efficient player)")

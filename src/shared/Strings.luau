@@ -26,7 +26,7 @@ local EN: { [string]: string } = {
 	full = "FULL",
 	backpackFull = "Backpack full! Sell it at the Treasure Shop.",
 	lowOxygen = "Low oxygen! Swim up!",
-	hazardHit = "Ouch! -{n}s oxygen",
+	hazardHit = "Ouch! -{n}% oxygen",
 	depthRecord = "New depth record: {n}m!",
 	newRelic = "New relic discovered!",
 
@@ -82,6 +82,12 @@ local EN: { [string]: string } = {
 
 	hatch = "Hatch",
 	hatch3 = "Hatch x3",
+	hatch5 = "Hatch x5",
+	dropToDelete = "Drop to delete",
+	petDeleted = "Pet deleted",
+	petLocked = "This pet is locked",
+	autoHatch = "Auto Hatch",
+	autoStop = "Stop Auto Hatch",
 	chances = "Chances",
 	newPet = "NEW!",
 	inventoryFull = "Pet inventory full!",
@@ -175,9 +181,19 @@ local EN: { [string]: string } = {
 	colCoins = "Coins",
 	colRelics = "Relics",
 	boardTitle = "Top Divers",
-	boardGlobal = "All servers - lifetime coins",
-	boardLocal = "This server - lifetime coins",
 	boardEmpty = "No divers yet - be the first!",
+	["board.weekly"] = "Weekly Top Divers",
+	["board.monthly"] = "Monthly Top Divers",
+	["board.alltime"] = "All-Time Top Divers",
+	boardResets = "Coins earned · resets in {t}",
+	boardForever = "Lifetime coins",
+	boardLocalTag = "(this server)",
+	director = "DIRECTOR",
+	tierName = "Tier {n}",
+	tierNext = "Tier {n} in {t}",
+	tierMax = "Max tier!",
+	durDH = "{d}d {h}h",
+	durHM = "{h}h {m}m",
 	you = "You",
 	["gear.tank"] = "{theme} Tank",
 	["gear.pack"] = "{theme} Bag",
@@ -199,6 +215,7 @@ local EN: { [string]: string } = {
 	["mutation.Galaxy"] = "Galaxy",
 	["mutation.Lava"] = "Lava",
 	["mutation.GOAT"] = "GOAT",
+	["mutation.GOD"] = "GOD",
 	mutated = "{name} mutation! (x{x})",
 	mutateMax = "This pet has every mutation!",
 	noLucky = "No Lucky Enchants left",
@@ -275,6 +292,9 @@ local EN: { [string]: string } = {
 	["product.GuaranteedMutation.desc"] = "Adds your rarest missing mutation to a pet - no luck involved",
 	["product.BackpackFill"] = "Backpack Fill",
 	["product.BackpackFill.desc"] = "Tops your backpack off with treasure from your current world",
+	["product.GodShark"] = "GOD Shark (Limited)",
+	["product.GodShark.desc"] = "Beats every World 20 pet, comes with a x8 GOD enchant and can still be enchanted",
+	grantedGodShark = "The GOD Shark joined your team!",
 	rewardsTitle = "Rewards",
 	dailyTitle = "Daily Login",
 	dailyStreak = "Streak: {n} days",
@@ -299,6 +319,13 @@ local EN: { [string]: string } = {
 	["offer.double"] = "Every sale worth double!",
 	["offer.boost"] = "Supercharge this session!",
 	["offer.eggs"] = "Better luck on every egg!",
+	["offer.rank"] = "Climb the weekly ranking!",
+	groupButton = "Group",
+	inviteButton = "Invite",
+	groupReward = "Joined the group! +{n} coins",
+	notInGroup = "Join the group first, then tap again for your reward",
+	groupThanks = "Thanks for being in our group!",
+	["offer.coins"] = "Short on coins?",
 	["grantedUnlock"] = "World {n} unlocked!",
 	["grantedCoins"] = "+{n} Coins!",
 	["grantedBoost"] = "2x coins for {n} minutes!",
@@ -328,7 +355,7 @@ local KO: { [string]: string } = {
 	full = "가득",
 	backpackFull = "가방이 가득 찼어요! 보물 상점에서 팔아요.",
 	lowOxygen = "산소 부족! 올라가세요!",
-	hazardHit = "아야! 산소 -{n}초",
+	hazardHit = "아야! 산소 -{n}%",
 	depthRecord = "최고 수심 경신: {n}m!",
 	newRelic = "새 유물 발견!",
 
@@ -384,6 +411,12 @@ local KO: { [string]: string } = {
 
 	hatch = "부화",
 	hatch3 = "3번 부화",
+	hatch5 = "5번 부화",
+	dropToDelete = "놓으면 삭제",
+	petDeleted = "펫을 삭제했어요",
+	petLocked = "잠긴 펫이에요",
+	autoHatch = "자동 부화",
+	autoStop = "자동 부화 멈추기",
 	chances = "확률",
 	newPet = "NEW!",
 	inventoryFull = "펫 가방이 가득 찼어요!",
@@ -477,9 +510,19 @@ local KO: { [string]: string } = {
 	colCoins = "코인",
 	colRelics = "유물",
 	boardTitle = "최고의 다이버",
-	boardGlobal = "전체 서버 - 누적 코인",
-	boardLocal = "이 서버 - 누적 코인",
 	boardEmpty = "아직 기록이 없어요 - 첫 주인공이 되세요!",
+	["board.weekly"] = "주간 랭킹",
+	["board.monthly"] = "월간 랭킹",
+	["board.alltime"] = "영구 랭킹",
+	boardResets = "획득 코인 · {t} 후 초기화",
+	boardForever = "누적 코인",
+	boardLocalTag = "(이 서버)",
+	director = "DIRECTOR",
+	tierName = "{n}등급",
+	tierNext = "{n}등급까지 {t}",
+	tierMax = "최고 등급 달성!",
+	durDH = "{d}일 {h}시간",
+	durHM = "{h}시간 {m}분",
 	you = "나",
 	["gear.tank"] = "{theme} 산소통",
 	["gear.pack"] = "{theme} 가방",
@@ -501,6 +544,7 @@ local KO: { [string]: string } = {
 	["mutation.Galaxy"] = "갤럭시",
 	["mutation.Lava"] = "용암",
 	["mutation.GOAT"] = "GOAT",
+	["mutation.GOD"] = "GOD",
 	mutated = "{name} 변이! (x{x})",
 	mutateMax = "모든 변이를 가진 펫이에요!",
 	noLucky = "행운 인첸트가 없어요",
@@ -577,6 +621,9 @@ local KO: { [string]: string } = {
 	["product.GuaranteedMutation.desc"] = "운 없이 가장 희귀한 변이를 펫에 확정으로 추가해요",
 	["product.BackpackFill"] = "가방 즉시 완충",
 	["product.BackpackFill.desc"] = "지금 있는 월드의 유물로 가방을 가득 채워요",
+	["product.GodShark"] = "갓 샤크 (한정판)",
+	["product.GodShark.desc"] = "월드 20 최강 펫보다 강하고, x8 GOD 인첸트가 기본으로 붙어 있어요. 추가 인첸트도 가능!",
+	grantedGodShark = "갓 샤크가 팀에 합류했어요!",
 	rewardsTitle = "보상",
 	dailyTitle = "출석 보상",
 	dailyStreak = "연속 출석 {n}일",
@@ -601,6 +648,13 @@ local KO: { [string]: string } = {
 	["offer.double"] = "모든 판매 금액 2배!",
 	["offer.boost"] = "이번 판을 폭주 모드로!",
 	["offer.eggs"] = "알 뽑기 운 UP!",
+	["offer.rank"] = "주간 랭킹을 올려보세요!",
+	groupButton = "그룹",
+	inviteButton = "초대",
+	groupReward = "그룹 가입 완료! +{n} 코인",
+	notInGroup = "그룹에 먼저 가입한 뒤 다시 눌러 보상을 받으세요",
+	groupThanks = "그룹에 함께해 줘서 고마워요!",
+	["offer.coins"] = "코인이 부족한가요?",
 	["grantedUnlock"] = "월드 {n} 해금!",
 	["grantedCoins"] = "코인 +{n}!",
 	["grantedBoost"] = "{n}분 동안 코인 2배!",
@@ -623,6 +677,16 @@ end
 function Strings.get(key: string, args: { [string]: any }?): string
 	local text = TABLES[Strings.language][key] or EN[key] or key
 	return Format.fill(text, args)
+end
+
+-- Long durations: "3d 4h" above a day, "5h 12m" below.
+function Strings.duration(seconds: number): string
+	local total = math.max(0, math.floor(seconds))
+	local days, hours, minutes = total // 86400, (total % 86400) // 3600, (total % 3600) // 60
+	if days > 0 then
+		return Strings.get("durDH", { d = days, h = hours })
+	end
+	return Strings.get("durHM", { h = hours, m = minutes })
 end
 
 function Strings.name(named: { en: string, ko: string }): string

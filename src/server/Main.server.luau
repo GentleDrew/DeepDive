@@ -8,6 +8,8 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Config = require(Shared.Config)
 local Layout = require(Shared.Layout)
+local Operators = require(Shared.Operators)
+local Profile = require(Shared.Profile)
 
 local Net = require(script.Parent.Net)
 local ProfileStore = require(script.Parent.ProfileStore)
@@ -21,6 +23,7 @@ local LeaderboardService = require(script.Parent.Services.LeaderboardService)
 local PetService = require(script.Parent.Services.PetService)
 local PurchaseService = require(script.Parent.Services.PurchaseService)
 local RewardService = require(script.Parent.Services.RewardService)
+local StatueService = require(script.Parent.Services.StatueService)
 local TradeService = require(script.Parent.Services.TradeService)
 
 Net.init()
@@ -37,6 +40,7 @@ ActionService.init()
 PurchaseService.init()
 RewardService.init()
 LeaderboardService.init()
+StatueService.init()
 
 local function spawnCharacter(player: Player)
 	if not player.Parent then
@@ -65,6 +69,21 @@ local function onCharacter(session: Sessions.Session, character: Model)
 	if Sessions.get(session.player) == session and session.player.Character == character then
 		GearService.dress(session)
 	end
+	-- Avatar appearance loads after spawn and swaps body parts (body packages), which breaks the
+	-- welds holding worn gear; dress again whenever a body part is replaced.
+	local pending = false
+	character.ChildAdded:Connect(function(child)
+		if not child:IsA("BasePart") or pending then
+			return
+		end
+		pending = true
+		task.delay(0.2, function()
+			pending = false
+			if Sessions.get(session.player) == session and session.player.Character == character then
+				GearService.dress(session)
+			end
+		end)
+	end)
 	humanoid.Died:Connect(function()
 		DiveService.onDied(session)
 		task.delay(2.5, function()
@@ -101,13 +120,22 @@ local function onPlayerAdded(player: Player)
 	PetService.clampEquipped(session)
 	player:SetAttribute("World", session.world)
 	-- Red nameplate + aura: the game's creator (or anyone listed in Config.AdminUserIds).
-	local isOperator = (player.UserId == game.CreatorId and game.CreatorType == Enum.CreatorType.User)
-		or table.find(Config.AdminUserIds, player.UserId) ~= nil
+	local isOperator = Operators.is(player.UserId)
 	player:SetAttribute("Operator", isOperator)
 	-- Operators always have every world open, so testing (relics, hazards, etc.) never waits on
 	-- grinding through the economy to unlock worlds the normal way.
 	if isOperator and profile.unlocked < Config.WorldCount then
 		profile.unlocked = Config.WorldCount
+	end
+	-- Directors always keep one limited GOD Shark.
+	if isOperator then
+		local hasShark = false
+		for _, pet in profile.pets do
+			hasShark = hasShark or pet.s == "godShark"
+		end
+		if not hasShark then
+			Profile.addPet(profile, "godShark", { "GOD" })
+		end
 	end
 	player.RespawnLocation = built.spawn
 	Sync.leaderstats(session)

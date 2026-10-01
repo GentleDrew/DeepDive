@@ -66,6 +66,24 @@ sound.Ended:Connect(function()
 	playNext()
 end)
 
+-- Watchdog: Ended is not guaranteed (e.g. a track that stops early), so a loaded track that has
+-- sat silent for a couple of seconds also moves the playlist on.
+task.spawn(function()
+	local silentFor = 0
+	while true do
+		task.wait(1)
+		if enabled and started and sound.IsLoaded and not sound.IsPlaying then
+			silentFor += 1
+			if silentFor >= 2 then
+				silentFor = 0
+				playNext()
+			end
+		else
+			silentFor = 0
+		end
+	end
+end)
+
 function Music.setEnabled(on: boolean)
 	if on == enabled and started then
 		return

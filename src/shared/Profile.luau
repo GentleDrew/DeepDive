@@ -24,8 +24,10 @@ export type Data = {
 	redeemed: { [string]: boolean }, -- promo codes already claimed (see Config.PromoCodes)
 	boostUntil: number, -- os.time() the TimedBoost product's 2x coins expires (0 = inactive)
 	starterPackGranted: boolean, -- guards the one-time StarterPack pass grant
+	groupRewarded: boolean, -- one-time reward for joining the community group
 	daily: { last: number, streak: number }, -- UTC day index of the last daily claim (see Rewards)
 	play: { day: number, seconds: number, claimed: { number } }, -- today's playtime + claimed tiers
+	period: { week: number, weekBase: number, month: number, monthBase: number }, -- lifetime at period start (see Rankings)
 	pets: { [string]: PetEntry },
 	equipped: { string },
 	petSeq: number,
@@ -53,8 +55,10 @@ function Profile.new(now: number): Data
 		redeemed = {},
 		boostUntil = 0,
 		starterPackGranted = false,
+		groupRewarded = false,
 		daily = { last = 0, streak = 0 },
 		play = { day = 0, seconds = 0, claimed = {} },
+		period = { week = 0, weekBase = 0, month = 0, monthBase = 0 },
 		pets = {},
 		equipped = {},
 		petSeq = 0,
@@ -152,9 +156,15 @@ function Profile.reconcile(raw: any, now: number): Data
 	end
 	data.boostUntil = number(raw.boostUntil, 0, 0)
 	data.starterPackGranted = bool(raw.starterPackGranted, false)
+	data.groupRewarded = bool(raw.groupRewarded, false)
 	if type(raw.daily) == "table" then
 		data.daily.last = math.floor(number(raw.daily.last, 0, 0))
 		data.daily.streak = math.floor(number(raw.daily.streak, 0, 0))
+	end
+	if type(raw.period) == "table" then
+		for key in data.period do
+			(data.period :: any)[key] = math.floor(number(raw.period[key], 0, 0))
+		end
 	end
 	if type(raw.play) == "table" then
 		data.play.day = math.floor(number(raw.play.day, 0, 0))
@@ -265,6 +275,16 @@ function Profile.progress(data: Data, world: number): WorldProgress
 		data.worlds[key] = entry
 	end
 	return entry
+end
+
+-- Adds a pet (optionally with mutations) and returns its id. Ignores the inventory cap: callers
+-- that grant paid pets must always deliver.
+function Profile.addPet(data: Data, key: string, mutations: { string }?): string
+	data.petSeq += 1
+	local id = "P" .. tostring(data.petSeq)
+	data.pets[id] = { s = key, l = false, m = if mutations then table.clone(mutations) else nil }
+	data.index[key] = true
+	return id
 end
 
 function Profile.petCount(data: Data): number

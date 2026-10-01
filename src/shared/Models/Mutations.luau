@@ -13,6 +13,9 @@ local RANK: { [string]: number } = {}
 for index, mutation in Config.Mutations do
 	RANK[mutation.key] = index
 end
+for index, mutation in Config.LimitedMutations do
+	RANK[mutation.key] = #Config.Mutations + index
+end
 
 -- Strongest mutation in a list (nil for none).
 function Mutations.top(list: { string }?): string?
@@ -29,9 +32,11 @@ function Mutations.top(list: { string }?): string?
 end
 
 function Mutations.color(key: string): Color3
-	for _, mutation in Config.Mutations do
-		if mutation.key == key then
-			return Color.hex(mutation.color)
+	for _, list in { Config.Mutations, Config.LimitedMutations } do
+		for _, mutation in list do
+			if mutation.key == key then
+				return Color.hex(mutation.color)
+			end
 		end
 	end
 	return Color3.new(1, 1, 1)
@@ -92,6 +97,11 @@ function Mutations.apply(model: Model, list: { string }?)
 			part.Color = Color.Rainbow[(index % #Color.Rainbow) + 1]
 			part.Material = if accent then Enum.Material.Neon else Enum.Material.Glass
 			part.Reflectance = 0.15
+		elseif top == "GOD" then
+			-- Keeps the pet's own colours; the trim turns to glowing light.
+			if accent then
+				part.Material = Enum.Material.Neon
+			end
 		end
 	end
 	local root = model.PrimaryPart
@@ -113,6 +123,9 @@ function Mutations.apply(model: Model, list: { string }?)
 	elseif top == "GOAT" then
 		emitter(root, Color3.fromRGB(255, 255, 255), 10, 0.5)
 		emitter(root, Color3.fromRGB(255, 90, 220), 6, 0.55)
+	elseif top == "GOD" then
+		emitter(root, Color3.fromRGB(255, 240, 120), 12, 0.5)
+		emitter(root, Color3.fromRGB(255, 255, 255), 8, 0.35)
 	end
 	model:SetAttribute("Mutation", top)
 end

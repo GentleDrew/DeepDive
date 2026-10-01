@@ -2537,6 +2537,55 @@ method("Players", "GetNameFromUserIdAsync", function(_, userId)
 	checkType(userId, "number", "GetNameFromUserIdAsync", "userId")
 	return "User" .. tostring(userId)
 end)
+-- A plain R15-ish dummy stands in for the avatar Roblox would build from the user's outfit.
+method("Players", "CreateHumanoidModelFromUserIdAsync", function(_, userId)
+	checkType(userId, "number", "CreateHumanoidModelFromUserIdAsync", "userId")
+	lunetask.wait(0.01)
+	local model = roblox.Instance.new("Model")
+	model.Name = "User" .. tostring(userId)
+	local function part(partName: string, size: Vector3, offset: Vector3)
+		local p = roblox.Instance.new("Part")
+		p.Name = partName
+		p.Size = size
+		p.CFrame = CFrame.new(offset)
+		p.Parent = model
+		return p
+	end
+	local root = part("HumanoidRootPart", Vector3.new(2, 2, 1), Vector3.zero)
+	part("UpperTorso", Vector3.new(2, 1.6, 1), Vector3.new(0, 0.4, 0))
+	part("Head", Vector3.new(1.2, 1.2, 1.2), Vector3.new(0, 1.8, 0))
+	part("LeftFoot", Vector3.new(0.8, 0.3, 1), Vector3.new(-0.5, -2.85, 0))
+	local humanoid = roblox.Instance.new("Humanoid")
+	humanoid.RigType = Enum.HumanoidRigType.R15
+	humanoid.Parent = model
+	model.PrimaryPart = root
+	return wrap(model)
+end)
+method("UserService", "GetUserInfosByUserIdsAsync", function(_, userIds)
+	checkType(userIds, "table", "GetUserInfosByUserIdsAsync", "userIds")
+	local out = {}
+	for _, id in userIds do
+		table.insert(out, { Id = id, Username = "User" .. tostring(id), DisplayName = "Diver" .. tostring(id), HasVerifiedBadge = false })
+	end
+	return out
+end)
+Engine.groupPrompts = {} :: { any }
+method("GroupService", "PromptJoinAsync", function(_, groupId)
+	checkType(groupId, "number", "PromptJoinAsync", "groupId")
+	table.insert(Engine.groupPrompts, groupId)
+	return nil
+end)
+method("GroupService", "GetGroupsAsync", function(_, userId)
+	checkType(userId, "number", "GetGroupsAsync", "userId")
+	return {}
+end)
+Engine.invitePrompts = 0
+method("SocialService", "PromptGameInvite", function()
+	Engine.invitePrompts += 1
+end)
+method("SocialService", "CanSendGameInviteAsync", function()
+	return true
+end)
 
 method("DataStoreService", "GetRequestBudgetForRequestType", function(_, requestType)
 	if typeof(requestType) ~= "EnumItem" or requestType.EnumType ~= Enum.DataStoreRequestType then

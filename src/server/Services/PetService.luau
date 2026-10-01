@@ -38,7 +38,7 @@ local function hatch(player: Player, payload: any): (boolean, string?, any)
 	end
 	local world = tonumber(payload.world)
 	local count = tonumber(payload.count)
-	if not world or not count or (count ~= 1 and count ~= 3) then
+	if not world or not count or (count ~= 1 and count ~= 3 and count ~= 5) then
 		return false, "err.generic"
 	end
 	world = math.floor(world)
@@ -210,7 +210,7 @@ local function mutate(player: Player, payload: any): (boolean, string?, any)
 		return false, "tradeBusy"
 	end
 	local list = pet.m or {}
-	if #list >= #Config.Mutations then
+	if Economy.regularMutations(list) >= #Config.Mutations then
 		return false, "mutateMax"
 	end
 	local key: string?

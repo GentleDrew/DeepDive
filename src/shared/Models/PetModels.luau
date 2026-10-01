@@ -243,6 +243,32 @@ SHAPES.shark = function(m, c1, c2)
 	end
 end
 
+-- Limited GOD Shark: a chubby baby shark with big eyes, a little smile and a golden halo.
+SHAPES.godshark = function(m, c1, c2)
+	local gold = Color3.fromRGB(255, 214, 72)
+	E(m, V(2.1, 1.9, 2.9), cf(0, 0, 0.1), c1)
+	E(m, V(1.75, 1.15, 2.4), cf(0, -0.42, -0.05), c2)
+	A(W(m, V(0.2, 0.9, 0.9), cf(0, 1.15, 0.35), c1))
+	for _, side in { -1, 1 } do
+		E(m, V(0.22, 0.55, 0.95), cf(side * 1.0, -0.45, -0.1) * ang(0, rad(side * 25), rad(side * 50)), c1)
+	end
+	A(W(m, V(0.2, 0.95, 0.85), cf(0, 0.38, 1.85) * ang(rad(-30), 0, 0), c1))
+	A(W(m, V(0.2, 0.6, 0.6), cf(0, -0.25, 1.8) * ang(rad(30), 0, 0) * ang(0, 0, math.pi), c1))
+	Build.eyes(m, CFrame.identity, 0.5, 0.22, -1.2, 0.72, 34)
+	E(m, V(0.5, 0.16, 0.2), cf(0, -0.32, -1.36), DARK)
+	for _, x in { -0.12, 0.12 } do
+		local tooth = W(m, V(0.1, 0.12, 0.08), cf(x, -0.27, -1.43) * ang(0, 0, math.pi), WHITE)
+		tooth:SetAttribute("Eye", true)
+	end
+	blush(m, 0.66, -0.12, -1.12, 0.36)
+	-- Halo of glowing beads.
+	for i = 0, 11 do
+		local a = i / 12 * math.pi * 2
+		A(B(m, 0.24, cf(math.cos(a) * 0.62, 1.55, 0.15 + math.sin(a) * 0.62), gold))
+	end
+	A(B(m, 0.26, cf(0, 0.55, -1.1), gold))
+end
+
 SHAPES.hammerhead = function(m, c1, c2)
 	SHAPES.shark(m, c1, c2)
 	E(m, V(2.5, 0.42, 0.85), cf(0, 0.1, -1.55), c1)

@@ -5,6 +5,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Format = require(Shared.Format)
+local Rankings = require(Shared.Rankings)
 
 local Net = require(script.Parent.Net)
 local ProfileStore = require(script.Parent.ProfileStore)
@@ -29,6 +30,9 @@ function Sync.stats(session: Sessions.Session)
 	player:SetAttribute("Coins", profile.coins)
 	player:SetAttribute("Relics", profile.stats.relics)
 	player:SetAttribute("Lifetime", profile.lifetime)
+	local weekly, monthly = Rankings.roll(profile, os.time())
+	player:SetAttribute("Weekly", weekly)
+	player:SetAttribute("Monthly", monthly)
 	local stats: Instance? = player:FindFirstChild("leaderstats")
 	if not stats then
 		local folder = Instance.new("Folder")

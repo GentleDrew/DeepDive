@@ -103,6 +103,11 @@ local function civilFromDays(z: number): (number, number, number)
 	return (if m <= 2 then y + 1 else y), m, d
 end
 
+-- Unix timestamp (seconds, UTC) -> year, month, day.
+function Format.ymd(timestamp: number): (number, number, number)
+	return civilFromDays(math.floor(timestamp / 86400))
+end
+
 -- Unix timestamp (seconds, UTC) -> "2026.09.24".
 function Format.date(timestamp: number): string
 	local days = math.floor(timestamp / 86400)

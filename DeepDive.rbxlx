@@ -216,7 +216,7 @@ Config.Dive = {
 	CollectTolerance = 10,
 	CollectPerSecond = 14,
 	BlackoutKeep = 0.5,
-	HazardPenalty = 5,
+	HazardPenalty = 0.2, -- each hazard hit costs this share of your max oxygen
 	HazardImmunity = 1.25,
 	OxygenWarn = 0.35,
 	OxygenDanger = 0.18,
@@ -265,6 +265,9 @@ Config.RadiusBase = 74
 Config.RadiusStep = 1.6
 Config.PressureBase = 0.010 -- extra oxygen drain per stud of depth
 Config.PressureStep = 0.0016
+-- Extra pressure that grows with the square of the world number: barely felt early, it makes the
+-- last worlds hard even with top gear (dive, farm a while, surface).
+Config.PressureCurve = 0.00006
 Config.ClearRewardRelics = 60 -- first-clear bonus = this many common relics of that world
 -- Clearing a world makes the next one available; unlocking world N costs a fee worth
 -- UnlockClears[N] treasure goals of income (see Economy.unlockCost). The curve keeps the first
@@ -297,6 +300,13 @@ Config.Mutations = {
 	{ key = "Lava", mult = 5, weight = 7.5, color = "#ff5a1f" },
 	{ key = "GOAT", mult = 6, weight = 2.5, color = "#ff4fd8" },
 }
+-- Limited mutations come pre-applied on limited pets only: never rolled by enchanting, but they
+-- add their multiplier like any other and the pet can still be enchanted with the regular ones.
+Config.LimitedMutations = {
+	{ key = "GOD", mult = 8, weight = 0, color = "#fff06a" },
+}
+-- Limited pets (Robux only, never in eggs) are this many times the last world's secret pet.
+Config.LimitedPetFactor = 1.5
 -- Enchant price = this x the egg price of the pet's world, by mutations already on the pet.
 Config.MutationCost = { 3, 8, 20, 50, 120 }
 
@@ -349,6 +359,8 @@ Config.Products = {
 	{ key = "GuaranteedMutation", id = 3715543343, price = 129, dives = 0, enchants = 0, guaranteedMutation = true, color = "#9a5cff" },
 	-- Tops your backpack off with common relics of your current world, up to capacity.
 	{ key = "BackpackFill", id = 3715543440, price = 49, dives = 0, enchants = 0, backpackFill = true, color = "#ffb13f" },
+	-- Limited GOD Shark: fill in the developer product id from the Creator Dashboard.
+	{ key = "GodShark", id = 0, price = 399, dives = 0, enchants = 0, godShark = true, color = "#7fd3ff" },
 }
 Config.TimedBoostMinutes = 45
 Config.TimedBoostMultiplier = 2
@@ -431,12 +443,34 @@ Config.PlaytimeRewards = {
 -- visit, with a real countdown. Afterwards it is still sold in the shop, just not advertised.
 Config.StarterOfferHours = 48
 
--- Purchase offers (small pop-ups): never in the first minute, at most this often, each offer at
--- most once per OfferRepeat, and at most OfferMaxPerSession per visit.
-Config.OfferFirstDelay = 180
-Config.OfferGap = 240
-Config.OfferRepeat = 900
-Config.OfferMaxPerSession = 6
+-- Purchase offers (small pop-ups): one every OfferGap seconds (the first after OfferFirstDelay),
+-- picked by what the diver is missing; the same item at most once per OfferRepeat.
+Config.OfferFirstDelay = 90
+Config.OfferGap = 180
+Config.OfferRepeat = 540
+Config.OfferMaxPerSession = 60
+
+-- The community group players are invited to join (0 = the group that owns the experience).
+-- Joining pays a one-time reward worth GroupRewardDives of coin packs plus enchants.
+Config.GroupId = 0
+Config.GroupRewardDives = 3
+Config.GroupRewardEnchants = 1
+
+-- Ranking tiers: earned by holding a top-3 spot on a ranking board for a total number of hours
+-- (tiers 1-6 on the weekly board, 7-8 on the monthly board). Earned tiers are permanent and show
+-- as the diver's name colour. Red is reserved for the Director (Operator).
+Config.Tiers = {
+	{ hours = 10, board = "weekly", color = "#5ee6a8" },
+	{ hours = 24, board = "weekly", color = "#4fd8ff" },
+	{ hours = 72, board = "weekly", color = "#4f86ff" },
+	{ hours = 100, board = "weekly", color = "#a66bff" },
+	{ hours = 120, board = "weekly", color = "#ff6fd1" },
+	{ hours = 140, board = "weekly", color = "#ffa73f" },
+	{ hours = 14 * 24, board = "monthly", color = "#ffe14f" },
+	{ hours = 30 * 24, board = "monthly", color = "#e8f6ff", prismatic = true },
+}
+-- The ranking board (and the podium statues behind it) cycle weekly -> monthly -> all-time.
+Config.BoardRotateSeconds = 20
 
 return Config
 ]]></string>
@@ -570,6 +604,7 @@ export type Pet = {
 	accent: string,
 	style: string?,
 	secret: boolean,
+	limited: boolean?, -- sold for Robux, never hatched
 }
 export type Sky = {
 	time: number,
@@ -1730,6 +1765,20 @@ for index, raw in RAW do
 	Worlds.byKey[world.key] = world
 end
 
+-- Limited pets: sold for Robux (Config.Products), never found in eggs.
+Worlds.pets.godShark = {
+	key = "godShark",
+	world = #Worlds.list,
+	rarity = 6,
+	name = { en = "GOD Shark", ko = "갓 샤크" },
+	shape = "godshark",
+	color = "#8fd8ff",
+	accent = "#ffffff",
+	style = nil,
+	secret = false,
+	limited = true,
+}
+
 function Worlds.get(index: number): World
 	return Worlds.list[math.clamp(math.floor(index), 1, #Worlds.list)]
 end
@@ -1816,11 +1865,15 @@ function Economy.petBoost(key: string): number
 	if not pet then
 		return 0
 	end
+	if pet.limited then
+		local top = Worlds.list[#Worlds.list].secret
+		return Config.LimitedPetFactor * (if top then Economy.petBoost(top.key) else 1)
+	end
 	return Config.PetBaseBoost * Config.PetWorldGrowth ^ (pet.world - 1) * Config.PetRarityFactor[pet.rarity]
 end
 
 function Economy.pressure(world: number): number
-	return Config.PressureBase + Config.PressureStep * (world - 1)
+	return Config.PressureBase + Config.PressureStep * (world - 1) + Config.PressureCurve * (world - 1) ^ 2
 end
 
 -- Oxygen seconds consumed per real second at a given depth (studs below the surface).
@@ -1908,7 +1961,21 @@ local MUTATIONS = {}
 for _, mutation in Config.Mutations do
 	MUTATIONS[mutation.key] = mutation
 end
+for _, mutation in Config.LimitedMutations do
+	MUTATIONS[mutation.key] = mutation
+end
 Economy.Mutations = MUTATIONS
+
+-- How many of the regular (enchantable) mutations a pet carries; limited ones do not count.
+function Economy.regularMutations(list: { string }?): number
+	local count = 0
+	for _, mutation in Config.Mutations do
+		if list and table.find(list, mutation.key) then
+			count += 1
+		end
+	end
+	return count
+end
 
 function Economy.mutationMultiplier(list: { string }?): number
 	if not list or #list == 0 then
@@ -1932,7 +1999,7 @@ end
 -- Price of the next enchant on a pet (nil once it carries every mutation).
 function Economy.mutateCost(key: string, mutations: { string }?): number?
 	local pet = Worlds.pets[key]
-	local count = if mutations then #mutations else 0
+	local count = Economy.regularMutations(mutations)
 	if not pet or count >= #Config.Mutations then
 		return nil
 	end
@@ -2172,6 +2239,11 @@ local function civilFromDays(z: number): (number, number, number)
 	local d = doy - (153 * mp + 2) // 5 + 1 -- [1, 31]
 	local m = if mp < 10 then mp + 3 else mp - 9 -- [1, 12]
 	return (if m <= 2 then y + 1 else y), m, d
+end
+
+-- Unix timestamp (seconds, UTC) -> year, month, day.
+function Format.ymd(timestamp: number): (number, number, number)
+	return civilFromDays(math.floor(timestamp / 86400))
 end
 
 -- Unix timestamp (seconds, UTC) -> "2026.09.24".
@@ -2776,6 +2848,9 @@ local RANK: { [string]: number } = {}
 for index, mutation in Config.Mutations do
 	RANK[mutation.key] = index
 end
+for index, mutation in Config.LimitedMutations do
+	RANK[mutation.key] = #Config.Mutations + index
+end
 
 -- Strongest mutation in a list (nil for none).
 function Mutations.top(list: { string }?): string?
@@ -2792,9 +2867,11 @@ function Mutations.top(list: { string }?): string?
 end
 
 function Mutations.color(key: string): Color3
-	for _, mutation in Config.Mutations do
-		if mutation.key == key then
-			return Color.hex(mutation.color)
+	for _, list in { Config.Mutations, Config.LimitedMutations } do
+		for _, mutation in list do
+			if mutation.key == key then
+				return Color.hex(mutation.color)
+			end
 		end
 	end
 	return Color3.new(1, 1, 1)
@@ -2855,6 +2932,11 @@ function Mutations.apply(model: Model, list: { string }?)
 			part.Color = Color.Rainbow[(index % #Color.Rainbow) + 1]
 			part.Material = if accent then Enum.Material.Neon else Enum.Material.Glass
 			part.Reflectance = 0.15
+		elseif top == "GOD" then
+			-- Keeps the pet's own colours; the trim turns to glowing light.
+			if accent then
+				part.Material = Enum.Material.Neon
+			end
 		end
 	end
 	local root = model.PrimaryPart
@@ -2876,6 +2958,9 @@ function Mutations.apply(model: Model, list: { string }?)
 	elseif top == "GOAT" then
 		emitter(root, Color3.fromRGB(255, 255, 255), 10, 0.5)
 		emitter(root, Color3.fromRGB(255, 90, 220), 6, 0.55)
+	elseif top == "GOD" then
+		emitter(root, Color3.fromRGB(255, 240, 120), 12, 0.5)
+		emitter(root, Color3.fromRGB(255, 255, 255), 8, 0.35)
 	end
 	model:SetAttribute("Mutation", top)
 end
@@ -3130,6 +3215,32 @@ SHAPES.shark = function(m, c1, c2)
 			K(m, V(0.05, 0.4, 0.06), cf(side * 0.68, 0.0, -0.75 + i * 0.16), shade(c1))
 		end
 	end
+end
+
+-- Limited GOD Shark: a chubby baby shark with big eyes, a little smile and a golden halo.
+SHAPES.godshark = function(m, c1, c2)
+	local gold = Color3.fromRGB(255, 214, 72)
+	E(m, V(2.1, 1.9, 2.9), cf(0, 0, 0.1), c1)
+	E(m, V(1.75, 1.15, 2.4), cf(0, -0.42, -0.05), c2)
+	A(W(m, V(0.2, 0.9, 0.9), cf(0, 1.15, 0.35), c1))
+	for _, side in { -1, 1 } do
+		E(m, V(0.22, 0.55, 0.95), cf(side * 1.0, -0.45, -0.1) * ang(0, rad(side * 25), rad(side * 50)), c1)
+	end
+	A(W(m, V(0.2, 0.95, 0.85), cf(0, 0.38, 1.85) * ang(rad(-30), 0, 0), c1))
+	A(W(m, V(0.2, 0.6, 0.6), cf(0, -0.25, 1.8) * ang(rad(30), 0, 0) * ang(0, 0, math.pi), c1))
+	Build.eyes(m, CFrame.identity, 0.5, 0.22, -1.2, 0.72, 34)
+	E(m, V(0.5, 0.16, 0.2), cf(0, -0.32, -1.36), DARK)
+	for _, x in { -0.12, 0.12 } do
+		local tooth = W(m, V(0.1, 0.12, 0.08), cf(x, -0.27, -1.43) * ang(0, 0, math.pi), WHITE)
+		tooth:SetAttribute("Eye", true)
+	end
+	blush(m, 0.66, -0.12, -1.12, 0.36)
+	-- Halo of glowing beads.
+	for i = 0, 11 do
+		local a = i / 12 * math.pi * 2
+		A(B(m, 0.24, cf(math.cos(a) * 0.62, 1.55, 0.15 + math.sin(a) * 0.62), gold))
+	end
+	A(B(m, 0.26, cf(0, 0.55, -1.1), gold))
 end
 
 SHAPES.hammerhead = function(m, c1, c2)
@@ -3838,6 +3949,42 @@ return RelicModels
       </Item>
       <Item class="ModuleScript" referent="24">
         <Properties>
+          <string name="Name">Operators</string>
+          <string name="Source"><![CDATA[--!strict
+-- The game's Directors (Operators): the solo creator plus Config.AdminUserIds. They wear the red
+-- nameplate and aura, stand outside the rankings and get their own statue by the egg.
+
+local Config = require(script.Parent.Config)
+
+local Operators = {}
+
+function Operators.is(userId: number): boolean
+	return (userId == game.CreatorId and game.CreatorType == Enum.CreatorType.User) or table.find(Config.AdminUserIds, userId) ~= nil
+end
+
+-- The community group (Config.GroupId, or the group that owns the experience); 0 when none.
+function Operators.groupId(): number
+	if Config.GroupId > 0 then
+		return Config.GroupId
+	end
+	return if game.CreatorType == Enum.CreatorType.Group then game.CreatorId else 0
+end
+
+-- Every Director's UserId (the creator first when the experience is user-owned).
+function Operators.list(): { number }
+	local list = table.clone(Config.AdminUserIds)
+	if game.CreatorType == Enum.CreatorType.User and game.CreatorId > 0 and not table.find(list, game.CreatorId) then
+		table.insert(list, 1, game.CreatorId)
+	end
+	return list
+end
+
+return Operators
+]]></string>
+        </Properties>
+      </Item>
+      <Item class="ModuleScript" referent="25">
+        <Properties>
           <string name="Name">Profile</string>
           <string name="Source"><![CDATA[--!strict
 -- Player save data: defaults, validation and repair. Pure module (tested outside Roblox).
@@ -3865,8 +4012,10 @@ export type Data = {
 	redeemed: { [string]: boolean }, -- promo codes already claimed (see Config.PromoCodes)
 	boostUntil: number, -- os.time() the TimedBoost product's 2x coins expires (0 = inactive)
 	starterPackGranted: boolean, -- guards the one-time StarterPack pass grant
+	groupRewarded: boolean, -- one-time reward for joining the community group
 	daily: { last: number, streak: number }, -- UTC day index of the last daily claim (see Rewards)
 	play: { day: number, seconds: number, claimed: { number } }, -- today's playtime + claimed tiers
+	period: { week: number, weekBase: number, month: number, monthBase: number }, -- lifetime at period start (see Rankings)
 	pets: { [string]: PetEntry },
 	equipped: { string },
 	petSeq: number,
@@ -3894,8 +4043,10 @@ function Profile.new(now: number): Data
 		redeemed = {},
 		boostUntil = 0,
 		starterPackGranted = false,
+		groupRewarded = false,
 		daily = { last = 0, streak = 0 },
 		play = { day = 0, seconds = 0, claimed = {} },
+		period = { week = 0, weekBase = 0, month = 0, monthBase = 0 },
 		pets = {},
 		equipped = {},
 		petSeq = 0,
@@ -3993,9 +4144,15 @@ function Profile.reconcile(raw: any, now: number): Data
 	end
 	data.boostUntil = number(raw.boostUntil, 0, 0)
 	data.starterPackGranted = bool(raw.starterPackGranted, false)
+	data.groupRewarded = bool(raw.groupRewarded, false)
 	if type(raw.daily) == "table" then
 		data.daily.last = math.floor(number(raw.daily.last, 0, 0))
 		data.daily.streak = math.floor(number(raw.daily.streak, 0, 0))
+	end
+	if type(raw.period) == "table" then
+		for key in data.period do
+			(data.period :: any)[key] = math.floor(number(raw.period[key], 0, 0))
+		end
 	end
 	if type(raw.play) == "table" then
 		data.play.day = math.floor(number(raw.play.day, 0, 0))
@@ -4108,6 +4265,16 @@ function Profile.progress(data: Data, world: number): WorldProgress
 	return entry
 end
 
+-- Adds a pet (optionally with mutations) and returns its id. Ignores the inventory cap: callers
+-- that grant paid pets must always deliver.
+function Profile.addPet(data: Data, key: string, mutations: { string }?): string
+	data.petSeq += 1
+	local id = "P" .. tostring(data.petSeq)
+	data.pets[id] = { s = key, l = false, m = if mutations then table.clone(mutations) else nil }
+	data.index[key] = true
+	return id
+end
+
 function Profile.petCount(data: Data): number
 	local count = 0
 	for _ in data.pets do
@@ -4120,7 +4287,100 @@ return Profile
 ]]></string>
         </Properties>
       </Item>
-      <Item class="ModuleScript" referent="25">
+      <Item class="ModuleScript" referent="26">
+        <Properties>
+          <string name="Name">Rankings</string>
+          <string name="Source"><![CDATA[--!strict
+-- Ranking boards (weekly / monthly / all-time coins earned) and hold-time tiers. Pure module.
+-- Weeks start Monday 00:00 UTC; months on the 1st, 00:00 UTC.
+
+local Config = if script then require(script.Parent.Config) else require("./Config")
+local Format = if script then require(script.Parent.Format) else require("./Format")
+
+local Rankings = {}
+
+local DAY = 86400
+
+Rankings.Boards = { "weekly", "monthly", "alltime" }
+
+export type Holds = { w: number, m: number } -- seconds spent in a top-3 spot, weekly / monthly
+
+function Rankings.weekId(now: number): number
+	-- Day 0 (1970-01-01) was a Thursday; +3 makes weeks roll over on Mondays.
+	return (now // DAY + 3) // 7
+end
+
+function Rankings.monthId(now: number): number
+	local y, m = Format.ymd(now)
+	return y * 12 + (m - 1)
+end
+
+-- Seconds until the board's period resets (nil for the all-time board).
+function Rankings.untilReset(board: string, now: number): number?
+	if board == "weekly" then
+		return (Rankings.weekId(now) + 1) * 7 * DAY - 3 * DAY - now
+	elseif board == "monthly" then
+		local current = Rankings.monthId(now)
+		local day = now // DAY + 1
+		while Rankings.monthId(day * DAY) == current do
+			day += 1
+		end
+		return day * DAY - now
+	end
+	return nil
+end
+
+-- Which board is on display right now (all servers and clients agree via the clock).
+function Rankings.boardAt(now: number): string
+	return Rankings.Boards[(now // Config.BoardRotateSeconds) % #Rankings.Boards + 1]
+end
+
+-- Starts a new week/month when needed; returns this week's and month's coins earned.
+function Rankings.roll(data: any, now: number): (number, number)
+	local period = data.period
+	local week, month = Rankings.weekId(now), Rankings.monthId(now)
+	if period.week ~= week then
+		period.week = week
+		period.weekBase = data.lifetime
+	end
+	if period.month ~= month then
+		period.month = month
+		period.monthBase = data.lifetime
+	end
+	return math.max(0, data.lifetime - period.weekBase), math.max(0, data.lifetime - period.monthBase)
+end
+
+local function held(holds: Holds, board: string): number
+	return if board == "monthly" then holds.m else holds.w
+end
+
+-- Highest tier earned (0 = none).
+function Rankings.tier(holds: Holds): number
+	local best = 0
+	for index, tier in Config.Tiers do
+		if held(holds, tier.board) >= tier.hours * 3600 then
+			best = index
+		end
+	end
+	return best
+end
+
+-- The next tier a diver is working towards on `board` and the seconds of top-3 time still
+-- needed. The all-time board shows the next tier of any kind. nil when nothing is left.
+function Rankings.nextTier(holds: Holds, board: string): (number?, number?)
+	for index, tier in Config.Tiers do
+		if (board == "alltime" or tier.board == board) and held(holds, tier.board) < tier.hours * 3600 then
+			return index, tier.hours * 3600 - held(holds, tier.board)
+		end
+	end
+	return nil, nil
+end
+
+return Rankings
+]]></string>
+        </Properties>
+      </Item>
+      <Item class="ModuleScript" referent="27">
         <Properties>
           <string name="Name">Remotes</string>
           <string name="Source"><![CDATA[--!strict
@@ -4159,13 +4419,14 @@ Remotes.Actions = {
 	RedeemCode = true,
 	ClaimDaily = true,
 	ClaimPlaytime = true,
+	ClaimGroup = true,
 }
 
 return Remotes
 ]]></string>
         </Properties>
       </Item>
-      <Item class="ModuleScript" referent="26">
+      <Item class="ModuleScript" referent="28">
         <Properties>
           <string name="Name">Rewards</string>
           <string name="Source"><![CDATA[--!strict
@@ -4290,7 +4551,7 @@ return Rewards
 ]]></string>
         </Properties>
       </Item>
-      <Item class="ModuleScript" referent="27">
+      <Item class="ModuleScript" referent="29">
         <Properties>
           <string name="Name">Signal</string>
           <string name="Source"><![CDATA[--!strict
@@ -4362,7 +4623,7 @@ return Signal
 ]]></string>
         </Properties>
       </Item>
-      <Item class="ModuleScript" referent="28">
+      <Item class="ModuleScript" referent="30">
         <Properties>
           <string name="Name">Strings</string>
           <string name="Source"><![CDATA[--!strict
@@ -4393,7 +4654,7 @@ local EN: { [string]: string } = {
 	full = "FULL",
 	backpackFull = "Backpack full! Sell it at the Treasure Shop.",
 	lowOxygen = "Low oxygen! Swim up!",
-	hazardHit = "Ouch! -{n}s oxygen",
+	hazardHit = "Ouch! -{n}% oxygen",
 	depthRecord = "New depth record: {n}m!",
 	newRelic = "New relic discovered!",
 
@@ -4449,6 +4710,12 @@ local EN: { [string]: string } = {
 
 	hatch = "Hatch",
 	hatch3 = "Hatch x3",
+	hatch5 = "Hatch x5",
+	dropToDelete = "Drop to delete",
+	petDeleted = "Pet deleted",
+	petLocked = "This pet is locked",
+	autoHatch = "Auto Hatch",
+	autoStop = "Stop Auto Hatch",
 	chances = "Chances",
 	newPet = "NEW!",
 	inventoryFull = "Pet inventory full!",
@@ -4542,9 +4809,19 @@ local EN: { [string]: string } = {
 	colCoins = "Coins",
 	colRelics = "Relics",
 	boardTitle = "Top Divers",
-	boardGlobal = "All servers - lifetime coins",
-	boardLocal = "This server - lifetime coins",
 	boardEmpty = "No divers yet - be the first!",
+	["board.weekly"] = "Weekly Top Divers",
+	["board.monthly"] = "Monthly Top Divers",
+	["board.alltime"] = "All-Time Top Divers",
+	boardResets = "Coins earned · resets in {t}",
+	boardForever = "Lifetime coins",
+	boardLocalTag = "(this server)",
+	director = "DIRECTOR",
+	tierName = "Tier {n}",
+	tierNext = "Tier {n} in {t}",
+	tierMax = "Max tier!",
+	durDH = "{d}d {h}h",
+	durHM = "{h}h {m}m",
 	you = "You",
 	["gear.tank"] = "{theme} Tank",
 	["gear.pack"] = "{theme} Bag",
@@ -4566,6 +4843,7 @@ local EN: { [string]: string } = {
 	["mutation.Galaxy"] = "Galaxy",
 	["mutation.Lava"] = "Lava",
 	["mutation.GOAT"] = "GOAT",
+	["mutation.GOD"] = "GOD",
 	mutated = "{name} mutation! (x{x})",
 	mutateMax = "This pet has every mutation!",
 	noLucky = "No Lucky Enchants left",
@@ -4642,6 +4920,9 @@ local EN: { [string]: string } = {
 	["product.GuaranteedMutation.desc"] = "Adds your rarest missing mutation to a pet - no luck involved",
 	["product.BackpackFill"] = "Backpack Fill",
 	["product.BackpackFill.desc"] = "Tops your backpack off with treasure from your current world",
+	["product.GodShark"] = "GOD Shark (Limited)",
+	["product.GodShark.desc"] = "Beats every World 20 pet, comes with a x8 GOD enchant and can still be enchanted",
+	grantedGodShark = "The GOD Shark joined your team!",
 	rewardsTitle = "Rewards",
 	dailyTitle = "Daily Login",
 	dailyStreak = "Streak: {n} days",
@@ -4666,6 +4947,13 @@ local EN: { [string]: string } = {
 	["offer.double"] = "Every sale worth double!",
 	["offer.boost"] = "Supercharge this session!",
 	["offer.eggs"] = "Better luck on every egg!",
+	["offer.rank"] = "Climb the weekly ranking!",
+	groupButton = "Group",
+	inviteButton = "Invite",
+	groupReward = "Joined the group! +{n} coins",
+	notInGroup = "Join the group first, then tap again for your reward",
+	groupThanks = "Thanks for being in our group!",
+	["offer.coins"] = "Short on coins?",
 	["grantedUnlock"] = "World {n} unlocked!",
 	["grantedCoins"] = "+{n} Coins!",
 	["grantedBoost"] = "2x coins for {n} minutes!",
@@ -4695,7 +4983,7 @@ local KO: { [string]: string } = {
 	full = "가득",
 	backpackFull = "가방이 가득 찼어요! 보물 상점에서 팔아요.",
 	lowOxygen = "산소 부족! 올라가세요!",
-	hazardHit = "아야! 산소 -{n}초",
+	hazardHit = "아야! 산소 -{n}%",
 	depthRecord = "최고 수심 경신: {n}m!",
 	newRelic = "새 유물 발견!",
 
@@ -4751,6 +5039,12 @@ local KO: { [string]: string } = {
 
 	hatch = "부화",
 	hatch3 = "3번 부화",
+	hatch5 = "5번 부화",
+	dropToDelete = "놓으면 삭제",
+	petDeleted = "펫을 삭제했어요",
+	petLocked = "잠긴 펫이에요",
+	autoHatch = "자동 부화",
+	autoStop = "자동 부화 멈추기",
 	chances = "확률",
 	newPet = "NEW!",
 	inventoryFull = "펫 가방이 가득 찼어요!",
@@ -4844,9 +5138,19 @@ local KO: { [string]: string } = {
 	colCoins = "코인",
 	colRelics = "유물",
 	boardTitle = "최고의 다이버",
-	boardGlobal = "전체 서버 - 누적 코인",
-	boardLocal = "이 서버 - 누적 코인",
 	boardEmpty = "아직 기록이 없어요 - 첫 주인공이 되세요!",
+	["board.weekly"] = "주간 랭킹",
+	["board.monthly"] = "월간 랭킹",
+	["board.alltime"] = "영구 랭킹",
+	boardResets = "획득 코인 · {t} 후 초기화",
+	boardForever = "누적 코인",
+	boardLocalTag = "(이 서버)",
+	director = "DIRECTOR",
+	tierName = "{n}등급",
+	tierNext = "{n}등급까지 {t}",
+	tierMax = "최고 등급 달성!",
+	durDH = "{d}일 {h}시간",
+	durHM = "{h}시간 {m}분",
 	you = "나",
 	["gear.tank"] = "{theme} 산소통",
 	["gear.pack"] = "{theme} 가방",
@@ -4868,6 +5172,7 @@ local KO: { [string]: string } = {
 	["mutation.Galaxy"] = "갤럭시",
 	["mutation.Lava"] = "용암",
 	["mutation.GOAT"] = "GOAT",
+	["mutation.GOD"] = "GOD",
 	mutated = "{name} 변이! (x{x})",
 	mutateMax = "모든 변이를 가진 펫이에요!",
 	noLucky = "행운 인첸트가 없어요",
@@ -4944,6 +5249,9 @@ local KO: { [string]: string } = {
 	["product.GuaranteedMutation.desc"] = "운 없이 가장 희귀한 변이를 펫에 확정으로 추가해요",
 	["product.BackpackFill"] = "가방 즉시 완충",
 	["product.BackpackFill.desc"] = "지금 있는 월드의 유물로 가방을 가득 채워요",
+	["product.GodShark"] = "갓 샤크 (한정판)",
+	["product.GodShark.desc"] = "월드 20 최강 펫보다 강하고, x8 GOD 인첸트가 기본으로 붙어 있어요. 추가 인첸트도 가능!",
+	grantedGodShark = "갓 샤크가 팀에 합류했어요!",
 	rewardsTitle = "보상",
 	dailyTitle = "출석 보상",
 	dailyStreak = "연속 출석 {n}일",
@@ -4968,6 +5276,13 @@ local KO: { [string]: string } = {
 	["offer.double"] = "모든 판매 금액 2배!",
 	["offer.boost"] = "이번 판을 폭주 모드로!",
 	["offer.eggs"] = "알 뽑기 운 UP!",
+	["offer.rank"] = "주간 랭킹을 올려보세요!",
+	groupButton = "그룹",
+	inviteButton = "초대",
+	groupReward = "그룹 가입 완료! +{n} 코인",
+	notInGroup = "그룹에 먼저 가입한 뒤 다시 눌러 보상을 받으세요",
+	groupThanks = "그룹에 함께해 줘서 고마워요!",
+	["offer.coins"] = "코인이 부족한가요?",
 	["grantedUnlock"] = "월드 {n} 해금!",
 	["grantedCoins"] = "코인 +{n}!",
 	["grantedBoost"] = "{n}분 동안 코인 2배!",
@@ -4990,6 +5305,16 @@ end
 function Strings.get(key: string, args: { [string]: any }?): string
 	local text = TABLES[Strings.language][key] or EN[key] or key
 	return Format.fill(text, args)
+end
+
+-- Long durations: "3d 4h" above a day, "5h 12m" below.
+function Strings.duration(seconds: number): string
+	local total = math.max(0, math.floor(seconds))
+	local days, hours, minutes = total // 86400, (total % 86400) // 3600, (total % 3600) // 60
+	if days > 0 then
+		return Strings.get("durDH", { d = days, h = hours })
+	end
+	return Strings.get("durHM", { h = hours, m = minutes })
 end
 
 function Strings.name(named: { en: string, ko: string }): string
@@ -5018,15 +5343,15 @@ return Strings
       </Item>
     </Item>
   </Item>
-  <Item class="ServerScriptService" referent="29">
+  <Item class="ServerScriptService" referent="31">
     <Properties>
       <string name="Name">ServerScriptService</string>
     </Properties>
-    <Item class="Folder" referent="30">
+    <Item class="Folder" referent="32">
       <Properties>
         <string name="Name">Server</string>
       </Properties>
-      <Item class="Script" referent="31">
+      <Item class="Script" referent="33">
         <Properties>
           <string name="Name">Main</string>
           <token name="RunContext">0</token>
@@ -5040,6 +5365,8 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Config = require(Shared.Config)
 local Layout = require(Shared.Layout)
+local Operators = require(Shared.Operators)
+local Profile = require(Shared.Profile)
 
 local Net = require(script.Parent.Net)
 local ProfileStore = require(script.Parent.ProfileStore)
@@ -5053,6 +5380,7 @@ local LeaderboardService = require(script.Parent.Services.LeaderboardService)
 local PetService = require(script.Parent.Services.PetService)
 local PurchaseService = require(script.Parent.Services.PurchaseService)
 local RewardService = require(script.Parent.Services.RewardService)
+local StatueService = require(script.Parent.Services.StatueService)
 local TradeService = require(script.Parent.Services.TradeService)
 
 Net.init()
@@ -5069,6 +5397,7 @@ ActionService.init()
 PurchaseService.init()
 RewardService.init()
 LeaderboardService.init()
+StatueService.init()
 
 local function spawnCharacter(player: Player)
 	if not player.Parent then
@@ -5097,6 +5426,21 @@ local function onCharacter(session: Sessions.Session, character: Model)
 	if Sessions.get(session.player) == session and session.player.Character == character then
 		GearService.dress(session)
 	end
+	-- Avatar appearance loads after spawn and swaps body parts (body packages), which breaks the
+	-- welds holding worn gear; dress again whenever a body part is replaced.
+	local pending = false
+	character.ChildAdded:Connect(function(child)
+		if not child:IsA("BasePart") or pending then
+			return
+		end
+		pending = true
+		task.delay(0.2, function()
+			pending = false
+			if Sessions.get(session.player) == session and session.player.Character == character then
+				GearService.dress(session)
+			end
+		end)
+	end)
 	humanoid.Died:Connect(function()
 		DiveService.onDied(session)
 		task.delay(2.5, function()
@@ -5133,13 +5477,22 @@ local function onPlayerAdded(player: Player)
 	PetService.clampEquipped(session)
 	player:SetAttribute("World", session.world)
 	-- Red nameplate + aura: the game's creator (or anyone listed in Config.AdminUserIds).
-	local isOperator = (player.UserId == game.CreatorId and game.CreatorType == Enum.CreatorType.User)
-		or table.find(Config.AdminUserIds, player.UserId) ~= nil
+	local isOperator = Operators.is(player.UserId)
 	player:SetAttribute("Operator", isOperator)
 	-- Operators always have every world open, so testing (relics, hazards, etc.) never waits on
 	-- grinding through the economy to unlock worlds the normal way.
 	if isOperator and profile.unlocked < Config.WorldCount then
 		profile.unlocked = Config.WorldCount
+	end
+	-- Directors always keep one limited GOD Shark.
+	if isOperator then
+		local hasShark = false
+		for _, pet in profile.pets do
+			hasShark = hasShark or pet.s == "godShark"
+		end
+		if not hasShark then
+			Profile.addPet(profile, "godShark", { "GOD" })
+		end
 	end
 	player.RespawnLocation = built.spawn
 	Sync.leaderstats(session)
@@ -5175,7 +5528,7 @@ WorldBuilder.buildRemaining()
 ]]></string>
         </Properties>
       </Item>
-      <Item class="ModuleScript" referent="32">
+      <Item class="ModuleScript" referent="34">
         <Properties>
           <string name="Name">Net</string>
           <string name="Source"><![CDATA[--!strict
@@ -5304,7 +5657,7 @@ return Net
 ]]></string>
         </Properties>
       </Item>
-      <Item class="ModuleScript" referent="33">
+      <Item class="ModuleScript" referent="35">
         <Properties>
           <string name="Name">ProfileStore</string>
           <string name="Source"><![CDATA[--!strict
@@ -5553,11 +5906,11 @@ return ProfileStore
 ]]></string>
         </Properties>
       </Item>
-      <Item class="Folder" referent="34">
+      <Item class="Folder" referent="36">
         <Properties>
           <string name="Name">Services</string>
         </Properties>
-        <Item class="ModuleScript" referent="35">
+        <Item class="ModuleScript" referent="37">
           <Properties>
             <string name="Name">ActionService</string>
             <string name="Source"><![CDATA[--!strict
@@ -5714,7 +6067,7 @@ return ActionService
 ]]></string>
           </Properties>
         </Item>
-        <Item class="ModuleScript" referent="36">
+        <Item class="ModuleScript" referent="38">
           <Properties>
             <string name="Name">DiveService</string>
             <string name="Source"><![CDATA[--!strict
@@ -6149,7 +6502,7 @@ local function onHazard(player: Player, index: any)
 		return
 	end
 	session.lastHazard = now
-	session.oxygen = math.max(0, session.oxygen - Config.Dive.HazardPenalty)
+	session.oxygen = math.max(0, session.oxygen - session.oxygenMax * Config.Dive.HazardPenalty)
 	Net.push(player, "oxygen", { value = session.oxygen, max = session.oxygenMax, hit = true })
 end
 
@@ -6249,7 +6602,7 @@ return DiveService
 ]]></string>
           </Properties>
         </Item>
-        <Item class="ModuleScript" referent="37">
+        <Item class="ModuleScript" referent="39">
           <Properties>
             <string name="Name">GearService</string>
             <string name="Source"><![CDATA[--!strict
@@ -6350,20 +6703,25 @@ return GearService
 ]]></string>
           </Properties>
         </Item>
-        <Item class="ModuleScript" referent="38">
+        <Item class="ModuleScript" referent="40">
           <Properties>
             <string name="Name">LeaderboardService</string>
             <string name="Source"><![CDATA[--!strict
--- Global leaderboard: every diver's lifetime coins go into an OrderedDataStore and the top 10
--- are published as JSON in ReplicatedStorage for the boards on every dock. When DataStores are
--- unavailable (Studio without API access) the board ranks the players in this server instead.
+-- Ranking boards: weekly, monthly and all-time coins earned, each an OrderedDataStore. The top
+-- 10 of each (Directors listed apart) are published as JSON in ReplicatedStorage for the dock
+-- boards, the podium statues and the player list. Holding a top-3 spot accrues hold time
+-- towards the ranking tiers (Config.Tiers). When DataStores are unavailable (Studio without
+-- API access) the boards rank the players in this server and hold time is kept in memory.
 
 local DataStoreService = game:GetService("DataStoreService")
 local HttpService = game:GetService("HttpService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local UserService = game:GetService("UserService")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
+local Operators = require(Shared.Operators)
+local Rankings = require(Shared.Rankings)
 local Remotes = require(Shared.Remotes)
 
 local ProfileStore = require(script.Parent.Parent.ProfileStore)
@@ -6371,118 +6729,350 @@ local Sessions = require(script.Parent.Parent.Sessions)
 
 local LeaderboardService = {}
 
-local STORE_NAME = "DeepDive_TopDivers_v1"
 local TOP = 10
-local GLOBAL_REFRESH = 90
+local GLOBAL_REFRESH = 60
 local LOCAL_REFRESH = 8
 local WRITE_INTERVAL = 120
+local CREDIT_MIN = 45 -- seconds between hold-time credits (shared across servers)
+local CREDIT_MAX = 300 -- never credit more than this at once (e.g. after every server was down)
 
-local store: OrderedDataStore? = nil
+export type Entry = { u: number, n: string, d: string, v: number, t: number, nt: number?, ns: number? }
+type Row = { u: number, v: number }
+
 local storeFailed = false
-local names: { [number]: string } = {}
+local ordered: { [string]: OrderedDataStore } = {}
+local holdStore: GlobalDataStore? = nil
+local clockStore: GlobalDataStore? = nil
+local names: { [number]: { n: string, d: string } } = {}
+local holds: { [number]: Rankings.Holds } = {}
 local lastWrite: { [Player]: number } = {}
-local lastValue: { [Player]: number } = {}
+local lastValue: { [Player]: string } = {}
+local lastLocalCredit = os.clock()
 local published: StringValue
+local latest: any = { global = false, boards = {}, directors = {} }
 
-local function getStore(): OrderedDataStore?
-	if store or storeFailed or ProfileStore.memoryMode then
-		return store
-	end
-	local ok, result = pcall(function()
-		return DataStoreService:GetOrderedDataStore(STORE_NAME)
-	end)
-	if ok then
-		store = result
-	else
-		storeFailed = true
-	end
-	return store
+local function storesOn(): boolean
+	return not storeFailed and not ProfileStore.memoryMode
 end
 
-local function nameOf(userId: number): string
-	local player = Players:GetPlayerByUserId(userId)
-	if player then
-		names[userId] = player.Name
-		return player.Name
+local function storeName(board: string, now: number): string
+	if board == "weekly" then
+		return "DeepDive_Week_v1_" .. Rankings.weekId(now)
+	elseif board == "monthly" then
+		return "DeepDive_Month_v1_" .. Rankings.monthId(now)
 	end
-	local cached = names[userId]
+	return "DeepDive_TopDivers_v1"
+end
+
+local function orderedStore(board: string, now: number): OrderedDataStore?
+	if not storesOn() then
+		return nil
+	end
+	local name = storeName(board, now)
+	local existing = ordered[name]
+	if existing then
+		return existing
+	end
+	local ok, result = pcall(function()
+		return DataStoreService:GetOrderedDataStore(name)
+	end)
+	if not ok then
+		storeFailed = true
+		return nil
+	end
+	ordered[name] = result
+	return result
+end
+
+local function holdStores(): (GlobalDataStore?, GlobalDataStore?)
+	if not storesOn() then
+		return nil, nil
+	end
+	if not holdStore then
+		local ok = pcall(function()
+			holdStore = DataStoreService:GetDataStore("DeepDive_Holds_v1")
+			clockStore = DataStoreService:GetDataStore("DeepDive_HoldClock_v1")
+		end)
+		if not ok then
+			storeFailed = true
+			return nil, nil
+		end
+	end
+	return holdStore, clockStore
+end
+
+local function cleanHolds(value: any): Rankings.Holds
+	if type(value) ~= "table" then
+		return { w = 0, m = 0 }
+	end
+	return { w = math.max(0, tonumber(value.w) or 0), m = math.max(0, tonumber(value.m) or 0) }
+end
+
+local function holdsOf(userId: number): Rankings.Holds
+	local cached = holds[userId]
 	if cached then
 		return cached
 	end
-	local ok, result = pcall(function()
-		return Players:GetNameFromUserIdAsync(userId)
-	end)
-	local name = if ok and type(result) == "string" then result else "Diver"
-	names[userId] = name
-	return name
+	local store = holdStores()
+	local value: any = nil
+	if store then
+		pcall(function()
+			value = store:GetAsync(tostring(userId))
+		end)
+	end
+	local result = cleanHolds(value)
+	holds[userId] = result
+	return result
 end
 
--- Queues this player's lifetime coins for the global store (rate limited unless forced).
+local function scores(player: Player): { [string]: number }
+	return {
+		weekly = tonumber(player:GetAttribute("Weekly")) or 0,
+		monthly = tonumber(player:GetAttribute("Monthly")) or 0,
+		alltime = tonumber(player:GetAttribute("Lifetime")) or 0,
+	}
+end
+
+-- Queues this player's scores for the ranking stores (rate limited unless forced).
 function LeaderboardService.submit(player: Player, force: boolean?)
 	local session = Sessions.get(player)
 	if not session then
 		return
 	end
-	local value = math.floor(session.profile.lifetime)
-	local now = os.clock()
-	if not force and (now - (lastWrite[player] or -math.huge) < WRITE_INTERVAL or lastValue[player] == value) then
+	local now = os.time()
+	local values = scores(player)
+	local signature = string.format("%d/%d/%d", values.weekly, values.monthly, values.alltime)
+	if not force and (os.clock() - (lastWrite[player] or -math.huge) < WRITE_INTERVAL or lastValue[player] == signature) then
 		return
 	end
-	local ds = getStore()
-	if not ds then
+	if not storesOn() then
 		return
 	end
-	lastWrite[player] = now
-	lastValue[player] = value
-	local userId = player.UserId
-	task.spawn(function()
-		pcall(function()
-			ds:SetAsync(tostring(userId), value)
-		end)
-	end)
-end
-
-type Entry = { n: string, v: number, u: number }
-
-local function localEntries(): { Entry }
-	local list: { Entry } = {}
-	for _, player in Players:GetPlayers() do
-		local lifetime = player:GetAttribute("Lifetime")
-		if type(lifetime) == "number" then
-			table.insert(list, { n = player.Name, v = math.floor(lifetime), u = player.UserId })
+	lastWrite[player] = os.clock()
+	lastValue[player] = signature
+	local key = tostring(player.UserId)
+	for board, value in values do
+		local store = orderedStore(board, now)
+		if store then
+			task.spawn(function()
+				pcall(function()
+					store:SetAsync(key, math.floor(value))
+				end)
+			end)
 		end
 	end
-	table.sort(list, function(a, b)
-		return a.v > b.v
-	end)
-	while #list > TOP do
-		table.remove(list)
-	end
-	return list
 end
 
--- Returns true when the published list came from the global store.
-function LeaderboardService.refresh(): boolean
-	local list: { Entry } = {}
-	local global = false
-	local ds = getStore()
-	if ds then
-		global = pcall(function()
-			local pages = ds:GetSortedAsync(false, TOP)
+local function fetch(board: string, now: number): ({ Row }, boolean)
+	local store = orderedStore(board, now)
+	if store then
+		local rows: { Row } = {}
+		local ok = pcall(function()
+			local pages = store:GetSortedAsync(false, TOP + #Operators.list() + 1)
 			for _, item in pages:GetCurrentPage() do
 				local userId = tonumber(item.key)
 				if userId and type(item.value) == "number" then
-					table.insert(list, { n = nameOf(userId), v = item.value, u = userId })
+					table.insert(rows, { u = userId, v = item.value })
 				end
 			end
 		end)
+		if ok and #rows > 0 then
+			return rows, true
+		end
 	end
-	if not global or #list == 0 then
-		list = localEntries()
-		global = false
+	local rows: { Row } = {}
+	for _, player in Players:GetPlayers() do
+		if player:GetAttribute("Lifetime") ~= nil then
+			table.insert(rows, { u = player.UserId, v = math.floor(scores(player)[board]) })
+		end
 	end
-	published.Value = HttpService:JSONEncode({ global = global, entries = list })
+	table.sort(rows, function(a, b)
+		return a.v > b.v
+	end)
+	return rows, false
+end
+
+-- Directors who are not in the fetched top rows still get their own score on the board.
+local function directorScore(board: string, now: number, userId: number): number?
+	local player = Players:GetPlayerByUserId(userId)
+	if player and player:GetAttribute("Lifetime") ~= nil then
+		return math.floor(scores(player)[board])
+	end
+	local store = orderedStore(board, now)
+	local value: any = nil
+	if store then
+		pcall(function()
+			value = store:GetAsync(tostring(userId))
+		end)
+	end
+	return if type(value) == "number" then value else nil
+end
+
+local function resolveNames(ids: { number })
+	local missing = {}
+	for _, id in ids do
+		local player = Players:GetPlayerByUserId(id)
+		if player then
+			names[id] = { n = player.Name, d = player.DisplayName }
+		elseif not names[id] then
+			table.insert(missing, id)
+		end
+	end
+	if #missing == 0 then
+		return
+	end
+	pcall(function()
+		for _, info in UserService:GetUserInfosByUserIdsAsync(missing) do
+			names[info.Id] = { n = info.Username, d = info.DisplayName }
+		end
+	end)
+	for _, id in missing do
+		if not names[id] then
+			local ok, name = pcall(function()
+				return Players:GetNameFromUserIdAsync(id)
+			end)
+			local text = if ok and type(name) == "string" then name else "Diver"
+			names[id] = { n = text, d = text }
+		end
+	end
+end
+
+-- Adds the time since the last credit to the hold time of everyone in a top-3 spot. Across
+-- servers one shared clock key decides who credits each window, so time is never counted twice.
+local function creditHolds(tops: { [string]: { number } }, global: boolean)
+	local delta = 0
+	local store, clock = holdStores()
+	if global and store and clock then
+		local now = os.time()
+		pcall(function()
+			clock:UpdateAsync("clock", function(old: any)
+				local last = if type(old) == "table" then tonumber(old.t) else nil
+				if last and now - last < CREDIT_MIN then
+					return nil
+				end
+				delta = if last then math.clamp(now - last, 0, CREDIT_MAX) else 0
+				return { t = now }
+			end)
+		end)
+	elseif not global then
+		local now = os.clock()
+		delta = math.min(now - lastLocalCredit, CREDIT_MAX)
+		lastLocalCredit = now
+	end
+	if delta <= 0 then
+		return
+	end
+	local gains: { [number]: Rankings.Holds } = {}
+	for board, ids in tops do
+		for _, id in ids do
+			local gain = gains[id] or { w = 0, m = 0 }
+			if board == "weekly" then
+				gain.w += delta
+			else
+				gain.m += delta
+			end
+			gains[id] = gain
+		end
+	end
+	for id, gain in gains do
+		local current = holdsOf(id)
+		current.w += gain.w
+		current.m += gain.m
+		if global and store then
+			task.spawn(function()
+				pcall(function()
+					store:UpdateAsync(tostring(id), function(old: any)
+						local value = cleanHolds(old)
+						value.w += gain.w
+						value.m += gain.m
+						holds[id] = { w = value.w, m = value.m }
+						return value
+					end)
+				end)
+			end)
+		end
+	end
+end
+
+local function entry(row: Row, board: string, rank: number): Entry
+	local name = names[row.u] or { n = "Diver", d = "Diver" }
+	local h = holds[row.u] or { w = 0, m = 0 }
+	local e: Entry = { u = row.u, n = name.n, d = name.d, v = row.v, t = Rankings.tier(h) }
+	if rank <= 3 then
+		local nextTier, seconds = Rankings.nextTier(holdsOf(row.u), board)
+		e.nt = nextTier
+		e.ns = if seconds then math.ceil(seconds) else nil
+	end
+	return e
+end
+
+-- Rebuilds every board; returns true when the data came from the global stores.
+function LeaderboardService.refresh(): boolean
+	local now = os.time()
+	local global = true
+	local ranked: { [string]: { Row } } = {}
+	local directors: { [string]: Row } = {}
+	local ids: { number } = {}
+	local operators = Operators.list()
+	for _, board in Rankings.Boards do
+		local rows, fromStore = fetch(board, now)
+		global = global and fromStore
+		local list: { Row } = {}
+		for _, row in rows do
+			if Operators.is(row.u) then
+				directors[board] = directors[board] or row
+			elseif #list < TOP then
+				table.insert(list, row)
+				table.insert(ids, row.u)
+			end
+		end
+		if not directors[board] and operators[1] then
+			local value = directorScore(board, now, operators[1])
+			if value then
+				directors[board] = { u = operators[1], v = value }
+			end
+		end
+		if directors[board] then
+			table.insert(ids, directors[board].u)
+		end
+		ranked[board] = list
+	end
+
+	local tops: { [string]: { number } } = { weekly = {}, monthly = {} }
+	for board, list in tops do
+		for i = 1, math.min(3, #ranked[board]) do
+			table.insert(list, ranked[board][i].u)
+		end
+	end
+	creditHolds(tops, global)
+	resolveNames(ids)
+
+	local data: any = { global = global, at = now, boards = {}, directors = {} }
+	for _, board in Rankings.Boards do
+		local entries = {}
+		for rank, row in ranked[board] do
+			entries[rank] = entry(row, board, rank)
+		end
+		data.boards[board] = { entries = entries, reset = Rankings.untilReset(board, now) }
+		local director = directors[board]
+		if director then
+			local name = names[director.u] or { n = "Director", d = "Director" }
+			data.directors[board] = { u = director.u, n = name.n, d = name.d, v = director.v }
+		end
+	end
+	latest = data
+	published.Value = HttpService:JSONEncode(data)
+	for _, player in Players:GetPlayers() do
+		local h = holds[player.UserId]
+		if h then
+			player:SetAttribute("Tier", Rankings.tier(h))
+		end
+	end
 	return global
+end
+
+function LeaderboardService.latest(): any
+	return latest
 end
 
 function LeaderboardService.init()
@@ -6492,9 +7082,17 @@ function LeaderboardService.init()
 	end
 	published = Instance.new("StringValue")
 	published.Name = Remotes.Board
-	published.Value = HttpService:JSONEncode({ global = false, entries = {} })
+	published.Value = HttpService:JSONEncode(latest)
 	published.Parent = ReplicatedStorage
 
+	Players.PlayerAdded:Connect(function(player)
+		task.spawn(function()
+			local h = holdsOf(player.UserId)
+			if player.Parent then
+				player:SetAttribute("Tier", Rankings.tier(h))
+			end
+		end)
+	end)
 	Players.PlayerRemoving:Connect(function(player)
 		LeaderboardService.submit(player, true)
 		lastWrite[player] = nil
@@ -6516,7 +7114,7 @@ return LeaderboardService
 ]]></string>
           </Properties>
         </Item>
-        <Item class="ModuleScript" referent="39">
+        <Item class="ModuleScript" referent="41">
           <Properties>
             <string name="Name">PetService</string>
             <string name="Source"><![CDATA[--!strict
@@ -6559,7 +7157,7 @@ local function hatch(player: Player, payload: any): (boolean, string?, any)
 	end
 	local world = tonumber(payload.world)
 	local count = tonumber(payload.count)
-	if not world or not count or (count ~= 1 and count ~= 3) then
+	if not world or not count or (count ~= 1 and count ~= 3 and count ~= 5) then
 		return false, "err.generic"
 	end
 	world = math.floor(world)
@@ -6731,7 +7329,7 @@ local function mutate(player: Player, payload: any): (boolean, string?, any)
 		return false, "tradeBusy"
 	end
 	local list = pet.m or {}
-	if #list >= #Config.Mutations then
+	if Economy.regularMutations(list) >= #Config.Mutations then
 		return false, "mutateMax"
 	end
 	local key: string?
@@ -6783,7 +7381,7 @@ return PetService
 ]]></string>
           </Properties>
         </Item>
-        <Item class="ModuleScript" referent="40">
+        <Item class="ModuleScript" referent="42">
           <Properties>
             <string name="Name">PurchaseService</string>
             <string name="Source"><![CDATA[--!strict
@@ -6797,6 +7395,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Config = require(Shared.Config)
 local Economy = require(Shared.Economy)
+local Profile = require(Shared.Profile)
 local Gear = require(Shared.Data.Gear)
 local Worlds = require(Shared.Data.Worlds)
 
@@ -6853,7 +7452,7 @@ end
 -- A pet that does not yet have every mutation (GuaranteedMutation's target).
 local function pickMutationTarget(profile: any): string?
 	for id, pet in profile.pets do
-		if #(pet.m or {}) < #Config.Mutations then
+		if Economy.regularMutations(pet.m) < #Config.Mutations then
 			return id
 		end
 	end
@@ -6962,6 +7561,12 @@ local function applySpecialProduct(session: Sessions.Session, product: any): (((
 				{ n = room }
 		end
 		return fallbackCoins(profile, 150), "grantedCoins", { n = 150 }
+	elseif product.godShark then
+		local id = Profile.addPet(profile, "godShark", { "GOD" })
+		Sessions.publishPets(session)
+		return function()
+			profile.pets[id] = nil
+		end, "grantedGodShark", nil
 	end
 	return nil, nil, nil
 end
@@ -7079,16 +7684,20 @@ return PurchaseService
 ]]></string>
           </Properties>
         </Item>
-        <Item class="ModuleScript" referent="41">
+        <Item class="ModuleScript" referent="43">
           <Properties>
             <string name="Name">RewardService</string>
             <string name="Source"><![CDATA[--!strict
--- Daily login and playtime reward claims. All timing is checked here against os.time(); the
--- client only asks.
+-- Daily login, playtime and group-join reward claims. All timing and membership is checked here;
+-- the client only asks.
 
+local GroupService = game:GetService("GroupService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
+local Config = require(Shared.Config)
+local Economy = require(Shared.Economy)
+local Operators = require(Shared.Operators)
 local Rewards = require(Shared.Rewards)
 
 local Net = require(script.Parent.Parent.Net)
@@ -7134,16 +7743,327 @@ local function claimPlaytime(player: Player, payload: any): (boolean, string?, a
 	return true, nil, { tier = tier, coins = reward.coins, enchants = reward.enchants, boostMinutes = reward.boostMinutes }
 end
 
+-- Player:IsInGroupAsync caches its answer for the whole session, so a join made a moment ago is
+-- checked against the live group list instead.
+local function inGroup(player: Player, groupId: number): boolean
+	local ok, groups = pcall(function()
+		return GroupService:GetGroupsAsync(player.UserId)
+	end)
+	if ok and type(groups) == "table" then
+		for _, group in groups do
+			if group.Id == groupId then
+				return true
+			end
+		end
+		return false
+	end
+	local cached, member = pcall(function()
+		return player:IsInGroupAsync(groupId)
+	end)
+	return cached and member == true
+end
+
+local function claimGroup(player: Player): (boolean, string?, any)
+	local session = Sessions.get(player)
+	if not session or not session.ready then
+		return false, "err.notReady"
+	end
+	local profile = session.profile
+	local groupId = Operators.groupId()
+	if groupId <= 0 then
+		return false, "err.generic"
+	elseif profile.groupRewarded then
+		return false, "rewardClaimed"
+	elseif not inGroup(player, groupId) then
+		return false, "notInGroup"
+	end
+	profile.groupRewarded = true
+	local reward =
+		{ coins = Economy.productCoins(Config.GroupRewardDives, profile.unlocked), enchants = Config.GroupRewardEnchants, boostMinutes = 0 }
+	Rewards.grant(profile, reward, os.time())
+	finish(player, session, reward)
+	return true, nil, { coins = reward.coins, enchants = reward.enchants }
+end
+
 function RewardService.init()
 	Net.on("ClaimDaily", claimDaily)
 	Net.on("ClaimPlaytime", claimPlaytime)
+	Net.on("ClaimGroup", claimGroup)
 end
 
 return RewardService
 ]]></string>
           </Properties>
         </Item>
-        <Item class="ModuleScript" referent="42">
+        <Item class="ModuleScript" referent="44">
+          <Properties>
+            <string name="Name">StatueService</string>
+            <string name="Source"><![CDATA[--!strict
+-- Podium statues: the top 3 of whichever ranking board is on display stand on gold / silver /
+-- bronze podiums behind each dock's board (switching with the board every
+-- Config.BoardRotateSeconds), and the Director stands on a red podium beside the egg stand.
+-- Avatars are built from each player's own outfit. Only worlds someone is in get statues.
+-- The podiums carry the names and tier progress as attributes; clients draw the labels.
+
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local ServerStorage = game:GetService("ServerStorage")
+local Workspace = game:GetService("Workspace")
+
+local Shared = ReplicatedStorage:WaitForChild("Shared")
+local Build = require(Shared.Models.Build)
+local Layout = require(Shared.Layout)
+local Operators = require(Shared.Operators)
+local Rankings = require(Shared.Rankings)
+
+local Sessions = require(script.Parent.Parent.Sessions)
+local WorldBuilder = require(script.Parent.Parent.World.WorldBuilder)
+local LeaderboardService = require(script.Parent.LeaderboardService)
+
+local StatueService = {}
+
+local V = Vector3.new
+local cf = CFrame.new
+
+local PODIUMS = {
+	-- rank, sideways offset (board space; + is the viewer's left), podium height, colour
+	{ rank = 1, x = 0, height = 4.5, color = Color3.fromRGB(255, 205, 64) },
+	{ rank = 2, x = 7.5, height = 3.2, color = Color3.fromRGB(205, 216, 228) },
+	{ rank = 3, x = -7.5, height = 2.2, color = Color3.fromRGB(214, 140, 84) },
+}
+local STATUE_SCALE = 1.25
+
+type Slot = { podium: BasePart, userId: number? }
+type WorldStatues = { folder: Folder, slots: { [number]: Slot }, director: Slot?, board: string, at: number }
+
+local templates: { [number]: Model } = {}
+local failed: { [number]: boolean } = {}
+local building: { [number]: boolean } = {}
+local placed: { [number]: WorldStatues } = {}
+local cache: Folder
+
+-- Starts building the avatar for `userId` (once); returns it when ready.
+local function template(userId: number): Model?
+	local existing = templates[userId]
+	if existing or failed[userId] then
+		return existing
+	end
+	if not building[userId] then
+		building[userId] = true
+		task.spawn(function()
+			local ok, model = pcall(function()
+				return Players:CreateHumanoidModelFromUserIdAsync(userId)
+			end)
+			if ok and model then
+				for _, d in model:GetDescendants() do
+					if d:IsA("BasePart") then
+						d.Anchored = true
+						d.CanCollide = false
+						d.CanQuery = false
+						d.CanTouch = false
+					elseif d:IsA("Script") or d:IsA("LocalScript") then
+						d:Destroy()
+					end
+				end
+				local humanoid = model:FindFirstChildOfClass("Humanoid")
+				if humanoid then
+					humanoid.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None
+				end
+				pcall(function()
+					model:ScaleTo(STATUE_SCALE)
+				end)
+				model.Name = "Statue_" .. userId
+				model.Parent = cache
+				templates[userId] = model
+			else
+				failed[userId] = true
+			end
+			building[userId] = nil
+		end)
+	end
+	return nil
+end
+
+local directorNames: { [number]: string } = {}
+local function directorName(userId: number): string?
+	if directorNames[userId] == nil then
+		local ok, name = pcall(function()
+			return Players:GetNameFromUserIdAsync(userId)
+		end)
+		directorNames[userId] = if ok and type(name) == "string" then name else ""
+	end
+	local name = directorNames[userId]
+	return if name ~= "" then name else nil
+end
+
+local function groundY(position: Vector3, fallback: number, ignore: Instance): number
+	local params = RaycastParams.new()
+	params.FilterType = Enum.RaycastFilterType.Exclude
+	params.FilterDescendantsInstances = { ignore }
+	local hit = Workspace:Raycast(position + V(0, 40, 0), V(0, -80, 0), params)
+	return if hit then hit.Position.Y else fallback
+end
+
+local function podium(folder: Folder, at: CFrame, height: number, color: Color3, name: string): BasePart
+	local base = Build.block(folder, V(6, height, 6), at * cf(0, height / 2, 0), color)
+	base.Name = name
+	base.Material = Enum.Material.Marble
+	base.CanCollide = true
+	base.CanQuery = true
+	local trim = Build.block(folder, V(6.6, 0.5, 6.6), at * cf(0, height + 0.25, 0), Color3.fromRGB(250, 250, 255))
+	trim.CanCollide = true
+	return base
+end
+
+local function build(world: number): WorldStatues?
+	local built = WorldBuilder.get(world)
+	if not built then
+		return nil
+	end
+	local info = Layout.info(world)
+	local dock = Layout.dock(world)
+	local o = info.origin
+	local spawnFlat = o + V(dock.spawn.X, info.landY, dock.spawn.Z)
+	local folder = Instance.new("Folder")
+	folder.Name = "Statues"
+	folder.Parent = built.folder
+
+	local boardAt = CFrame.lookAt(o + V(dock.board.X, info.landY, dock.board.Z), spawnFlat)
+	-- Left of the board as you face it from the spawn, and a little further back.
+	local center = boardAt * cf(24, 0, 10)
+	local slots: { [number]: Slot } = {}
+	for _, spec in PODIUMS do
+		local spot = center * cf(spec.x, 0, 0)
+		local y = groundY(spot.Position, info.landY, built.folder)
+		local at = CFrame.lookAt(V(spot.X, y, spot.Z), V(spawnFlat.X, y, spawnFlat.Z))
+		local part = podium(folder, at, spec.height, spec.color, "Podium" .. spec.rank)
+		part:SetAttribute("Rank", spec.rank)
+		slots[spec.rank] = { podium = part, userId = nil }
+	end
+
+	-- The Director's podium beside the egg stand.
+	local director: Slot? = nil
+	if Operators.list()[1] then
+		local spot = o + V(dock.egg.X - 10, info.landY, dock.egg.Z - 1)
+		local y = groundY(spot, info.landY, built.folder)
+		local at = CFrame.lookAt(V(spot.X, y, spot.Z), V(spawnFlat.X, y, spawnFlat.Z))
+		local part = podium(folder, at, 3, Color3.fromRGB(24, 18, 22), "DirectorPodium")
+		local glow = Build.block(folder, V(6.2, 0.3, 6.2), at * cf(0, 0.15, 0), Color3.fromRGB(255, 40, 60))
+		glow.Material = Enum.Material.Neon
+		part:SetAttribute("Rank", 0)
+		director = { podium = part, userId = nil }
+	end
+	return { folder = folder, slots = slots, director = director, board = "", at = -1 }
+end
+
+-- Puts `userId`'s statue on the podium (or clears it). Retries later while the avatar builds.
+local function stand(slot: Slot, userId: number?): boolean
+	local old = slot.podium:FindFirstChild("Statue")
+	if slot.userId == userId and (old or not userId) then
+		return true
+	end
+	if old then
+		old:Destroy()
+	end
+	slot.userId = nil
+	if not userId then
+		return true
+	end
+	local source = template(userId)
+	if not source then
+		return failed[userId] == true
+	end
+	local statue = source:Clone()
+	statue.Name = "Statue"
+	local _, size = statue:GetBoundingBox()
+	local top = slot.podium.CFrame * cf(0, slot.podium.Size.Y / 2 + 0.5 + size.Y / 2, 0)
+	statue:PivotTo(top)
+	statue.Parent = slot.podium
+	slot.userId = userId
+	return true
+end
+
+local function label(slot: Slot, entry: any?, board: string)
+	local part = slot.podium
+	part:SetAttribute("Board", board)
+	part:SetAttribute("UserId", if entry then entry.u else nil)
+	part:SetAttribute("Display", if entry then entry.d else nil)
+	part:SetAttribute("Username", if entry then entry.n else nil)
+	part:SetAttribute("NextTier", if entry then entry.nt else nil)
+	part:SetAttribute("NextSeconds", if entry then entry.ns else nil)
+end
+
+local function update(world: number)
+	local statues = placed[world]
+	if not statues then
+		local made = build(world)
+		if not made then
+			return
+		end
+		statues = made
+		placed[world] = made
+	end
+	local data = LeaderboardService.latest()
+	local board = Rankings.boardAt(os.time())
+	local section = data.boards and data.boards[board]
+	local entries = if section and type(section.entries) == "table" then section.entries else {}
+	local fresh = statues.board ~= board or statues.at ~= data.at
+	for rank, slot in statues.slots do
+		local entry = entries[rank]
+		local done = stand(slot, if entry then entry.u else nil)
+		if fresh then
+			label(slot, entry, board)
+		end
+		if not done then
+			fresh = false -- try again next tick while the avatar loads
+		end
+	end
+	local director = statues.director
+	if director then
+		local id = Operators.list()[1]
+		stand(director, id)
+		if fresh or director.podium:GetAttribute("Username") == nil then
+			local entry = data.directors and (data.directors[board] or data.directors.alltime)
+			local username = if entry then entry.n else directorName(id)
+			label(director, { u = id, d = if entry then entry.d else username, n = username }, "director")
+		end
+	end
+	statues.board = board
+	if fresh then
+		statues.at = data.at
+	end
+end
+
+function StatueService.init()
+	cache = Instance.new("Folder")
+	cache.Name = "DeepDiveStatues"
+	cache.Parent = ServerStorage
+	task.spawn(function()
+		while true do
+			task.wait(1)
+			local occupied: { [number]: boolean } = {}
+			for _, session in Sessions.all() do
+				if session.ready then
+					occupied[session.world] = true
+				end
+			end
+			for world in occupied do
+				local ok, err = pcall(function()
+					update(world)
+				end)
+				if not ok then
+					warn("[DeepDive] Statues for world " .. world .. " failed: " .. tostring(err))
+				end
+			end
+		end
+	end)
+end
+
+return StatueService
+]]></string>
+          </Properties>
+        </Item>
+        <Item class="ModuleScript" referent="45">
           <Properties>
             <string name="Name">TradeService</string>
             <string name="Source"><![CDATA[--!strict
@@ -7472,7 +8392,7 @@ return TradeService
           </Properties>
         </Item>
       </Item>
-      <Item class="ModuleScript" referent="43">
+      <Item class="ModuleScript" referent="46">
         <Properties>
           <string name="Name">Sessions</string>
           <string name="Source"><![CDATA[--!strict
@@ -7593,7 +8513,7 @@ return Sessions
 ]]></string>
         </Properties>
       </Item>
-      <Item class="ModuleScript" referent="44">
+      <Item class="ModuleScript" referent="47">
         <Properties>
           <string name="Name">Sync</string>
           <string name="Source"><![CDATA[--!strict
@@ -7603,6 +8523,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Format = require(Shared.Format)
+local Rankings = require(Shared.Rankings)
 
 local Net = require(script.Parent.Net)
 local ProfileStore = require(script.Parent.ProfileStore)
@@ -7627,6 +8548,9 @@ function Sync.stats(session: Sessions.Session)
 	player:SetAttribute("Coins", profile.coins)
 	player:SetAttribute("Relics", profile.stats.relics)
 	player:SetAttribute("Lifetime", profile.lifetime)
+	local weekly, monthly = Rankings.roll(profile, os.time())
+	player:SetAttribute("Weekly", weekly)
+	player:SetAttribute("Monthly", monthly)
 	local stats: Instance? = player:FindFirstChild("leaderstats")
 	if not stats then
 		local folder = Instance.new("Folder")
@@ -7664,11 +8588,11 @@ return Sync
 ]]></string>
         </Properties>
       </Item>
-      <Item class="Folder" referent="45">
+      <Item class="Folder" referent="48">
         <Properties>
           <string name="Name">World</string>
         </Properties>
-        <Item class="ModuleScript" referent="46">
+        <Item class="ModuleScript" referent="49">
           <Properties>
             <string name="Name">Decor</string>
             <string name="Source"><![CDATA[--!strict
@@ -8739,7 +9663,7 @@ return Decor
 ]]></string>
           </Properties>
         </Item>
-        <Item class="ModuleScript" referent="47">
+        <Item class="ModuleScript" referent="50">
           <Properties>
             <string name="Name">Dock</string>
             <string name="Source"><![CDATA[--!strict
@@ -9081,7 +10005,7 @@ return Dock
 ]]></string>
           </Properties>
         </Item>
-        <Item class="ModuleScript" referent="48">
+        <Item class="ModuleScript" referent="51">
           <Properties>
             <string name="Name">Terrain</string>
             <string name="Source"><![CDATA[--!strict
@@ -9276,7 +10200,7 @@ return TerrainBuilder
 ]]></string>
           </Properties>
         </Item>
-        <Item class="ModuleScript" referent="49">
+        <Item class="ModuleScript" referent="52">
           <Properties>
             <string name="Name">WorldBuilder</string>
             <string name="Source"><![CDATA[--!strict
@@ -9606,21 +10530,21 @@ return WorldBuilder
       </Item>
     </Item>
   </Item>
-  <Item class="SoundService" referent="50">
+  <Item class="SoundService" referent="53">
     <Properties>
       <string name="Name">SoundService</string>
       <token name="AmbientReverb">0</token>
       <bool name="RespectFilteringEnabled">true</bool>
     </Properties>
   </Item>
-  <Item class="StarterGui" referent="51">
+  <Item class="StarterGui" referent="54">
     <Properties>
       <string name="Name">StarterGui</string>
       <bool name="ResetPlayerGuiOnSpawn">false</bool>
       <bool name="ShowDevelopmentGui">true</bool>
     </Properties>
   </Item>
-  <Item class="StarterPlayer" referent="52">
+  <Item class="StarterPlayer" referent="55">
     <Properties>
       <string name="Name">StarterPlayer</string>
       <bool name="AutoJumpEnabled">false</bool>
@@ -9635,20 +10559,20 @@ return WorldBuilder
       <bool name="LoadCharacterAppearance">true</bool>
       <float name="NameDisplayDistance">60</float>
     </Properties>
-    <Item class="StarterCharacterScripts" referent="53">
+    <Item class="StarterCharacterScripts" referent="56">
       <Properties>
         <string name="Name">StarterCharacterScripts</string>
       </Properties>
     </Item>
-    <Item class="StarterPlayerScripts" referent="54">
+    <Item class="StarterPlayerScripts" referent="57">
       <Properties>
         <string name="Name">StarterPlayerScripts</string>
       </Properties>
-      <Item class="Folder" referent="55">
+      <Item class="Folder" referent="58">
         <Properties>
           <string name="Name">Client</string>
         </Properties>
-        <Item class="ModuleScript" referent="56">
+        <Item class="ModuleScript" referent="59">
           <Properties>
             <string name="Name">ClientNet</string>
             <string name="Source"><![CDATA[--!strict
@@ -9714,11 +10638,11 @@ return ClientNet
 ]]></string>
           </Properties>
         </Item>
-        <Item class="Folder" referent="57">
+        <Item class="Folder" referent="60">
           <Properties>
             <string name="Name">Controllers</string>
           </Properties>
-          <Item class="ModuleScript" referent="58">
+          <Item class="ModuleScript" referent="61">
             <Properties>
               <string name="Name">Ambience</string>
               <string name="Source"><![CDATA[--!strict
@@ -9975,12 +10899,13 @@ return Ambience
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="59">
+          <Item class="ModuleScript" referent="62">
             <Properties>
               <string name="Name">Board</string>
               <string name="Source"><![CDATA[--!strict
--- Draws the global leaderboard on the board at the current world's dock, from the JSON the
--- server publishes in ReplicatedStorage (top 10 by lifetime coins).
+-- Draws the ranking board at the current world's dock from the JSON the server publishes in
+-- ReplicatedStorage. Cycles weekly -> monthly -> all-time every Config.BoardRotateSeconds (in step
+-- with the podium statues), with the Director in their own row above the ranked divers.
 
 local HttpService = game:GetService("HttpService")
 local Players = game:GetService("Players")
@@ -9988,37 +10913,116 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
-local Config = require(Shared.Config)
 local Format = require(Shared.Format)
+local Rankings = require(Shared.Rankings)
 local Remotes = require(Shared.Remotes)
 local Strings = require(Shared.Strings)
+
+local TierStyle = require(script.Parent.Parent.UI.TierStyle)
 
 local Board = {}
 
 local MEDALS = { utf8.char(0x1F947), utf8.char(0x1F948), utf8.char(0x1F949) }
-local OPERATOR_RED = Color3.fromRGB(255, 70, 70)
-local OPERATOR_RED_DARK = Color3.fromRGB(120, 10, 10)
-local GOAT_BADGE = "GOAT"
+local ROW = 36
+local data: any = { boards = {}, directors = {} }
 
-local function isOperator(userId: number): boolean
-	return (userId == game.CreatorId and game.CreatorType == Enum.CreatorType.User) or table.find(Config.AdminUserIds, userId) ~= nil
+-- Weekly rank of a UserId (1..10) on the published board, for the player list's "#N" tags.
+function Board.weeklyRank(userId: number): number?
+	local weekly = data.boards.weekly
+	if type(weekly) == "table" and type(weekly.entries) == "table" then
+		for rank, entry in weekly.entries do
+			if entry.u == userId then
+				return rank
+			end
+		end
+	end
+	return nil
 end
 
 function Board.init(app: any)
 	local Kit = app.Kit
 	local current: SurfaceGui? = nil
 	local localPlayer = Players.LocalPlayer
+	local shown = ""
 
-	local function decode(): (boolean, { any })
+	local function decode()
 		local value = ReplicatedStorage:FindFirstChild(Remotes.Board)
 		if not value or not value:IsA("StringValue") then
-			return false, {}
+			return
 		end
-		local ok, data = pcall(HttpService.JSONDecode, HttpService, value.Value)
-		if not ok or type(data) ~= "table" or type(data.entries) ~= "table" then
-			return false, {}
+		local ok, decoded = pcall(HttpService.JSONDecode, HttpService, value.Value)
+		if ok and type(decoded) == "table" and type(decoded.boards) == "table" then
+			data = decoded
 		end
-		return data.global == true, data.entries
+	end
+
+	local function nameText(entry: any): string
+		return string.format('%s <font size="17" color="#a9c3df">@%s</font>', tostring(entry.d), tostring(entry.n))
+	end
+
+	local function avatar(parent: Instance, userId: number, x: number)
+		local image = Kit.new("ImageLabel", {
+			BackgroundColor3 = Color3.fromRGB(40, 64, 104),
+			Image = string.format("rbxthumb://type=AvatarHeadShot&id=%d&w=48&h=48", math.max(1, userId)),
+			Size = UDim2.fromOffset(ROW - 6, ROW - 6),
+			Position = UDim2.new(0, x, 0.5, 0),
+			AnchorPoint = Vector2.new(0, 0.5),
+			Parent = parent,
+		})
+		Kit.round(image)
+		Kit.stroke(image, Color3.new(1, 1, 1), 1.5)
+	end
+
+	local function row(root: Frame, order: number, entry: any, rankText: string, director: boolean, tint: Color3, transparency: number)
+		local frame = Kit.new("Frame", {
+			BackgroundColor3 = tint,
+			BackgroundTransparency = transparency,
+			Size = UDim2.new(1, 0, 0, ROW),
+			LayoutOrder = order,
+			Parent = root,
+		})
+		Kit.corner(frame, 10)
+		local rank = Kit.text({
+			Text = rankText,
+			TextSize = if director then 17 else 24,
+			Stroke = if director then 2 else (if string.sub(rankText, 1, 1) == "#" then 2 else 0),
+			Size = UDim2.fromOffset(if director then 96 else 54, ROW),
+			Position = UDim2.fromOffset(4, 0),
+			Parent = frame,
+		})
+		if director then
+			local stroke = Kit.stroke(frame, Color3.new(1, 1, 1), 2.5)
+			TierStyle.director(stroke)
+			TierStyle.director(rank)
+		end
+		local x = if director then 104 else 62
+		avatar(frame, tonumber(entry.u) or 1, x)
+		local name = Kit.text({
+			Text = nameText(entry),
+			Rich = true,
+			TextSize = 23,
+			Stroke = 2.2,
+			Size = UDim2.new(1, -(x + 200), 1, 0),
+			Position = UDim2.fromOffset(x + ROW + 2, 0),
+			XAlign = Enum.TextXAlignment.Left,
+			Parent = frame,
+		})
+		name.TextTruncate = Enum.TextTruncate.AtEnd
+		if director then
+			TierStyle.director(name)
+		else
+			TierStyle.apply(name, tonumber(entry.t) or 0, Color3.new(1, 1, 1))
+		end
+		Kit.text({
+			Text = Format.short(tonumber(entry.v) or 0),
+			TextSize = 24,
+			Color = Color3.fromRGB(255, 222, 92),
+			Stroke = 2.4,
+			Size = UDim2.fromOffset(150, ROW),
+			Position = UDim2.new(1, -158, 0, 0),
+			XAlign = Enum.TextXAlignment.Right,
+			Parent = frame,
+		})
 	end
 
 	local function render()
@@ -10032,7 +11036,10 @@ function Board.init(app: any)
 		if not screen or not screen:IsA("BasePart") then
 			return
 		end
-		local global, entries = decode()
+		local board = Rankings.boardAt(os.time())
+		shown = board
+		local section = data.boards[board] or {}
+		local entries = if type(section.entries) == "table" then section.entries else {}
 		local gui = Instance.new("SurfaceGui")
 		gui.Name = "LeaderboardGui"
 		gui.Face = Enum.NormalId.Front
@@ -10042,133 +11049,71 @@ function Board.init(app: any)
 		gui.Parent = screen
 		current = gui
 		local root = Kit.new("Frame", { BackgroundTransparency = 1, Size = UDim2.fromScale(1, 1), Parent = gui })
-		Kit.padding(root, 14, 22, 14, 22)
-		Kit.list(root, Enum.FillDirection.Vertical, 4, Enum.HorizontalAlignment.Center, Enum.VerticalAlignment.Top)
+		Kit.padding(root, 10, 20, 10, 20)
+		Kit.list(root, Enum.FillDirection.Vertical, 3, Enum.HorizontalAlignment.Center, Enum.VerticalAlignment.Top)
 		Kit.text({
-			Text = utf8.char(0x1F3C6) .. "  " .. Strings.get("boardTitle"),
-			TextSize = 46,
+			Text = utf8.char(0x1F3C6) .. "  " .. Strings.get("board." .. board),
+			TextSize = 40,
 			Color = Color3.fromRGB(255, 222, 92),
 			Stroke = 4,
-			Size = UDim2.new(1, 0, 0, 54),
+			Size = UDim2.new(1, 0, 0, 46),
 			LayoutOrder = 1,
 			Parent = root,
 		})
+		local subtitle = if section.reset
+			then Strings.get("boardResets", { t = Strings.duration(section.reset - (os.time() - (data.at or os.time()))) })
+			else Strings.get("boardForever")
+		if data.global ~= true then
+			subtitle ..= "  " .. Strings.get("boardLocalTag")
+		end
+		-- Which of the three boards is showing (dots).
+		local dots = {}
+		for _, name in Rankings.Boards do
+			table.insert(dots, if name == board then utf8.char(0x25CF) else utf8.char(0x25CB))
+		end
 		Kit.text({
-			Text = Strings.get(if global then "boardGlobal" else "boardLocal"),
-			TextSize = 22,
+			Text = subtitle .. "   " .. table.concat(dots, " "),
+			TextSize = 19,
 			Color = Color3.fromRGB(170, 200, 235),
 			Stroke = 2,
-			Size = UDim2.new(1, 0, 0, 28),
+			Size = UDim2.new(1, 0, 0, 24),
 			LayoutOrder = 2,
 			Parent = root,
 		})
+		local director = data.directors[board]
+		if director then
+			row(root, 3, director, Strings.get("director"), true, Color3.fromRGB(8, 8, 12), 0.15)
+		end
 		if #entries == 0 then
-			Kit.text({ Text = Strings.get("boardEmpty"), TextSize = 26, Size = UDim2.new(1, 0, 0, 60), LayoutOrder = 3, Parent = root })
+			Kit.text({ Text = Strings.get("boardEmpty"), TextSize = 26, Size = UDim2.new(1, 0, 0, 60), LayoutOrder = 4, Parent = root })
 			return
 		end
-		-- The Operator stands outside the ranked leaderboard entirely, in their own glowing GOAT
-		-- slot, rather than competing for a numbered rank.
-		local goats: { any } = {}
-		local ranked: { any } = {}
-		for _, entry in entries do
-			if isOperator(tonumber(entry.u) or -1) then
-				table.insert(goats, entry)
-			else
-				table.insert(ranked, entry)
-			end
-		end
-		for i, entry in goats do
-			local row = Kit.new("Frame", {
-				BackgroundColor3 = OPERATOR_RED_DARK,
-				BackgroundTransparency = 0.35,
-				Size = UDim2.new(1, 0, 0, 36),
-				LayoutOrder = 4 + i,
-				Parent = root,
-			})
-			Kit.corner(row, 10)
-			Kit.stroke(row, OPERATOR_RED, 2)
-			Kit.neon(row, OPERATOR_RED)
-			local goatLabel = Kit.text({
-				Text = GOAT_BADGE,
-				TextSize = 22,
-				Color = OPERATOR_RED,
-				Stroke = 2,
-				Size = UDim2.fromOffset(110, 36),
-				Position = UDim2.fromOffset(10, 0),
-				Parent = row,
-			})
-			Kit.neon(goatLabel, OPERATOR_RED)
-			local operatorName = Kit.text({
-				Text = tostring(entry.n),
-				TextSize = 26,
-				Color = Color3.fromRGB(255, 160, 160),
-				Stroke = 2.5,
-				Size = UDim2.new(1, -260, 1, 0),
-				Position = UDim2.fromOffset(126, 0),
-				XAlign = Enum.TextXAlignment.Left,
-				Parent = row,
-			})
-			Kit.neon(operatorName, OPERATOR_RED)
-			Kit.text({
-				Text = Format.short(tonumber(entry.v) or 0),
-				TextSize = 26,
-				Color = Color3.fromRGB(255, 222, 92),
-				Stroke = 2.5,
-				Size = UDim2.fromOffset(170, 36),
-				Position = UDim2.new(1, -180, 0, 0),
-				XAlign = Enum.TextXAlignment.Right,
-				Parent = row,
-			})
-		end
-		for rank, entry in ranked do
+		for rank, entry in entries do
 			if rank > 10 then
 				break
 			end
 			local mine = entry.u == localPlayer.UserId
-			local row = Kit.new("Frame", {
-				BackgroundColor3 = if mine then Color3.fromRGB(255, 214, 90) else Color3.fromRGB(255, 255, 255),
-				BackgroundTransparency = if mine then 0.55 else if rank % 2 == 0 then 0.92 else 0.84,
-				Size = UDim2.new(1, 0, 0, 36),
-				LayoutOrder = 10 + rank,
-				Parent = root,
-			})
-			Kit.corner(row, 10)
-			Kit.text({
-				Text = MEDALS[rank] or ("#" .. rank),
-				TextSize = if rank <= 3 then 28 else 24,
-				Stroke = if rank <= 3 then 0 else 2,
-				Size = UDim2.fromOffset(60, 36),
-				Position = UDim2.fromOffset(6, 0),
-				Parent = row,
-			})
-			Kit.text({
-				Text = tostring(entry.n),
-				TextSize = 26,
-				Color = if rank == 1 then Color3.fromRGB(255, 230, 120) else Color3.new(1, 1, 1),
-				Stroke = 2.5,
-				Size = UDim2.new(1, -260, 1, 0),
-				Position = UDim2.fromOffset(72, 0),
-				XAlign = Enum.TextXAlignment.Left,
-				Parent = row,
-			})
-			Kit.text({
-				Text = Format.short(tonumber(entry.v) or 0),
-				TextSize = 26,
-				Color = Color3.fromRGB(255, 222, 92),
-				Stroke = 2.5,
-				Size = UDim2.fromOffset(170, 36),
-				Position = UDim2.new(1, -180, 0, 0),
-				XAlign = Enum.TextXAlignment.Right,
-				Parent = row,
-			})
+			row(
+				root,
+				10 + rank,
+				entry,
+				MEDALS[rank] or ("#" .. rank),
+				false,
+				if mine then Color3.fromRGB(255, 214, 90) else Color3.fromRGB(255, 255, 255),
+				if mine then 0.55 elseif rank % 2 == 0 then 0.92 else 0.84
+			)
 		end
 	end
 
 	local function hook()
 		local value = ReplicatedStorage:WaitForChild(Remotes.Board, 30)
 		if value and value:IsA("StringValue") then
-			value.Changed:Connect(render)
+			value.Changed:Connect(function()
+				decode()
+				render()
+			end)
 		end
+		decode()
 		render()
 	end
 	task.spawn(hook)
@@ -10176,15 +11121,22 @@ function Board.init(app: any)
 		task.delay(0.5, render)
 	end)
 	app.State.languageChanged:Connect(render)
-	-- The world folder may still be building when we first look.
-	task.delay(3, render)
+	-- Rotation, and the world folder may still be building when we first look.
+	task.spawn(function()
+		while true do
+			task.wait(1)
+			if Rankings.boardAt(os.time()) ~= shown or not current then
+				render()
+			end
+		end
+	end)
 end
 
 return Board
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="60">
+          <Item class="ModuleScript" referent="63">
             <Properties>
               <string name="Name">Dive</string>
               <string name="Source"><![CDATA[--!strict
@@ -10253,7 +11205,7 @@ function Dive.init(app: any)
 			dive.oxygen = payload.value
 			app.Sfx.play("Hurt")
 			app.Effects.flash(Color3.fromRGB(255, 60, 80), 0.45, 0.5)
-			app.Toasts.show(Strings.get("hazardHit", { n = Config.Dive.HazardPenalty }), "bad", utf8.char(0x1F4A5))
+			app.Toasts.show(Strings.get("hazardHit", { n = math.floor(Config.Dive.HazardPenalty * 100 + 0.5) }), "bad", utf8.char(0x1F4A5))
 		elseif math.abs(payload.value - dive.oxygen) > 1.5 then
 			dive.oxygen = payload.value
 		else
@@ -10423,7 +11375,7 @@ return Dive
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="61">
+          <Item class="ModuleScript" referent="64">
             <Properties>
               <string name="Name">Fish</string>
               <string name="Source"><![CDATA[--!strict
@@ -10568,7 +11520,7 @@ return Fish
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="62">
+          <Item class="ModuleScript" referent="65">
             <Properties>
               <string name="Name">Hazards</string>
               <string name="Source"><![CDATA[--!strict
@@ -10717,7 +11669,7 @@ return Hazards
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="63">
+          <Item class="ModuleScript" referent="66">
             <Properties>
               <string name="Name">Nameplates</string>
               <string name="Source"><![CDATA[--!strict
@@ -10729,6 +11681,8 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Format = require(Shared.Format)
+
+local TierStyle = require(script.Parent.Parent.UI.TierStyle)
 
 local Nameplates = {}
 
@@ -10842,7 +11796,11 @@ function Nameplates.init(app: any)
 			local operator = player:GetAttribute("Operator") == true
 			local vip = player:GetAttribute("VIP") == true
 			name.Text = (if operator then OPERATOR_BADGE elseif vip then VIP_CROWN else "") .. player.DisplayName
-			name.TextColor3 = if operator then OPERATOR_RED elseif isMe then Color3.fromRGB(255, 236, 150) else Color3.new(1, 1, 1)
+			if operator then
+				TierStyle.apply(name, 0, OPERATOR_RED)
+			else
+				TierStyle.apply(name, tonumber(player:GetAttribute("Tier")) or 0, if isMe then Color3.fromRGB(255, 236, 150) else Color3.new(1, 1, 1))
+			end
 			local wantKind = if operator then "operator" elseif vip then "vip" else nil
 			if wantKind ~= plate.auraKind then
 				if plate.aura then
@@ -10873,6 +11831,7 @@ function Nameplates.init(app: any)
 		end
 		refreshVip()
 		table.insert(plate.connections, player:GetAttributeChangedSignal("Operator"):Connect(refreshVip))
+		table.insert(plate.connections, player:GetAttributeChangedSignal("Tier"):Connect(refreshVip))
 		table.insert(plate.connections, player:GetAttributeChangedSignal("VIP"):Connect(refreshVip))
 		table.insert(plate.connections, player:GetAttributeChangedSignal("Border"):Connect(refreshVip))
 		plates[player] = plate
@@ -10898,7 +11857,7 @@ return Nameplates
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="64">
+          <Item class="ModuleScript" referent="67">
             <Properties>
               <string name="Name">Pets</string>
               <string name="Source"><![CDATA[--!strict
@@ -11044,7 +12003,7 @@ return Pets
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="65">
+          <Item class="ModuleScript" referent="68">
             <Properties>
               <string name="Name">Prompts</string>
               <string name="Source"><![CDATA[--!strict
@@ -11181,7 +12140,7 @@ return Prompts
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="66">
+          <Item class="ModuleScript" referent="69">
             <Properties>
               <string name="Name">Relics</string>
               <string name="Source"><![CDATA[--!strict
@@ -11559,7 +12518,167 @@ return Relics
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="67">
+          <Item class="ModuleScript" referent="70">
+            <Properties>
+              <string name="Name">Statues</string>
+              <string name="Source"><![CDATA[--!strict
+-- Labels for the podium statues at the docks (built by StatueService): rank and
+-- names on the podium front, and each diver's progress to their next ranking tier above them.
+
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Workspace = game:GetService("Workspace")
+
+local Shared = ReplicatedStorage:WaitForChild("Shared")
+local Strings = require(Shared.Strings)
+
+local TierStyle = require(script.Parent.Parent.UI.TierStyle)
+
+local Statues = {}
+
+local MEDALS = { utf8.char(0x1F947), utf8.char(0x1F948), utf8.char(0x1F949) }
+
+function Statues.init(app: any)
+	local Kit = app.Kit
+	local signatures: { [BasePart]: string } = {}
+
+	local function signature(part: BasePart): string
+		return table.concat({
+			tostring(part:GetAttribute("UserId")),
+			tostring(part:GetAttribute("Display")),
+			tostring(part:GetAttribute("Username")),
+			tostring(part:GetAttribute("NextTier")),
+			tostring(part:GetAttribute("NextSeconds")),
+			Strings.get("director"),
+			Strings.get("tierMax"),
+		}, "|")
+	end
+
+	local function render(part: BasePart)
+		for _, old in part:GetChildren() do
+			if old.Name == "StatueFront" or old.Name == "StatueTitle" then
+				old:Destroy()
+			end
+		end
+		local rank = part:GetAttribute("Rank")
+		local director = rank == 0
+		local userId = part:GetAttribute("UserId")
+		if not userId then
+			return
+		end
+		local display = tostring(part:GetAttribute("Display") or "")
+		local username = tostring(part:GetAttribute("Username") or "")
+
+		local front = Instance.new("SurfaceGui")
+		front.Name = "StatueFront"
+		front.Face = Enum.NormalId.Front
+		front.SizingMode = Enum.SurfaceGuiSizingMode.PixelsPerStud
+		front.PixelsPerStud = 40
+		front.LightInfluence = 0
+		front.Parent = part
+		local column = Kit.new("Frame", { BackgroundTransparency = 1, Size = UDim2.fromScale(1, 1), Parent = front })
+		Kit.list(column, Enum.FillDirection.Vertical, 0, Enum.HorizontalAlignment.Center, Enum.VerticalAlignment.Center)
+		local head = Kit.text({
+			Text = if director then Strings.get("director") else (MEDALS[rank :: number] or ""),
+			TextSize = if director then 30 else 34,
+			Stroke = if director then 3 else 0,
+			Size = UDim2.new(1, 0, 0, 38),
+			LayoutOrder = 1,
+			Parent = column,
+		})
+		if director then
+			TierStyle.director(head)
+		end
+		local name = Kit.text({
+			Text = display,
+			TextSize = 26,
+			Stroke = 3,
+			Size = UDim2.new(1, -8, 0, 30),
+			LayoutOrder = 2,
+			Parent = column,
+		})
+		name.TextTruncate = Enum.TextTruncate.AtEnd
+		local user = Kit.text({
+			Text = "@" .. username,
+			TextSize = 18,
+			Color = Color3.fromRGB(225, 236, 248),
+			Stroke = 2,
+			Size = UDim2.new(1, -8, 0, 22),
+			LayoutOrder = 3,
+			Parent = column,
+		})
+		user.TextTruncate = Enum.TextTruncate.AtEnd
+
+		local title = Instance.new("BillboardGui")
+		title.Name = "StatueTitle"
+		title.Size = UDim2.fromOffset(260, 40)
+		title.StudsOffsetWorldSpace = Vector3.new(0, part.Size.Y / 2 + 11, 0)
+		title.LightInfluence = 0
+		title.MaxDistance = 120
+		title.Parent = part
+		local nextTier = part:GetAttribute("NextTier")
+		local seconds = part:GetAttribute("NextSeconds")
+		local text = if director
+			then Strings.get("director")
+			elseif type(nextTier) == "number" and type(seconds) == "number" then Strings.get(
+				"tierNext",
+				{ n = nextTier, t = Strings.duration(seconds) }
+			)
+			else Strings.get("tierMax")
+		local line = Kit.text({
+			Text = text,
+			TextSize = 22,
+			Color = Color3.fromRGB(255, 236, 140),
+			Stroke = 2.5,
+			Size = UDim2.fromScale(1, 1),
+			Parent = title,
+		})
+		if director then
+			TierStyle.director(line)
+		elseif type(nextTier) == "number" then
+			local color = TierStyle.color(nextTier)
+			if color then
+				line.TextColor3 = color
+			end
+		end
+	end
+
+	-- Every world's podiums (not just the current one): labels drawn while visiting another world
+	-- must follow language changes too.
+	local function refresh()
+		local worlds = Workspace:FindFirstChild("Worlds")
+		if not worlds then
+			return
+		end
+		for _, folder in worlds:GetChildren() do
+			local statues = folder:FindFirstChild("Statues")
+			if statues then
+				for _, part in statues:GetChildren() do
+					if part:IsA("BasePart") and part:GetAttribute("Rank") ~= nil then
+						local sig = signature(part)
+						if signatures[part] ~= sig or not part:FindFirstChild("StatueFront") then
+							signatures[part] = sig
+							render(part)
+						end
+					end
+				end
+			end
+		end
+	end
+
+	task.spawn(function()
+		while true do
+			refresh()
+			task.wait(1)
+		end
+	end)
+	app.State.languageChanged:Connect(refresh)
+end
+
+return Statues
+]]></string>
+            </Properties>
+          </Item>
+          <Item class="ModuleScript" referent="71">
             <Properties>
               <string name="Name">Swim</string>
               <string name="Source"><![CDATA[--!strict
@@ -12061,7 +13180,7 @@ return Swim
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="68">
+          <Item class="ModuleScript" referent="72">
             <Properties>
               <string name="Name">Trails</string>
               <string name="Source"><![CDATA[--!strict
@@ -12149,7 +13268,7 @@ return Trails
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="69">
+          <Item class="ModuleScript" referent="73">
             <Properties>
               <string name="Name">WorldProps</string>
               <string name="Source"><![CDATA[--!strict
@@ -12332,7 +13451,7 @@ return WorldProps
             </Properties>
           </Item>
         </Item>
-        <Item class="LocalScript" referent="70">
+        <Item class="LocalScript" referent="74">
           <Properties>
             <string name="Name">Main</string>
             <string name="Source"><![CDATA[--!strict
@@ -12345,6 +13464,7 @@ local StarterGui = game:GetService("StarterGui")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Config = require(Shared.Config)
 local Economy = require(Shared.Economy)
+local Remotes = require(Shared.Remotes)
 local Strings = require(Shared.Strings)
 
 local UI = script.Parent:WaitForChild("UI")
@@ -12392,6 +13512,7 @@ local Nameplates = require(Controllers.Nameplates)
 local Pets = require(Controllers.Pets)
 local Prompts = require(Controllers.Prompts)
 local Relics = require(Controllers.Relics)
+local Statues = require(Controllers.Statues)
 local Swim = require(Controllers.Swim)
 local Trails = require(Controllers.Trails)
 local WorldProps = require(Controllers.WorldProps)
@@ -12580,6 +13701,8 @@ end
 app.Offers = Offers
 Offers.init(app, function()
 	return RightRail.starterLeft(app)
+end, function(userId: number)
+	return Board.weeklyRank(userId)
 end)
 RightRail.init(app, app.openRewards)
 Dive.init(app)
@@ -12595,9 +13718,20 @@ Tutorial.init(app)
 Nameplates.init(app)
 Trails.init()
 Board.init(app)
+Statues.init(app)
 app.Trade = Trade.init(app)
 app.PlayerList = PlayerList.init(function(player)
 	app.requestTrade(player.UserId)
+end, function(userId: number)
+	return Board.weeklyRank(userId)
+end)
+task.spawn(function()
+	local boardData = ReplicatedStorage:WaitForChild(Remotes.Board, 30)
+	if boardData then
+		boardData.Changed:Connect(function()
+			task.delay(0.1, app.PlayerList.refresh)
+		end)
+	end
 end)
 State.languageChanged:Connect(function()
 	task.defer(app.PlayerList.refresh)
@@ -12660,7 +13794,7 @@ end)
 ]]></string>
           </Properties>
         </Item>
-        <Item class="ModuleScript" referent="71">
+        <Item class="ModuleScript" referent="75">
           <Properties>
             <string name="Name">Music</string>
             <string name="Source"><![CDATA[--!strict
@@ -12731,6 +13865,24 @@ sound.Ended:Connect(function()
 	playNext()
 end)
 
+-- Watchdog: Ended is not guaranteed (e.g. a track that stops early), so a loaded track that has
+-- sat silent for a couple of seconds also moves the playlist on.
+task.spawn(function()
+	local silentFor = 0
+	while true do
+		task.wait(1)
+		if enabled and started and sound.IsLoaded and not sound.IsPlaying then
+			silentFor += 1
+			if silentFor >= 2 then
+				silentFor = 0
+				playNext()
+			end
+		else
+			silentFor = 0
+		end
+	end
+end)
+
 function Music.setEnabled(on: boolean)
 	if on == enabled and started then
 		return
@@ -12760,7 +13912,7 @@ return Music
 ]]></string>
           </Properties>
         </Item>
-        <Item class="ModuleScript" referent="72">
+        <Item class="ModuleScript" referent="76">
           <Properties>
             <string name="Name">Sfx</string>
             <string name="Source"><![CDATA[--!strict
@@ -12942,7 +14094,7 @@ return Sfx
 ]]></string>
           </Properties>
         </Item>
-        <Item class="ModuleScript" referent="73">
+        <Item class="ModuleScript" referent="77">
           <Properties>
             <string name="Name">State</string>
             <string name="Source"><![CDATA[--!strict
@@ -13083,11 +14235,11 @@ return State
 ]]></string>
           </Properties>
         </Item>
-        <Item class="Folder" referent="74">
+        <Item class="Folder" referent="78">
           <Properties>
             <string name="Name">UI</string>
           </Properties>
-          <Item class="ModuleScript" referent="75">
+          <Item class="ModuleScript" referent="79">
             <Properties>
               <string name="Name">Anim</string>
               <string name="Source"><![CDATA[--!strict
@@ -13170,7 +14322,7 @@ return Anim
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="76">
+          <Item class="ModuleScript" referent="80">
             <Properties>
               <string name="Name">Clear</string>
               <string name="Source"><![CDATA[--!strict
@@ -13349,7 +14501,7 @@ return Clear
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="77">
+          <Item class="ModuleScript" referent="81">
             <Properties>
               <string name="Name">Effects</string>
               <string name="Source"><![CDATA[--!strict
@@ -13517,7 +14669,7 @@ return Effects
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="78">
+          <Item class="ModuleScript" referent="82">
             <Properties>
               <string name="Name">Gui</string>
               <string name="Source"><![CDATA[--!strict
@@ -13638,7 +14790,7 @@ return Gui
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="79">
+          <Item class="ModuleScript" referent="83">
             <Properties>
               <string name="Name">Hatch</string>
               <string name="Source"><![CDATA[--!strict
@@ -13718,7 +14870,7 @@ function Hatch.play(world: number, results: { { id: string, key: string, new: bo
 	Anim.tween(root, 0.3, { BackgroundTransparency = 0.25 })
 
 	local count = #results
-	local slotSize = if count == 1 then 320 else 240
+	local slotSize = if count == 1 then 320 elseif count <= 3 then 240 else 200
 	local row = Kit.new("Frame", {
 		BackgroundTransparency = 1,
 		Size = UDim2.fromOffset(count * (slotSize + 30), slotSize + 140),
@@ -13807,7 +14959,7 @@ function Hatch.play(world: number, results: { { id: string, key: string, new: bo
 			Anim.appear(slot.view.frame, 0.5)
 			local name = Kit.text({
 				Text = Strings.name(pet.name),
-				TextSize = if count == 1 then 40 else 30,
+				TextSize = if count == 1 then 40 elseif count <= 3 then 30 else 24,
 				Size = UDim2.new(1, 60, 0, 46),
 				Position = UDim2.new(0.5, 0, 0, slotSize + 4),
 				AnchorPoint = Vector2.new(0.5, 0),
@@ -13875,7 +15027,7 @@ return Hatch
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="80">
+          <Item class="ModuleScript" referent="84">
             <Properties>
               <string name="Name">Hud</string>
               <string name="Source"><![CDATA[--!strict
@@ -13940,18 +15092,18 @@ end
 local wallet = Kit.new("Frame", {
 	Name = "Wallet",
 	BackgroundTransparency = 1,
-	Size = UDim2.fromOffset(206, 84),
+	Size = UDim2.fromOffset(250, 84),
 	Position = UDim2.fromOffset(MARGIN, 12),
 	Parent = root,
 })
-local coinPill = Kit.pill({ Name = "Coins", Size = UDim2.fromOffset(206, 44), Outline = 2.5, Parent = wallet })
+local coinPill = Kit.pill({ Name = "Coins", Size = UDim2.fromOffset(250, 44), Outline = 2.5, Parent = wallet })
 local coinIcon = Kit.Icons.coin(34, coinPill)
 coinIcon.Position = UDim2.new(0, 5, 0.5, 0)
 coinIcon.AnchorPoint = Vector2.new(0, 0.5)
 coinIcon.ZIndex = 3
 local coinLabel = Kit.text({
 	Text = "0",
-	TextSize = 26,
+	TextSize = 24,
 	Size = UDim2.new(1, -86, 1, 0),
 	Position = UDim2.fromOffset(46, 0),
 	XAlign = Enum.TextXAlignment.Left,
@@ -13960,6 +15112,10 @@ local coinLabel = Kit.text({
 })
 Hud.coinTarget = coinIcon
 local shownCoins = 0
+-- Full digits while they fit the pill; short form ("1.2B") beyond that.
+local function walletText(n: number): string
+	return if n >= 1e9 then Format.short(n) else Format.commas(n)
+end
 local addCoins = Kit.button({
 	Name = "AddCoins",
 	Text = "+",
@@ -14315,10 +15471,10 @@ function Hud.init(actions: Actions)
 			return
 		end
 		if profile.coins > shownCoins and shownCoins > 0 then
-			Anim.count(coinLabel, shownCoins, profile.coins, 0.8, Format.commas)
+			Anim.count(coinLabel, shownCoins, profile.coins, 0.8, walletText)
 			Anim.pop(coinPill, 0.08)
 		else
-			coinLabel.Text = Format.commas(profile.coins)
+			coinLabel.Text = walletText(profile.coins)
 		end
 		shownCoins = profile.coins
 		boostLabel.Text = utf8.char(0x1F43E) .. " " .. Format.multiplier(State.multiplier())
@@ -14431,7 +15587,7 @@ return Hud
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="81">
+          <Item class="ModuleScript" referent="85">
             <Properties>
               <string name="Name">Kit</string>
               <string name="Source"><![CDATA[--!strict
@@ -14513,6 +15669,27 @@ function Kit.neon(gui: GuiObject, color: Color3): UIStroke
 		:Create(glow, TweenInfo.new(0.85, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true), { Thickness = 6, Transparency = 0.75 })
 		:Play()
 	return glow
+end
+
+-- Animated "chroma" colour sweep: a looping gradient sliding across `parent` (a text label,
+-- frame or UIStroke). Text and strokes take the gradient's colours directly, so labels should use
+-- a white TextColor3.
+function Kit.chroma(parent: Instance, colors: { Color3 }, seconds: number?): UIGradient
+	local keypoints = {}
+	local count = #colors
+	for i = 0, count do
+		table.insert(keypoints, ColorSequenceKeypoint.new(i / count, colors[i % count + 1]))
+	end
+	local gradient = Kit.new("UIGradient", {
+		Name = "Chroma",
+		Color = ColorSequence.new(keypoints),
+		Offset = Vector2.new(-0.5, 0),
+		Parent = parent,
+	}) :: UIGradient
+	TweenService:Create(gradient, TweenInfo.new(seconds or 2.4, Enum.EasingStyle.Linear, Enum.EasingDirection.InOut, -1, true), {
+		Offset = Vector2.new(0.5, 0),
+	}):Play()
+	return gradient
 end
 
 function Kit.gradient(gui: GuiObject, top: Color3, bottom: Color3, rotation: number?): UIGradient
@@ -15011,7 +16188,7 @@ return Kit
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="82">
+          <Item class="ModuleScript" referent="86">
             <Properties>
               <string name="Name">Offers</string>
               <string name="Source"><![CDATA[--!strict
@@ -15019,10 +16196,12 @@ return Kit
 -- (backpack full, blacked out, short on coins) plus an occasional rotating suggestion. Rate
 -- limited by Config.OfferGap / OfferRepeat / OfferMaxPerSession, and never over an open panel.
 
+local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Config = require(Shared.Config)
+local Economy = require(Shared.Economy)
 local Format = require(Shared.Format)
 local Strings = require(Shared.Strings)
 
@@ -15047,10 +16226,13 @@ local REASONS: { [string]: { key: string, line: string, icon: string } } = {
 	double = { key = "DoubleCoins", line = "offer.double", icon = utf8.char(0x1F4B0) },
 	boost = { key = "TimedBoost", line = "offer.boost", icon = utf8.char(0x26A1) },
 	eggs = { key = "LuckyEggs", line = "offer.eggs", icon = utf8.char(0x1F340) },
+	rank = { key = "TimedBoost", line = "offer.rank", icon = utf8.char(0x1F4C8) },
+	rankDouble = { key = "DoubleCoins", line = "offer.rank", icon = utf8.char(0x1F3C6) },
+	coins = { key = "CoinsMedium", line = "offer.coins", icon = utf8.char(0x1F4B0) },
 }
-local ROTATION = { "starter", "double", "boost", "eggs" }
 
-function Offers.init(app: any, starterLeft: () -> number?)
+-- `rankOf` gives a UserId's weekly ranking position (nil when outside the top 10).
+function Offers.init(app: any, starterLeft: () -> number?, rankOf: (number) -> number?)
 	local card = Kit.new("Frame", {
 		Name = "Offer",
 		BackgroundColor3 = Color3.new(1, 1, 1),
@@ -15233,18 +16415,43 @@ function Offers.init(app: any, starterLeft: () -> number?)
 		return true
 	end
 
-	-- The occasional suggestion: first after OfferFirstDelay, then roughly every OfferGap.
+	-- What this diver is missing right now, most relevant first: the starter pack, a push up the
+	-- weekly ranking, the next world's fee, pets, then general boosts.
+	local function needs(): { string }
+		local list = { "starter" }
+		local profile = app.State.profile
+		if not profile then
+			return list
+		end
+		local rank = rankOf(Players.LocalPlayer.UserId)
+		if not rank or rank > 3 then
+			table.insert(list, "rank")
+			table.insert(list, "rankDouble")
+		end
+		local nextWorld = profile.unlocked + 1
+		local current = profile.worlds[tostring(profile.unlocked)]
+		if nextWorld <= Config.WorldCount and current and current.cleared and profile.coins < Economy.unlockCost(nextWorld) then
+			table.insert(list, "unlock")
+		end
+		if next(profile.pets) == nil then
+			table.insert(list, "eggs")
+		end
+		for _, reason in { "full", "double", "boost", "eggs", "coins" } do
+			table.insert(list, reason)
+		end
+		return list
+	end
+
+	-- A suggestion every OfferGap (3 minutes), the first after OfferFirstDelay.
 	task.spawn(function()
-		local index = 0
 		task.wait(Config.OfferFirstDelay)
 		while true do
-			for _ = 1, #ROTATION do
-				index = index % #ROTATION + 1
-				if Offers.trigger(ROTATION[index]) then
+			for _, reason in needs() do
+				if Offers.trigger(reason) then
 					break
 				end
 			end
-			task.wait(Config.OfferGap + math.random(0, 60))
+			task.wait(Config.OfferGap)
 		end
 	end)
 end
@@ -15253,12 +16460,12 @@ return Offers
 ]]></string>
             </Properties>
           </Item>
-          <Item class="Folder" referent="83">
+          <Item class="Folder" referent="87">
             <Properties>
               <string name="Name">Overlays</string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="84">
+          <Item class="ModuleScript" referent="88">
             <Properties>
               <string name="Name">Panel</string>
               <string name="Source"><![CDATA[--!strict
@@ -15502,11 +16709,11 @@ return Panel
 ]]></string>
             </Properties>
           </Item>
-          <Item class="Folder" referent="85">
+          <Item class="Folder" referent="89">
             <Properties>
               <string name="Name">Panels</string>
             </Properties>
-            <Item class="ModuleScript" referent="86">
+            <Item class="ModuleScript" referent="90">
               <Properties>
                 <string name="Name">Egg</string>
                 <string name="Source"><![CDATA[--!strict
@@ -15541,6 +16748,7 @@ function EggPanel.new(app: any): EggPanelApi
 	local world = 1
 	local auto = false
 	local busy = false
+	local setAuto: (boolean) -> () = function() end
 
 	local stage = Kit.new(
 		"Frame",
@@ -15604,9 +16812,31 @@ function EggPanel.new(app: any): EggPanelApi
 		AnchorPoint = Vector2.new(1, 0.5),
 		Parent = autoRow,
 		OnChange = function(value)
-			auto = value
+			setAuto(value)
 		end,
 	})
+	-- While auto-hatching the panel is hidden behind the hatch animation, so the way out lives
+	-- on the overlay layer, above it.
+	local stopAuto = Kit.button({
+		Name = "StopAutoHatch",
+		Text = "",
+		TextSize = 24,
+		Palette = "Red",
+		Size = UDim2.fromOffset(300, 60),
+		Position = UDim2.new(0.5, 0, 1, -24),
+		AnchorPoint = Vector2.new(0.5, 1),
+		Parent = app.Gui.overlay,
+		OnClick = function()
+			setAuto(false)
+		end,
+	})
+	stopAuto.button.ZIndex = 50
+	stopAuto.button.Visible = false
+	setAuto = function(value: boolean)
+		auto = value
+		autoToggle.set(value)
+		stopAuto.button.Visible = value and busy
+	end
 
 	local chancesTitle = Kit.text({
 		Text = "",
@@ -15641,7 +16871,7 @@ function EggPanel.new(app: any): EggPanelApi
 		AnchorPoint = Vector2.new(1, 1),
 		Parent = body,
 	})
-	Kit.list(buttons, Enum.FillDirection.Horizontal, 14, Enum.HorizontalAlignment.Center)
+	Kit.list(buttons, Enum.FillDirection.Horizontal, 10, Enum.HorizontalAlignment.Center)
 
 	local function doHatch(count: number)
 		if busy then
@@ -15651,15 +16881,16 @@ function EggPanel.new(app: any): EggPanelApi
 		local result = app.Net.invoke("Hatch", { world = world, count = count })
 		if not result.ok then
 			busy = false
-			auto = false
-			autoToggle.set(false)
+			setAuto(false)
 			app.Sfx.play("Error")
 			app.Toasts.show(Strings.get(result.err or "err.generic", { n = "" }), "bad")
 			return
 		end
 		panel.root.Visible = false
+		stopAuto.button.Visible = auto
 		app.Hatch.play(world, result.data.results, function()
 			busy = false
+			stopAuto.button.Visible = false
 			if panel.isOpen then
 				panel.root.Visible = true
 			end
@@ -15670,18 +16901,18 @@ function EggPanel.new(app: any): EggPanelApi
 						doHatch(count)
 					end)
 				else
-					auto = false
-					autoToggle.set(false)
+					setAuto(false)
 				end
 			end
 		end)
 	end
 
 	local hatchOne = Kit.button({
+		Name = "Hatch1",
 		Text = "",
-		TextSize = 24,
+		TextSize = 17,
 		Palette = "Green",
-		Size = UDim2.fromOffset(250, 64),
+		Size = UDim2.fromOffset(166, 64),
 		LayoutOrder = 1,
 		Parent = buttons,
 		OnClick = function()
@@ -15689,14 +16920,27 @@ function EggPanel.new(app: any): EggPanelApi
 		end,
 	})
 	local hatchThree = Kit.button({
+		Name = "Hatch3",
 		Text = "",
-		TextSize = 24,
+		TextSize = 17,
 		Palette = "Gold",
-		Size = UDim2.fromOffset(250, 64),
+		Size = UDim2.fromOffset(166, 64),
 		LayoutOrder = 2,
 		Parent = buttons,
 		OnClick = function()
 			doHatch(3)
+		end,
+	})
+	local hatchFive = Kit.button({
+		Name = "Hatch5",
+		Text = "",
+		TextSize = 17,
+		Palette = "Pink",
+		Size = UDim2.fromOffset(166, 64),
+		LayoutOrder = 3,
+		Parent = buttons,
+		OnClick = function()
+			doHatch(5)
 		end,
 	})
 
@@ -15779,12 +17023,15 @@ function EggPanel.new(app: any): EggPanelApi
 		eggName.Text = Strings.name(data.name)
 		costLabel.Text = Format.short(cost)
 		chancesTitle.Text = Strings.get("chances")
-		autoLabel.Text = "Auto"
+		autoLabel.Text = Strings.get("autoHatch")
+		stopAuto.setText(Strings.get("autoStop"))
 		hatchOne.setText(Strings.get("hatch") .. "  " .. Format.short(cost))
 		hatchThree.setText(Strings.get("hatch3") .. "  " .. Format.short(cost * 3))
+		hatchFive.setText(Strings.get("hatch5") .. "  " .. Format.short(cost * 5))
 		local coins = if profile then profile.coins else 0
 		hatchOne.setPalette(if coins >= cost then "Green" else "Gray")
 		hatchThree.setPalette(if coins >= cost * 3 then "Gold" else "Gray")
+		hatchFive.setPalette(if coins >= cost * 5 then "Pink" else "Gray")
 	end
 
 	function panel.openWorld(w: number)
@@ -15799,8 +17046,9 @@ function EggPanel.new(app: any): EggPanelApi
 		Anim.pop(stage, 0.05)
 	end
 	panel.onClose = function()
-		auto = false
-		autoToggle.set(false)
+		if not busy then
+			setAuto(false)
+		end
 	end
 	app.State.profileChanged:Connect(function()
 		if panel.isOpen then
@@ -15820,7 +17068,7 @@ return EggPanel
 ]]></string>
               </Properties>
             </Item>
-            <Item class="ModuleScript" referent="87">
+            <Item class="ModuleScript" referent="91">
               <Properties>
                 <string name="Name">Gear</string>
                 <string name="Source"><![CDATA[--!strict
@@ -16185,7 +17433,7 @@ return GearPanel
 ]]></string>
               </Properties>
             </Item>
-            <Item class="ModuleScript" referent="88">
+            <Item class="ModuleScript" referent="92">
               <Properties>
                 <string name="Name">Pets</string>
                 <string name="Source"><![CDATA[--!strict
@@ -16194,6 +17442,7 @@ return GearPanel
 local MarketplaceService = game:GetService("MarketplaceService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local UserInputService = game:GetService("UserInputService")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Config = require(Shared.Config)
@@ -16290,6 +17539,29 @@ function PetsPanel.new(app: any): Panel.PanelApi
 		Size = UDim2.new(1, -330, 0, 80),
 		Position = UDim2.fromOffset(0, 220),
 		Parent = body,
+	})
+
+	-- Drag a card onto the bin to delete it (locked pets are refused by the server).
+	local trash = Kit.new("Frame", {
+		Name = "TrashZone",
+		BackgroundColor3 = C.Red,
+		BackgroundTransparency = 0.1,
+		Size = UDim2.fromOffset(260, 70),
+		Position = UDim2.new(0.5, -165, 1, -14),
+		AnchorPoint = Vector2.new(0.5, 1),
+		Visible = false,
+		ZIndex = 30,
+		Parent = body,
+	}) :: Frame
+	Kit.corner(trash, 18)
+	local trashStroke = Kit.stroke(trash, C.White, 3)
+	local trashLabel = Kit.text({
+		Text = "",
+		TextSize = 22,
+		Size = UDim2.fromScale(1, 1),
+		ZIndex = 31,
+		StrokeColor = C.RedDark,
+		Parent = trash,
 	})
 
 	-- Detail -------------------------------------------------------------------------------------
@@ -16605,6 +17877,139 @@ function PetsPanel.new(app: any): Panel.PanelApi
 		refreshDetail()
 	end
 
+	local dragging: { id: string, ghost: GuiObject, input: InputObject }? = nil
+	local justDragged = false
+
+	local function overTrash(position: Vector3): boolean
+		local at, size = trash.AbsolutePosition, trash.AbsoluteSize
+		return position.X >= at.X and position.X <= at.X + size.X and position.Y >= at.Y and position.Y <= at.Y + size.Y
+	end
+
+	local function moveGhost(position: Vector3)
+		local current = dragging
+		if not current then
+			return
+		end
+		local canvas = app.Gui.panels
+		current.ghost.Position =
+			UDim2.fromOffset((position.X - canvas.AbsolutePosition.X) / app.Gui.scale, (position.Y - canvas.AbsolutePosition.Y) / app.Gui.scale)
+		local hot = overTrash(position)
+		trash.BackgroundColor3 = if hot then C.RedDark else C.Red
+		trashStroke.Thickness = if hot then 5 else 3
+	end
+
+	local function startDrag(id: string, frame: TextButton, input: InputObject)
+		if dragging then
+			return
+		end
+		local ghost = frame:Clone() :: GuiObject
+		ghost.Name = "DragGhost"
+		ghost.Size = UDim2.fromOffset(92, 110)
+		ghost.AnchorPoint = Vector2.new(0.5, 0.5)
+		ghost.ZIndex = 60
+		ghost.Parent = app.Gui.panels
+		dragging = { id = id, ghost = ghost, input = input }
+		grid.ScrollingEnabled = false
+		trash.Visible = true
+		trashLabel.Text = utf8.char(0x1F5D1) .. "  " .. Strings.get("dropToDelete")
+		app.Sfx.play("Click")
+		moveGhost(input.Position)
+	end
+
+	local function endDrag(position: Vector3?)
+		local current = dragging
+		if not current then
+			return
+		end
+		dragging = nil
+		current.ghost:Destroy()
+		grid.ScrollingEnabled = true
+		trash.Visible = false
+		justDragged = true
+		task.delay(0.1, function()
+			justDragged = false
+		end)
+		if position and overTrash(position) then
+			local profile = app.State.profile
+			local pet = profile and profile.pets[current.id]
+			if pet and pet.l then
+				app.Sfx.play("Error")
+				app.Toasts.show(Strings.get("petLocked"), "bad", utf8.char(0x1F512))
+				return
+			end
+			local result = app.Net.invoke("DeletePet", { id = current.id })
+			if result.ok then
+				app.Sfx.play("Sell")
+				app.Toasts.show(Strings.get("petDeleted"), "info", utf8.char(0x1F5D1))
+				if selected == current.id then
+					selected = nil
+				end
+			else
+				app.Sfx.play("Error")
+				app.Toasts.show(Strings.get(result.err or "err.generic"), "bad")
+			end
+		end
+	end
+
+	UserInputService.InputChanged:Connect(function(input: InputObject)
+		local current = dragging
+		if current and (input == current.input or input.UserInputType == Enum.UserInputType.MouseMovement) then
+			moveGhost(input.Position)
+		end
+	end)
+	UserInputService.InputEnded:Connect(function(input: InputObject)
+		local current = dragging
+		if
+			current
+			and (input == current.input or input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch)
+		then
+			endDrag(input.Position)
+		end
+	end)
+
+	-- Mouse: drag once the pointer moves a little. Touch: press and hold (so swipes still scroll).
+	local function hookDrag(id: string, frame: TextButton)
+		frame.InputBegan:Connect(function(input: InputObject)
+			local mouse = input.UserInputType == Enum.UserInputType.MouseButton1
+			if not mouse and input.UserInputType ~= Enum.UserInputType.Touch then
+				return
+			end
+			local origin = input.Position
+			local released = false
+			local moved: RBXScriptConnection? = nil
+			local ended: RBXScriptConnection? = nil
+			local function cleanup()
+				released = true
+				if moved then
+					moved:Disconnect()
+				end
+				if ended then
+					ended:Disconnect()
+				end
+			end
+			ended = UserInputService.InputEnded:Connect(function(other: InputObject)
+				if other == input or (mouse and other.UserInputType == Enum.UserInputType.MouseButton1) then
+					cleanup()
+				end
+			end)
+			if mouse then
+				moved = UserInputService.InputChanged:Connect(function(other: InputObject)
+					if other.UserInputType == Enum.UserInputType.MouseMovement and (other.Position - origin).Magnitude > 10 then
+						cleanup()
+						startDrag(id, frame, input)
+					end
+				end)
+			else
+				task.delay(0.35, function()
+					if not released and (input.Position - origin).Magnitude < 14 then
+						cleanup()
+						startDrag(id, frame, input)
+					end
+				end)
+			end
+		end)
+	end
+
 	local function buildCard(id: string, key: string, mutations: { string }?, order: number): TextButton
 		local data = Worlds.pets[key]
 		local rarity = Config.Rarities[data.rarity]
@@ -16685,10 +18090,14 @@ function PetsPanel.new(app: any): Panel.PanelApi
 			view.setSpin(false)
 		end)
 		frame.Activated:Connect(function()
+			if justDragged then
+				return
+			end
 			app.Sfx.play("Click")
 			select(id)
 			Anim.pop(frame, 0.1)
 		end)
+		hookDrag(id, frame)
 		cards[id] = { frame = frame, view = view, key = key, look = key .. table.concat(mutations or {}, ",") }
 		return frame
 	end
@@ -16786,7 +18195,7 @@ return PetsPanel
 ]]></string>
               </Properties>
             </Item>
-            <Item class="ModuleScript" referent="89">
+            <Item class="ModuleScript" referent="93">
               <Properties>
                 <string name="Name">Profile</string>
                 <string name="Source"><![CDATA[--!strict
@@ -17262,7 +18671,7 @@ return ProfilePanel
 ]]></string>
               </Properties>
             </Item>
-            <Item class="ModuleScript" referent="90">
+            <Item class="ModuleScript" referent="94">
               <Properties>
                 <string name="Name">Rewards</string>
                 <string name="Source"><![CDATA[--!strict
@@ -17609,7 +19018,7 @@ return RewardsPanel
 ]]></string>
               </Properties>
             </Item>
-            <Item class="ModuleScript" referent="91">
+            <Item class="ModuleScript" referent="95">
               <Properties>
                 <string name="Name">Settings</string>
                 <string name="Source"><![CDATA[--!strict
@@ -17825,7 +19234,7 @@ return SettingsPanel
 ]]></string>
               </Properties>
             </Item>
-            <Item class="ModuleScript" referent="92">
+            <Item class="ModuleScript" referent="96">
               <Properties>
                 <string name="Name">Shop</string>
                 <string name="Source"><![CDATA[--!strict
@@ -17868,6 +19277,7 @@ local ICONS = {
 	StarterPack = utf8.char(0x1F381),
 	InstantUnlock = utf8.char(0x1F513),
 	TimedBoost = utf8.char(0x26A1),
+	GodShark = utf8.char(0x1F988),
 	PetReroll = utf8.char(0x1F3B2),
 	GuaranteedMutation = utf8.char(0x1F52E),
 	BackpackFill = utf8.char(0x1F392),
@@ -18044,7 +19454,7 @@ return ShopPanel
 ]]></string>
               </Properties>
             </Item>
-            <Item class="ModuleScript" referent="93">
+            <Item class="ModuleScript" referent="97">
               <Properties>
                 <string name="Name">Worlds</string>
                 <string name="Source"><![CDATA[--!strict
@@ -18368,7 +19778,7 @@ return WorldsPanel
               </Properties>
             </Item>
           </Item>
-          <Item class="ModuleScript" referent="94">
+          <Item class="ModuleScript" referent="98">
             <Properties>
               <string name="Name">PlayerList</string>
               <string name="Source"><![CDATA[--!strict
@@ -18388,14 +19798,15 @@ local Anim = require(script.Parent.Anim)
 local Gui = require(script.Parent.Gui)
 local Kit = require(script.Parent.Kit)
 local Theme = require(script.Parent.Theme)
+local TierStyle = require(script.Parent.TierStyle)
 
 local PlayerList = {}
 
 local C = Theme.C
 local VIP_CROWN = utf8.char(0x1F451) .. " "
 local OPERATOR_BADGE = utf8.char(0x1F6E1) .. utf8.char(0xFE0F) .. " " -- shield
-local OPERATOR_RED = Color3.fromRGB(255, 70, 70)
 local OPERATOR_RED_DARK = Color3.fromRGB(120, 10, 10)
+local TAG_W = 40
 local WIDTH = 392
 local ROW = 38
 -- Columns start after the avatar (42); the trade button (34) follows the relic column and the
@@ -18403,9 +19814,10 @@ local ROW = 38
 local NAME_W, COIN_W, RELIC_W = 136, 80, 62
 local TRADE_X = 42 + NAME_W + COIN_W + RELIC_W + 6
 
-type Row = { frame: Frame, name: TextLabel, coins: TextLabel, relics: TextLabel, stroke: UIStroke, glow: UIStroke? }
+type Row = { frame: Frame, name: TextLabel, tag: TextLabel, coins: TextLabel, relics: TextLabel, stroke: UIStroke, director: boolean }
 
-function PlayerList.init(onTrade: ((Player) -> ())?)
+-- `rankOf` gives a UserId's weekly ranking position (shown as "#N" after the name).
+function PlayerList.init(onTrade: ((Player) -> ())?, rankOf: ((number) -> number?)?)
 	pcall(function()
 		StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.PlayerList, false)
 	end)
@@ -18503,9 +19915,17 @@ function PlayerList.init(onTrade: ((Player) -> ())?)
 		Kit.stroke(avatar, C.Outline, 2)
 		local name, coins, relics = columns(frame, 17, nil, 2)
 		name.TextTruncate = Enum.TextTruncate.AtEnd
-		if player == localPlayer then
-			name.TextColor3 = Color3.fromRGB(255, 232, 140)
-		end
+		name.Size = UDim2.fromOffset(NAME_W - TAG_W - 2, ROW)
+		local tag = Kit.text({
+			Name = "RankTag",
+			Text = "",
+			TextSize = 15,
+			Stroke = 2,
+			Size = UDim2.fromOffset(TAG_W, ROW),
+			Position = UDim2.fromOffset(42 + NAME_W - TAG_W, 0),
+			XAlign = Enum.TextXAlignment.Left,
+			Parent = frame,
+		})
 		coins.TextColor3 = Color3.fromRGB(255, 222, 92)
 		relics.TextColor3 = Color3.fromRGB(150, 230, 255)
 		if player ~= localPlayer and onTrade then
@@ -18526,7 +19946,7 @@ function PlayerList.init(onTrade: ((Player) -> ())?)
 				end,
 			})
 		end
-		local row = { frame = frame, name = name, coins = coins, relics = relics, stroke = stroke, glow = nil }
+		local row = { frame = frame, name = name, tag = tag, coins = coins, relics = relics, stroke = stroke, director = false }
 		rows[player] = row
 		return row
 	end
@@ -18548,16 +19968,29 @@ function PlayerList.init(onTrade: ((Player) -> ())?)
 		for index, player in list do
 			local row = rows[player] or makeRow(player)
 			row.frame.LayoutOrder = 10 + index
-			-- Operator (the game's creator) outranks VIP and nameplate borders.
+			-- The Director (Operator) outranks tiers, VIP and nameplate borders.
 			local operator = player:GetAttribute("Operator") == true
 			local vip = player:GetAttribute("VIP") == true
 			row.name.Text = (if operator then OPERATOR_BADGE elseif vip then VIP_CROWN else "") .. player.DisplayName
-			row.name.TextColor3 = if operator then OPERATOR_RED elseif player == localPlayer then Color3.fromRGB(255, 232, 140) else C.White
-			if operator and not row.glow then
-				row.glow = Kit.neon(row.name, OPERATOR_RED)
-			elseif not operator and row.glow then
-				row.glow:Destroy()
-				row.glow = nil
+			if operator and not row.director then
+				-- Black row, red chroma border, red chroma name and a "DIR" tag.
+				row.director = true
+				row.frame.BackgroundColor3 = Color3.fromRGB(6, 6, 8)
+				row.frame.BackgroundTransparency = 0.1
+				row.stroke.Enabled = true
+				row.stroke.Thickness = 2.5
+				row.stroke.Color = Color3.new(1, 1, 1)
+				TierStyle.director(row.stroke)
+				TierStyle.director(row.name)
+				row.tag.Text = "DIR"
+				TierStyle.director(row.tag)
+			end
+			if not operator then
+				local fallback = if player == localPlayer then Color3.fromRGB(255, 232, 140) else C.White
+				TierStyle.apply(row.name, tonumber(player:GetAttribute("Tier")) or 0, fallback)
+				local rank = if rankOf then rankOf(player.UserId) else nil
+				row.tag.Text = if rank then "#" .. rank else ""
+				row.tag.TextColor3 = if rank and rank <= 3 then Color3.fromRGB(255, 214, 90) else Color3.fromRGB(190, 214, 240)
 			end
 			local border = player:GetAttribute("Border")
 			local nameStroke = row.name:FindFirstChildOfClass("UIStroke")
@@ -18583,6 +20016,7 @@ function PlayerList.init(onTrade: ((Player) -> ())?)
 		player:GetAttributeChangedSignal("VIP"):Connect(refresh)
 		player:GetAttributeChangedSignal("Border"):Connect(refresh)
 		player:GetAttributeChangedSignal("Operator"):Connect(refresh)
+		player:GetAttributeChangedSignal("Tier"):Connect(refresh)
 		refresh()
 	end
 	for _, player in Players:GetPlayers() do
@@ -18641,7 +20075,7 @@ return PlayerList
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="95">
+          <Item class="ModuleScript" referent="99">
             <Properties>
               <string name="Name">Purchase</string>
               <string name="Source"><![CDATA[--!strict
@@ -18695,19 +20129,23 @@ return Purchase
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="96">
+          <Item class="ModuleScript" referent="100">
             <Properties>
               <string name="Name">RightRail</string>
               <string name="Source"><![CDATA[--!strict
 -- Bottom-right HUD stack: the Starter Pack card (with a real countdown for the first
 -- Config.StarterOfferHours after a player's first visit) and the Rewards button.
 
+local GroupService = game:GetService("GroupService")
+local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
+local SocialService = game:GetService("SocialService")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Config = require(Shared.Config)
 local Format = require(Shared.Format)
+local Operators = require(Shared.Operators)
 local Strings = require(Shared.Strings)
 
 local Anim = require(script.Parent.Anim)
@@ -18736,7 +20174,7 @@ function RightRail.init(app: any, openRewards: () -> ())
 	local rail = Kit.new("Frame", {
 		Name = "RightRail",
 		BackgroundTransparency = 1,
-		Size = UDim2.fromOffset(184, 240),
+		Size = UDim2.fromOffset(184, 320),
 		Position = UDim2.new(1, -16, 1, -16),
 		AnchorPoint = Vector2.new(1, 1),
 		Parent = Gui.hud,
@@ -18823,8 +20261,87 @@ function RightRail.init(app: any, openRewards: () -> ())
 		end
 	end)
 
+	-- Group + friend invite ---------------------------------------------------------------------
+	local social = Kit.new("Frame", { BackgroundTransparency = 1, Size = UDim2.fromOffset(150, 66), LayoutOrder = 2, Parent = rail })
+	Kit.list(social, Enum.FillDirection.Horizontal, 8, Enum.HorizontalAlignment.Right, Enum.VerticalAlignment.Center)
+	local function smallButton(name: string, icon: string, palette: string, order: number, onClick: () -> ()): (Kit.ButtonApi, TextLabel)
+		local api = Kit.button({
+			Name = name,
+			Icon = icon,
+			IconSize = 24,
+			Palette = palette,
+			Size = UDim2.fromOffset(64, 64),
+			Radius = 16,
+			Stroke = 2.5,
+			LayoutOrder = order,
+			Parent = social,
+			OnClick = onClick,
+		})
+		local inner = api.button:FindFirstChild("Content") :: Frame?
+		if inner then
+			inner.Position = UDim2.fromOffset(0, -8)
+		end
+		local caption = Kit.text({
+			Text = "",
+			TextSize = 13,
+			Size = UDim2.new(1, 0, 0, 16),
+			Position = UDim2.new(0, 0, 1, -18),
+			ZIndex = 4,
+			Stroke = 1.8,
+			StrokeColor = (Theme.Buttons[palette] or Theme.Buttons.Blue)[3],
+			Parent = api.button,
+		})
+		return api, caption
+	end
+	local groupButton, groupCaption = smallButton("GroupButton", utf8.char(0x1F465), "Blue", 1, function()
+		local groupId = Operators.groupId()
+		local profile = app.State.profile
+		if groupId <= 0 or not profile then
+			return
+		end
+		if profile.groupRewarded then
+			app.Toasts.show(Strings.get("groupThanks"), "blue", utf8.char(0x1F465))
+			return
+		end
+		pcall(function()
+			GroupService:PromptJoinAsync(groupId)
+		end)
+		local result = app.Net.invoke("ClaimGroup")
+		if result.ok then
+			app.Sfx.play("Unlock")
+			app.Toasts.show(Strings.get("groupReward", { n = Format.commas(result.data.coins) }), "gold", utf8.char(0x1F465))
+		else
+			app.Sfx.play("Error")
+			app.Toasts.show(Strings.get(result.err or "err.generic"), "bad", utf8.char(0x1F465))
+		end
+	end)
+	local groupBadge = Kit.new("Frame", {
+		Name = "Badge",
+		BackgroundColor3 = C.Red,
+		Size = UDim2.fromOffset(18, 18),
+		Position = UDim2.new(1, -4, 0, 4),
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Visible = false,
+		ZIndex = 5,
+		Parent = groupButton.button,
+	})
+	Kit.round(groupBadge)
+	Kit.stroke(groupBadge, C.White, 2)
+	Kit.text({ Text = "!", TextSize = 13, Size = UDim2.fromScale(1, 1), ZIndex = 6, Stroke = 1.5, Parent = groupBadge })
+	local _, inviteCaption = smallButton("InviteButton", utf8.char(0x1F48C), "Purple", 2, function()
+		local player = Players.LocalPlayer
+		local ok, can = pcall(function()
+			return SocialService:CanSendGameInviteAsync(player)
+		end)
+		if ok and can then
+			pcall(function()
+				SocialService:PromptGameInvite(player)
+			end)
+		end
+	end)
+
 	-- Rewards button ----------------------------------------------------------------------------
-	local rewardsHolder = Kit.new("Frame", { BackgroundTransparency = 1, Size = UDim2.fromOffset(84, 104), LayoutOrder = 2, Parent = rail })
+	local rewardsHolder = Kit.new("Frame", { BackgroundTransparency = 1, Size = UDim2.fromOffset(84, 104), LayoutOrder = 3, Parent = rail })
 	local rewards = Kit.button({
 		Name = "RewardsButton",
 		Icon = utf8.char(0x1F381),
@@ -18872,6 +20389,11 @@ function RightRail.init(app: any, openRewards: () -> ())
 
 	local function refresh()
 		rewardsLabel.Text = Strings.get("rewardsTitle")
+		groupCaption.Text = Strings.get("groupButton")
+		inviteCaption.Text = Strings.get("inviteButton")
+		local profile = app.State.profile
+		groupButton.button.Visible = Operators.groupId() > 0
+		groupBadge.Visible = profile ~= nil and not profile.groupRewarded
 		ribbonText.Text = Strings.get("limited")
 		starterName.Text = Strings.get("pass.StarterPack")
 		local def = Purchase.find("StarterPack")
@@ -18914,7 +20436,7 @@ return RightRail
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="97">
+          <Item class="ModuleScript" referent="101">
             <Properties>
               <string name="Name">Screens</string>
               <string name="Source"><![CDATA[--!strict
@@ -19241,7 +20763,7 @@ return Screens
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="98">
+          <Item class="ModuleScript" referent="102">
             <Properties>
               <string name="Name">Theme</string>
               <string name="Source"><![CDATA[--!strict
@@ -19318,7 +20840,62 @@ return Theme
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="99">
+          <Item class="ModuleScript" referent="103">
+            <Properties>
+              <string name="Name">TierStyle</string>
+              <string name="Source"><![CDATA[--!strict
+-- Name colours for ranking tiers (Config.Tiers) and the Director's red chroma.
+
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local Shared = ReplicatedStorage:WaitForChild("Shared")
+local Color = require(Shared.Color)
+local Config = require(Shared.Config)
+
+local Kit = require(script.Parent.Kit)
+
+local TierStyle = {}
+
+TierStyle.DirectorColors = { Color3.fromRGB(255, 40, 60), Color3.fromRGB(255, 140, 140), Color3.fromRGB(160, 0, 20) }
+local PRISMATIC = { Color.hex("#7ff0ff"), Color.hex("#c99bff"), Color.hex("#ffe36b"), Color.hex("#ffffff") }
+
+function TierStyle.color(tier: number): Color3?
+	local def = Config.Tiers[tier]
+	return if def then Color.hex(def.color) else nil
+end
+
+-- Applies the tier look to a label (or clears it for tier 0). `fallback` is the normal colour.
+function TierStyle.apply(label: TextLabel, tier: number, fallback: Color3)
+	local old = label:FindFirstChild("Chroma")
+	local def = Config.Tiers[tier]
+	if def and def.prismatic then
+		label.TextColor3 = Color3.new(1, 1, 1)
+		if not old then
+			Kit.chroma(label, PRISMATIC, 3)
+		end
+		return
+	end
+	if old then
+		old:Destroy()
+	end
+	label.TextColor3 = if def then Color.hex(def.color) else fallback
+end
+
+-- Red chroma for the Director's name and tags.
+function TierStyle.director(target: Instance)
+	if not target:FindFirstChild("Chroma") then
+		if target:IsA("TextLabel") then
+			target.TextColor3 = Color3.new(1, 1, 1)
+		end
+		Kit.chroma(target, TierStyle.DirectorColors, 1.6)
+	end
+end
+
+return TierStyle
+]]></string>
+            </Properties>
+          </Item>
+          <Item class="ModuleScript" referent="104">
             <Properties>
               <string name="Name">Toasts</string>
               <string name="Source"><![CDATA[--!strict
@@ -19408,7 +20985,7 @@ return Toasts
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="100">
+          <Item class="ModuleScript" referent="105">
             <Properties>
               <string name="Name">Trade</string>
               <string name="Source"><![CDATA[--!strict
@@ -19886,7 +21463,7 @@ return Trade
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="101">
+          <Item class="ModuleScript" referent="106">
             <Properties>
               <string name="Name">Tutorial</string>
               <string name="Source"><![CDATA[--!strict
@@ -20045,7 +21622,7 @@ return Tutorial
 ]]></string>
             </Properties>
           </Item>
-          <Item class="ModuleScript" referent="102">
+          <Item class="ModuleScript" referent="107">
             <Properties>
               <string name="Name">Viewport</string>
               <string name="Source"><![CDATA[--!strict
@@ -20190,7 +21767,7 @@ return Viewport
             </Properties>
           </Item>
         </Item>
-        <Item class="ModuleScript" referent="103">
+        <Item class="ModuleScript" referent="108">
           <Properties>
             <string name="Name">WorldFx</string>
             <string name="Source"><![CDATA[--!strict
@@ -20344,7 +21921,7 @@ return WorldFx
       </Item>
     </Item>
   </Item>
-  <Item class="Workspace" referent="104">
+  <Item class="Workspace" referent="109">
     <Properties>
       <string name="Name">Workspace</string>
       <float name="FallenPartsDestroyHeight">-1200</float>

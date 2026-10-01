@@ -64,7 +64,7 @@ function Dive.init(app: any)
 			dive.oxygen = payload.value
 			app.Sfx.play("Hurt")
 			app.Effects.flash(Color3.fromRGB(255, 60, 80), 0.45, 0.5)
-			app.Toasts.show(Strings.get("hazardHit", { n = Config.Dive.HazardPenalty }), "bad", utf8.char(0x1F4A5))
+			app.Toasts.show(Strings.get("hazardHit", { n = math.floor(Config.Dive.HazardPenalty * 100 + 0.5) }), "bad", utf8.char(0x1F4A5))
 		elseif math.abs(payload.value - dive.oxygen) > 1.5 then
 			dive.oxygen = payload.value
 		else

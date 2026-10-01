@@ -60,18 +60,18 @@ end
 local wallet = Kit.new("Frame", {
 	Name = "Wallet",
 	BackgroundTransparency = 1,
-	Size = UDim2.fromOffset(206, 84),
+	Size = UDim2.fromOffset(250, 84),
 	Position = UDim2.fromOffset(MARGIN, 12),
 	Parent = root,
 })
-local coinPill = Kit.pill({ Name = "Coins", Size = UDim2.fromOffset(206, 44), Outline = 2.5, Parent = wallet })
+local coinPill = Kit.pill({ Name = "Coins", Size = UDim2.fromOffset(250, 44), Outline = 2.5, Parent = wallet })
 local coinIcon = Kit.Icons.coin(34, coinPill)
 coinIcon.Position = UDim2.new(0, 5, 0.5, 0)
 coinIcon.AnchorPoint = Vector2.new(0, 0.5)
 coinIcon.ZIndex = 3
 local coinLabel = Kit.text({
 	Text = "0",
-	TextSize = 26,
+	TextSize = 24,
 	Size = UDim2.new(1, -86, 1, 0),
 	Position = UDim2.fromOffset(46, 0),
 	XAlign = Enum.TextXAlignment.Left,
@@ -80,6 +80,10 @@ local coinLabel = Kit.text({
 })
 Hud.coinTarget = coinIcon
 local shownCoins = 0
+-- Full digits while they fit the pill; short form ("1.2B") beyond that.
+local function walletText(n: number): string
+	return if n >= 1e9 then Format.short(n) else Format.commas(n)
+end
 local addCoins = Kit.button({
 	Name = "AddCoins",
 	Text = "+",
@@ -435,10 +439,10 @@ function Hud.init(actions: Actions)
 			return
 		end
 		if profile.coins > shownCoins and shownCoins > 0 then
-			Anim.count(coinLabel, shownCoins, profile.coins, 0.8, Format.commas)
+			Anim.count(coinLabel, shownCoins, profile.coins, 0.8, walletText)
 			Anim.pop(coinPill, 0.08)
 		else
-			coinLabel.Text = Format.commas(profile.coins)
+			coinLabel.Text = walletText(profile.coins)
 		end
 		shownCoins = profile.coins
 		boostLabel.Text = utf8.char(0x1F43E) .. " " .. Format.multiplier(State.multiplier())

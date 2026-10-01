@@ -30,6 +30,7 @@ function EggPanel.new(app: any): EggPanelApi
 	local world = 1
 	local auto = false
 	local busy = false
+	local setAuto: (boolean) -> () = function() end
 
 	local stage = Kit.new(
 		"Frame",
@@ -93,9 +94,31 @@ function EggPanel.new(app: any): EggPanelApi
 		AnchorPoint = Vector2.new(1, 0.5),
 		Parent = autoRow,
 		OnChange = function(value)
-			auto = value
+			setAuto(value)
 		end,
 	})
+	-- While auto-hatching the panel is hidden behind the hatch animation, so the way out lives
+	-- on the overlay layer, above it.
+	local stopAuto = Kit.button({
+		Name = "StopAutoHatch",
+		Text = "",
+		TextSize = 24,
+		Palette = "Red",
+		Size = UDim2.fromOffset(300, 60),
+		Position = UDim2.new(0.5, 0, 1, -24),
+		AnchorPoint = Vector2.new(0.5, 1),
+		Parent = app.Gui.overlay,
+		OnClick = function()
+			setAuto(false)
+		end,
+	})
+	stopAuto.button.ZIndex = 50
+	stopAuto.button.Visible = false
+	setAuto = function(value: boolean)
+		auto = value
+		autoToggle.set(value)
+		stopAuto.button.Visible = value and busy
+	end
 
 	local chancesTitle = Kit.text({
 		Text = "",
@@ -130,7 +153,7 @@ function EggPanel.new(app: any): EggPanelApi
 		AnchorPoint = Vector2.new(1, 1),
 		Parent = body,
 	})
-	Kit.list(buttons, Enum.FillDirection.Horizontal, 14, Enum.HorizontalAlignment.Center)
+	Kit.list(buttons, Enum.FillDirection.Horizontal, 10, Enum.HorizontalAlignment.Center)
 
 	local function doHatch(count: number)
 		if busy then
@@ -140,15 +163,16 @@ function EggPanel.new(app: any): EggPanelApi
 		local result = app.Net.invoke("Hatch", { world = world, count = count })
 		if not result.ok then
 			busy = false
-			auto = false
-			autoToggle.set(false)
+			setAuto(false)
 			app.Sfx.play("Error")
 			app.Toasts.show(Strings.get(result.err or "err.generic", { n = "" }), "bad")
 			return
 		end
 		panel.root.Visible = false
+		stopAuto.button.Visible = auto
 		app.Hatch.play(world, result.data.results, function()
 			busy = false
+			stopAuto.button.Visible = false
 			if panel.isOpen then
 				panel.root.Visible = true
 			end
@@ -159,18 +183,18 @@ function EggPanel.new(app: any): EggPanelApi
 						doHatch(count)
 					end)
 				else
-					auto = false
-					autoToggle.set(false)
+					setAuto(false)
 				end
 			end
 		end)
 	end
 
 	local hatchOne = Kit.button({
+		Name = "Hatch1",
 		Text = "",
-		TextSize = 24,
+		TextSize = 17,
 		Palette = "Green",
-		Size = UDim2.fromOffset(250, 64),
+		Size = UDim2.fromOffset(166, 64),
 		LayoutOrder = 1,
 		Parent = buttons,
 		OnClick = function()
@@ -178,14 +202,27 @@ function EggPanel.new(app: any): EggPanelApi
 		end,
 	})
 	local hatchThree = Kit.button({
+		Name = "Hatch3",
 		Text = "",
-		TextSize = 24,
+		TextSize = 17,
 		Palette = "Gold",
-		Size = UDim2.fromOffset(250, 64),
+		Size = UDim2.fromOffset(166, 64),
 		LayoutOrder = 2,
 		Parent = buttons,
 		OnClick = function()
 			doHatch(3)
+		end,
+	})
+	local hatchFive = Kit.button({
+		Name = "Hatch5",
+		Text = "",
+		TextSize = 17,
+		Palette = "Pink",
+		Size = UDim2.fromOffset(166, 64),
+		LayoutOrder = 3,
+		Parent = buttons,
+		OnClick = function()
+			doHatch(5)
 		end,
 	})
 
@@ -268,12 +305,15 @@ function EggPanel.new(app: any): EggPanelApi
 		eggName.Text = Strings.name(data.name)
 		costLabel.Text = Format.short(cost)
 		chancesTitle.Text = Strings.get("chances")
-		autoLabel.Text = "Auto"
+		autoLabel.Text = Strings.get("autoHatch")
+		stopAuto.setText(Strings.get("autoStop"))
 		hatchOne.setText(Strings.get("hatch") .. "  " .. Format.short(cost))
 		hatchThree.setText(Strings.get("hatch3") .. "  " .. Format.short(cost * 3))
+		hatchFive.setText(Strings.get("hatch5") .. "  " .. Format.short(cost * 5))
 		local coins = if profile then profile.coins else 0
 		hatchOne.setPalette(if coins >= cost then "Green" else "Gray")
 		hatchThree.setPalette(if coins >= cost * 3 then "Gold" else "Gray")
+		hatchFive.setPalette(if coins >= cost * 5 then "Pink" else "Gray")
 	end
 
 	function panel.openWorld(w: number)
@@ -288,8 +328,9 @@ function EggPanel.new(app: any): EggPanelApi
 		Anim.pop(stage, 0.05)
 	end
 	panel.onClose = function()
-		auto = false
-		autoToggle.set(false)
+		if not busy then
+			setAuto(false)
+		end
 	end
 	app.State.profileChanged:Connect(function()
 		if panel.isOpen then

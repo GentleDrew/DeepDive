@@ -38,6 +38,7 @@ local ICONS = {
 	StarterPack = utf8.char(0x1F381),
 	InstantUnlock = utf8.char(0x1F513),
 	TimedBoost = utf8.char(0x26A1),
+	GodShark = utf8.char(0x1F988),
 	PetReroll = utf8.char(0x1F3B2),
 	GuaranteedMutation = utf8.char(0x1F52E),
 	BackpackFill = utf8.char(0x1F392),

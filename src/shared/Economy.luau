@@ -72,11 +72,15 @@ function Economy.petBoost(key: string): number
 	if not pet then
 		return 0
 	end
+	if pet.limited then
+		local top = Worlds.list[#Worlds.list].secret
+		return Config.LimitedPetFactor * (if top then Economy.petBoost(top.key) else 1)
+	end
 	return Config.PetBaseBoost * Config.PetWorldGrowth ^ (pet.world - 1) * Config.PetRarityFactor[pet.rarity]
 end
 
 function Economy.pressure(world: number): number
-	return Config.PressureBase + Config.PressureStep * (world - 1)
+	return Config.PressureBase + Config.PressureStep * (world - 1) + Config.PressureCurve * (world - 1) ^ 2
 end
 
 -- Oxygen seconds consumed per real second at a given depth (studs below the surface).
@@ -164,7 +168,21 @@ local MUTATIONS = {}
 for _, mutation in Config.Mutations do
 	MUTATIONS[mutation.key] = mutation
 end
+for _, mutation in Config.LimitedMutations do
+	MUTATIONS[mutation.key] = mutation
+end
 Economy.Mutations = MUTATIONS
+
+-- How many of the regular (enchantable) mutations a pet carries; limited ones do not count.
+function Economy.regularMutations(list: { string }?): number
+	local count = 0
+	for _, mutation in Config.Mutations do
+		if list and table.find(list, mutation.key) then
+			count += 1
+		end
+	end
+	return count
+end
 
 function Economy.mutationMultiplier(list: { string }?): number
 	if not list or #list == 0 then
@@ -188,7 +206,7 @@ end
 -- Price of the next enchant on a pet (nil once it carries every mutation).
 function Economy.mutateCost(key: string, mutations: { string }?): number?
 	local pet = Worlds.pets[key]
-	local count = if mutations then #mutations else 0
+	local count = Economy.regularMutations(mutations)
 	if not pet or count >= #Config.Mutations then
 		return nil
 	end

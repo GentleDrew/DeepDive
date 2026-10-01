@@ -65,7 +65,15 @@ for _, realm in { Engine.server, Engine.client } do
 	else
 		realmConfig.Products[1].id = 111
 		realmConfig.Passes[1].id = 222
-		local productIds = { UnlockBoost = 333, InstantUnlock = 501, TimedBoost = 502, PetReroll = 503, GuaranteedMutation = 504, BackpackFill = 505 }
+		local productIds = {
+			UnlockBoost = 333,
+			InstantUnlock = 501,
+			TimedBoost = 502,
+			PetReroll = 503,
+			GuaranteedMutation = 504,
+			BackpackFill = 505,
+			GodShark = 506,
+		}
 		for _, product in realmConfig.Products do
 			if productIds[product.key] then
 				product.id = productIds[product.key]
@@ -459,13 +467,19 @@ if not quick then
 		local three = invoke("Hatch", { world = 1, count = 3 })
 		check(three.ok, "Hatch x3 failed: " .. tostring(three.err))
 		Engine.wait(4)
+		s.profile.coins += Economy.eggCost(1) * 5
+		local five = invoke("Hatch", { world = 1, count = 5 })
+		check(five.ok and five.data and #five.data.results == 5, "Hatch x5 failed: " .. tostring(five.err))
+		check(not invoke("Hatch", { world = 1, count = 4 }).ok, "only x1, x3 and x5 hatches are allowed")
+		check(Engine.gui():FindFirstChild("StopAutoHatch", true) ~= nil, "auto-hatch stop button missing")
+		Engine.wait(4)
 		local count = 0
 		local anyId
 		for id in s.profile.pets do
 			count += 1
 			anyId = id
 		end
-		check(count == 4, "expected 4 pets, got " .. count)
+		check(count == 9, "expected 9 pets, got " .. count)
 		check(#s.profile.equipped >= 1, "hatched pets should auto-equip")
 		check(invoke("EquipBest").ok, "EquipBest failed")
 		check(invoke("UnequipAll").ok and #s.profile.equipped == 0, "UnequipAll failed")
@@ -683,7 +697,7 @@ if not quick then
 			local before = s.oxygen
 			ClientNet.hazard(1)
 			Engine.wait(0.3)
-			check(s.oxygen < before, "hazard did not cost oxygen")
+			check(before - s.oxygen >= s.oxygenMax * Config.Dive.HazardPenalty * 0.95 or s.oxygen == 0, "a hazard hit should cost 20% of max oxygen")
 		end
 		-- grab one relic so the rescue has something to halve
 		local points = game:GetService("HttpService"):JSONDecode(worldFolder(2):GetAttribute("Points"))
@@ -891,6 +905,18 @@ if not quick then
 		)
 		check(s.profile.coins > beforeFillFallback, "a full backpack should fall back to a coin grant")
 		table.clear(s.profile.backpack)
+		-- Limited GOD Shark: delivered with its x8 GOD enchant even past the inventory cap.
+		check(
+			processReceipt({ PlayerId = 1001, ProductId = 506, PurchaseId = "shark-1" }) == Enum.ProductPurchaseDecision.PurchaseGranted,
+			"GodShark receipt not granted"
+		)
+		local shark = nil
+		for _, pet in s.profile.pets do
+			if pet.s == "godShark" then
+				shark = pet
+			end
+		end
+		check(shark ~= nil and shark.m ~= nil and shark.m[1] == "GOD", "GOD Shark not delivered with its GOD enchant")
 	end)
 
 	step("promo codes", function()
@@ -941,6 +967,59 @@ if not quick then
 
 		local track = rawGame:GetService("SoundService"):FindFirstChild("Track")
 		check(track ~= nil and string.find(track.SoundId, "rbxassetid://", 1, true) ~= nil, "background music is not playing")
+	end)
+
+	step("rankings, statues and community", function()
+		local s = session()
+		local folder = worldFolder(s.world)
+		local podium = nil
+		check(
+			Engine.waitFor(function()
+				local statues = folder and folder:FindFirstChild("Statues")
+				podium = statues and statues:FindFirstChild("Podium1")
+				return podium ~= nil and podium:GetAttribute("UserId") == player.UserId and podium:FindFirstChild("Statue") ~= nil
+			end, 20, "podium statue"),
+			"the top diver's statue never stood on the first podium"
+		)
+		if podium then
+			check(
+				Engine.waitFor(function()
+					return podium:FindFirstChild("StatueFront") ~= nil and podium:FindFirstChild("StatueTitle") ~= nil
+				end, 3, "statue labels"),
+				"statue labels not drawn"
+			)
+			check(podium:GetAttribute("Display") ~= nil and podium:GetAttribute("Username") ~= nil, "statue names missing")
+		end
+		local statues = folder and folder:FindFirstChild("Statues")
+		check(statues ~= nil and statues:FindFirstChild("DirectorPodium") ~= nil, "Director podium missing beside the egg")
+		local board = game:GetService("HttpService"):JSONDecode(rawGame:GetService("ReplicatedStorage").LeaderboardData.Value)
+		for _, name in { "weekly", "monthly", "alltime" } do
+			check(board.boards[name] ~= nil and #board.boards[name].entries > 0, name .. " board empty")
+		end
+		local row = Engine.gui():FindFirstChild("PlayerList", true)
+		row = row and row:FindFirstChild(player.Name)
+		local tag = row and row:FindFirstChild("RankTag")
+		check(
+			Engine.waitFor(function()
+				return tag ~= nil and tag.Text == "#1"
+			end, 3, "rank tag"),
+			"player list should tag the weekly #1"
+		)
+		check(player:GetAttribute("Tier") ~= nil, "Tier attribute not set")
+
+		-- Community: the group reward needs membership; friend invites open Roblox's dialog.
+		Config.GroupId = 777
+		local notMember = invoke("ClaimGroup")
+		check(not notMember.ok and notMember.err == "notInGroup", "group reward must require membership")
+		Config.GroupId = 0
+		local invite = Engine.gui():FindFirstChild("InviteButton", true)
+		check(invite ~= nil, "invite button missing")
+		if invite then
+			local before = Engine.invitePrompts
+			Engine.click(invite)
+			Engine.wait(0.3)
+			check(Engine.invitePrompts > before, "invite button did not open the invite dialog")
+		end
 	end)
 
 	step("profile panel and playtime", function()
@@ -1130,6 +1209,11 @@ step("leave, save and rejoin", function()
 	local record = store and store.data["p_1001"]
 	check(record and record.data.coins == coins, "saved coins do not match")
 	check(record and record.data.unlocked == unlocked, "saved unlock does not match")
+	local equip = table.clone(s.profile.gear.equip)
+	-- Come back as a Director: red DIR tag, every world open and the limited GOD Shark granted.
+	for _, realm in { Engine.server, Engine.client } do
+		realm.module(Shared .. "Config").AdminUserIds = { 1001 }
+	end
 	local again = Engine.addPlayer("Diver2", 1001)
 	player = again
 	check(
@@ -1140,7 +1224,31 @@ step("leave, save and rejoin", function()
 	)
 	local loaded = Sessions.get(again)
 	check(loaded and loaded.profile.coins == coins, "rejoined profile lost coins")
-	check(loaded and loaded.profile.unlocked == unlocked, "rejoined profile lost unlocks")
+	check(loaded and loaded.profile.unlocked >= unlocked, "rejoined profile lost unlocks")
+	if loaded then
+		for slot, key in equip do
+			check(loaded.profile.gear.equip[slot] == key, "gear in slot " .. slot .. " was unequipped by rejoining")
+		end
+		check(again:GetAttribute("Operator") == true, "a Director should be flagged as Operator")
+		check(loaded.profile.unlocked == Config.WorldCount, "a Director should have every world open")
+		local sharks = 0
+		for _, pet in loaded.profile.pets do
+			if pet.s == "godShark" then
+				sharks += 1
+			end
+		end
+		check(sharks >= 1, "a Director should own the GOD Shark")
+	end
+	if next(equip) then
+		check(
+			Engine.waitFor(function()
+				local character = again.Character
+				local gear = character and character:FindFirstChild("DeepDiveGear")
+				return gear ~= nil and #gear:GetChildren() > 0
+			end, 5, "worn gear"),
+			"worn gear missing after rejoining"
+		)
+	end
 	Engine.shutdown()
 	Engine.wait(0.5)
 	check(store.data["p_1001"].lock == nil, "BindToClose should release the lock")

@@ -75,7 +75,7 @@ function Hatch.play(world: number, results: { { id: string, key: string, new: bo
 	Anim.tween(root, 0.3, { BackgroundTransparency = 0.25 })
 
 	local count = #results
-	local slotSize = if count == 1 then 320 else 240
+	local slotSize = if count == 1 then 320 elseif count <= 3 then 240 else 200
 	local row = Kit.new("Frame", {
 		BackgroundTransparency = 1,
 		Size = UDim2.fromOffset(count * (slotSize + 30), slotSize + 140),
@@ -164,7 +164,7 @@ function Hatch.play(world: number, results: { { id: string, key: string, new: bo
 			Anim.appear(slot.view.frame, 0.5)
 			local name = Kit.text({
 				Text = Strings.name(pet.name),
-				TextSize = if count == 1 then 40 else 30,
+				TextSize = if count == 1 then 40 elseif count <= 3 then 30 else 24,
 				Size = UDim2.new(1, 60, 0, 46),
 				Position = UDim2.new(0.5, 0, 0, slotSize + 4),
 				AnchorPoint = Vector2.new(0.5, 0),

@@ -6,6 +6,7 @@
 local HttpService = game:GetService("HttpService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local UserInputService = game:GetService("UserInputService")
 local Workspace = game:GetService("Workspace")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
@@ -21,11 +22,37 @@ local Board = {}
 
 local MEDALS = { utf8.char(0x1F947), utf8.char(0x1F948), utf8.char(0x1F949) }
 local ROW = 36
+local PIXELS_PER_STUD = 40
+local ARROW_BAND = 72 -- px from the top of the board: the title row with the arrows
+local ARROW_REACH = 120 -- px in from each side edge
 local data: any = { boards = {}, directors = {} }
 
--- The board this player picked with the arrows (the statues follow it too).
+-- The board this player picked with the arrows (the statues follow it too). Every player starts
+-- on the weekly board when they join.
 Board.selected = "weekly"
 Board.selectionChanged = Signal.new()
+
+-- Which arrow (-1 left, 1 right, nil none) a point on the board's front face hits. `localPoint`
+-- is in the board part's space; the front face looks down -Z, so the viewer's left is +X.
+function Board.arrowAt(localPoint: Vector3, size: Vector3): number?
+	local x = (size.X / 2 - localPoint.X) * PIXELS_PER_STUD
+	local y = (size.Y / 2 - localPoint.Y) * PIXELS_PER_STUD
+	if y < 0 or y > ARROW_BAND then
+		return nil
+	elseif x >= 0 and x <= ARROW_REACH then
+		return -1
+	elseif x <= size.X * PIXELS_PER_STUD and x >= size.X * PIXELS_PER_STUD - ARROW_REACH then
+		return 1
+	end
+	return nil
+end
+
+-- Steps to the previous (-1) or next (1) board.
+function Board.pick(side: number)
+	local index = table.find(Rankings.Boards, Board.selected) or 1
+	Board.selected = Rankings.Boards[(index - 1 + side) % #Rankings.Boards + 1]
+	Board.selectionChanged:Fire(Board.selected)
+end
 
 -- Weekly rank of a UserId (1..10) on the published board, for the player list's "#N" tags.
 function Board.weeklyRank(userId: number): number?
@@ -143,7 +170,7 @@ function Board.init(app: any)
 		gui.Name = "LeaderboardGui"
 		gui.Face = Enum.NormalId.Front
 		gui.SizingMode = Enum.SurfaceGuiSizingMode.PixelsPerStud
-		gui.PixelsPerStud = 40
+		gui.PixelsPerStud = PIXELS_PER_STUD
 		gui.LightInfluence = 0
 		-- Drawn on the board but parented to PlayerGui, the only place a SurfaceGui takes clicks.
 		gui.Adornee = screen
@@ -164,23 +191,25 @@ function Board.init(app: any)
 			AnchorPoint = Vector2.new(0.5, 0),
 			Parent = titleRow,
 		})
+		-- Arrow "buttons" are drawn here but clicked through the 3D board (see the click handler).
 		for _, side in { -1, 1 } do
-			Kit.button({
+			local arrow = Kit.new("Frame", {
 				Name = if side < 0 then "BoardPrev" else "BoardNext",
-				Text = if side < 0 then "<" else ">",
-				TextSize = 30,
-				Palette = "Gold",
-				Size = UDim2.fromOffset(56, 46),
-				Position = if side < 0 then UDim2.fromOffset(0, 2) else UDim2.new(1, 0, 0, 2),
+				BackgroundColor3 = Color3.new(1, 1, 1),
+				Size = UDim2.fromOffset(60, 48),
+				Position = if side < 0 then UDim2.fromOffset(0, 1) else UDim2.new(1, 0, 0, 1),
 				AnchorPoint = Vector2.new(if side < 0 then 0 else 1, 0),
-				Radius = 14,
 				Parent = titleRow,
-				OnClick = function()
-					local index = table.find(Rankings.Boards, Board.selected) or 1
-					Board.selected = Rankings.Boards[(index - 1 + side) % #Rankings.Boards + 1]
-					Board.selectionChanged:Fire(Board.selected)
-					render()
-				end,
+			})
+			Kit.corner(arrow, 14)
+			Kit.gradient(arrow, app.Theme.Buttons.Gold[1], app.Theme.Buttons.Gold[2])
+			Kit.stroke(arrow, app.Theme.Buttons.Gold[3], 3)
+			Kit.text({
+				Text = if side < 0 then "<" else ">",
+				TextSize = 32,
+				Size = UDim2.fromScale(1, 1),
+				StrokeColor = app.Theme.Buttons.Gold[3],
+				Parent = arrow,
 			})
 		end
 		local subtitle = if section.reset
@@ -244,6 +273,37 @@ function Board.init(app: any)
 		task.delay(0.5, render)
 	end)
 	app.State.languageChanged:Connect(render)
+	Board.selectionChanged:Connect(render)
+
+	-- Left click / tap on the board's arrows. Raycasting against the board itself works everywhere
+	-- (SurfaceGui buttons only take input in some setups).
+	UserInputService.InputBegan:Connect(function(input, processed)
+		if processed then
+			return
+		end
+		if input.UserInputType ~= Enum.UserInputType.MouseButton1 and input.UserInputType ~= Enum.UserInputType.Touch then
+			return
+		end
+		local gui = current
+		local screen = gui and gui.Adornee
+		local camera = Workspace.CurrentCamera
+		if not screen or not screen:IsA("BasePart") or not camera then
+			return
+		end
+		local ray = camera:ScreenPointToRay(input.Position.X, input.Position.Y)
+		local params = RaycastParams.new()
+		params.FilterType = Enum.RaycastFilterType.Include
+		params.FilterDescendantsInstances = { screen }
+		local hit = Workspace:Raycast(ray.Origin, ray.Direction * 300, params)
+		if not hit then
+			return
+		end
+		local side = Board.arrowAt(screen.CFrame:PointToObjectSpace(hit.Position), screen.Size)
+		if side then
+			app.Sfx.play("Click")
+			Board.pick(side)
+		end
+	end)
 	-- The world folder may still be building when we first look; the reset countdown ticks too.
 	task.spawn(function()
 		local age = 0

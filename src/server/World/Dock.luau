@@ -276,6 +276,8 @@ function Dock.build(world: number, parent: Instance): SpawnLocation
 	solid(frame)
 	local screen = Build.block(folder, V(17, 13, 0.3), boardAt * cf(0, 10, -0.1), Color3.fromRGB(18, 28, 52))
 	screen.Name = "BoardScreen"
+	-- Queryable so clicks on the board's arrows reach it (clients raycast against it).
+	screen.CanQuery = true
 	local crown = Build.block(folder, V(6, 1.6, 0.9), boardAt * cf(0, 17.8, 0.4), GOLD)
 	crown.Material = Enum.Material.Neon
 

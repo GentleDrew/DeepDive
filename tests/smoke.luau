@@ -1005,24 +1005,36 @@ if not quick then
 				return part ~= nil and part.LocalTransparencyModifier == 1
 			end
 			check(not hiddenWeekly(), "weekly statues should show first")
-			local nextButton = Engine.gui():FindFirstChild("BoardNext", true)
-			check(nextButton ~= nil, "board arrow missing")
-			if nextButton then
-				Engine.click(nextButton)
-				check(Engine.waitFor(hiddenWeekly, 3, "board switch"), "picking another board should switch the statues")
-				local title = Engine.gui():FindFirstChild("LeaderboardGui")
-				local found = false
-				for _, d in (if title then title:GetDescendants() else {}) do
-					if d:IsA("TextLabel") and string.find(d.Text, Strings.get("board.monthly"), 1, true) then
-						found = true
-					end
-				end
-				check(found, "the board should show the monthly ranking after the arrow")
+			local BoardModule = Engine.client.module("Players.Diver.PlayerScripts.Client.Controllers.Board")
+			local screen = folder and folder:FindFirstChild("BoardScreen", true)
+			check(screen ~= nil and screen.CanQuery, "the board screen must be queryable so its arrows take clicks")
+			check(BoardModule.selected == "weekly", "the board should open on the weekly ranking")
+			if screen then
+				-- The front face looks down -Z: the viewer's left (the "<" arrow) is +X, top is +Y.
+				local size = screen.Size
+				local top = size.Y / 2 - 0.6
+				check(BoardModule.arrowAt(Vector3.new(size.X / 2 - 0.8, top, -size.Z / 2), size) == -1, "left arrow hit area")
+				check(BoardModule.arrowAt(Vector3.new(-size.X / 2 + 0.8, top, -size.Z / 2), size) == 1, "right arrow hit area")
+				check(BoardModule.arrowAt(Vector3.new(0, top, -size.Z / 2), size) == nil, "the title is not an arrow")
+				check(BoardModule.arrowAt(Vector3.new(size.X / 2 - 0.8, 0, -size.Z / 2), size) == nil, "rows are not arrows")
 			end
+			BoardModule.pick(1)
+			check(BoardModule.selected == "monthly", "the right arrow should step to the monthly ranking")
+			check(Engine.waitFor(hiddenWeekly, 3, "board switch"), "picking another board should switch the statues")
+			local title = Engine.gui():FindFirstChild("LeaderboardGui")
+			local found = false
+			for _, d in (if title then title:GetDescendants() else {}) do
+				if d:IsA("TextLabel") and string.find(d.Text, Strings.get("board.monthly"), 1, true) then
+					found = true
+				end
+			end
+			check(found, "the board should show the monthly ranking after the arrow")
+			BoardModule.pick(-1)
+			check(BoardModule.selected == "weekly", "the left arrow should step back to weekly")
 		end
 		local statues = folder and folder:FindFirstChild("Statues")
 		local director = statues and statues:FindFirstChild("DirectorPodium")
-		check(director ~= nil, "Director podium missing beside the sell pad")
+		check(director ~= nil, "Director podium missing beside the gear shop")
 		local board = game:GetService("HttpService"):JSONDecode(rawGame:GetService("ReplicatedStorage").LeaderboardData.Value)
 		for _, name in { "weekly", "monthly", "alltime" } do
 			check(board.boards[name] ~= nil and #board.boards[name].entries > 0, name .. " board empty")

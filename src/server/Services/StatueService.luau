@@ -1,7 +1,7 @@
 --!strict
 -- Podium statues behind each dock's ranking board: gold / silver / bronze podiums carry the top
 -- 3 of every board (weekly, monthly, all-time) at once, and each client shows only the board it
--- picked on the dock board. The Director stands big beside the sell pad. Avatars are built from
+-- picked on the dock board. The Director stands big beside the gear shop kiosk. Avatars are built from
 -- each player's own outfit and prebuilt as soon as the rankings name them. Only worlds someone is
 -- in get statues. Names and tier progress are podium attributes; clients draw the labels.
 
@@ -134,10 +134,11 @@ local function build(world: number): WorldStatues?
 		slots[spec.rank] = { podium = part, users = {}, scale = PODIUM_SCALE }
 	end
 
-	-- The Director, big, beside the sell pad.
+	-- The Director, big, beside the gear shop kiosk with room to walk between them.
 	local director: Slot? = nil
 	if Operators.list()[1] then
-		local spot = o + V(dock.sell.X - 13, info.landY, dock.sell.Z - 2)
+		local kiosk = CFrame.lookAt(o + V(dock.kiosk.X, info.landY, dock.kiosk.Z), spawnFlat)
+		local spot = (kiosk * cf(-17, 0, 2)).Position
 		local y = groundY(spot, info.landY, built.folder)
 		local at = CFrame.lookAt(V(spot.X, y, spot.Z), V(spawnFlat.X, y, spawnFlat.Z))
 		local part = podium(folder, at, 9, 3, Color3.fromRGB(24, 18, 22), "DirectorPodium")

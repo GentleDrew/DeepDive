@@ -2,6 +2,7 @@
 -- UI component kit: rounded FredokaOne text with outlines, bubbly buttons with press/hover
 -- animation, pills, progress bars, drawn icons and modal panels.
 
+local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
 
 local Anim = require(script.Parent.Anim)
@@ -59,6 +60,23 @@ function Kit.stroke(gui: GuiObject, color: Color3?, thickness: number?, contextu
 		LineJoinMode = Enum.LineJoinMode.Round,
 		Parent = gui,
 	})
+end
+
+-- A second, larger stroke layered behind the normal one, breathing in thickness and transparency
+-- for a glowing neon-sign look (used for the Operator's name everywhere it appears).
+function Kit.neon(gui: GuiObject, color: Color3): UIStroke
+	local glow = Kit.new("UIStroke", {
+		Name = "NeonGlow",
+		Color = color,
+		Thickness = 2,
+		Transparency = 0.25,
+		LineJoinMode = Enum.LineJoinMode.Round,
+		Parent = gui,
+	}) :: UIStroke
+	TweenService
+		:Create(glow, TweenInfo.new(0.85, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true), { Thickness = 6, Transparency = 0.75 })
+		:Play()
+	return glow
 end
 
 function Kit.gradient(gui: GuiObject, top: Color3, bottom: Color3, rotation: number?): UIGradient

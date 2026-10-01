@@ -30,7 +30,7 @@ local ROW = 38
 local NAME_W, COIN_W, RELIC_W = 136, 80, 62
 local TRADE_X = 42 + NAME_W + COIN_W + RELIC_W + 6
 
-type Row = { frame: Frame, name: TextLabel, coins: TextLabel, relics: TextLabel, stroke: UIStroke }
+type Row = { frame: Frame, name: TextLabel, coins: TextLabel, relics: TextLabel, stroke: UIStroke, glow: UIStroke? }
 
 function PlayerList.init(onTrade: ((Player) -> ())?)
 	pcall(function()
@@ -153,7 +153,7 @@ function PlayerList.init(onTrade: ((Player) -> ())?)
 				end,
 			})
 		end
-		local row = { frame = frame, name = name, coins = coins, relics = relics, stroke = stroke }
+		local row = { frame = frame, name = name, coins = coins, relics = relics, stroke = stroke, glow = nil }
 		rows[player] = row
 		return row
 	end
@@ -180,6 +180,12 @@ function PlayerList.init(onTrade: ((Player) -> ())?)
 			local vip = player:GetAttribute("VIP") == true
 			row.name.Text = (if operator then OPERATOR_BADGE elseif vip then VIP_CROWN else "") .. player.DisplayName
 			row.name.TextColor3 = if operator then OPERATOR_RED elseif player == localPlayer then Color3.fromRGB(255, 232, 140) else C.White
+			if operator and not row.glow then
+				row.glow = Kit.neon(row.name, OPERATOR_RED)
+			elseif not operator and row.glow then
+				row.glow:Destroy()
+				row.glow = nil
+			end
 			local border = player:GetAttribute("Border")
 			local nameStroke = row.name:FindFirstChildOfClass("UIStroke")
 			if nameStroke then

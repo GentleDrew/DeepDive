@@ -15,6 +15,7 @@ type Plate = {
 	name: TextLabel,
 	aura: ParticleEmitter?,
 	auraKind: string?, -- "operator" | "vip", so switching between them swaps the aura's color
+	glow: UIStroke?, -- pulsing neon stroke, Operator only
 	connections: { RBXScriptConnection },
 }
 
@@ -105,8 +106,14 @@ function Nameplates.init(app: any)
 		end
 		refresh()
 		local nameStroke = name:FindFirstChildOfClass("UIStroke")
-		local plate: Plate =
-			{ gui = gui, name = name, aura = nil, auraKind = nil, connections = { player:GetAttributeChangedSignal("Coins"):Connect(refresh) } }
+		local plate: Plate = {
+			gui = gui,
+			name = name,
+			aura = nil,
+			auraKind = nil,
+			glow = nil,
+			connections = { player:GetAttributeChangedSignal("Coins"):Connect(refresh) },
+		}
 		local root = character:FindFirstChild("HumanoidRootPart") :: BasePart?
 		local function refreshVip()
 			-- Operator (the game's creator, see Config.AdminUserIds) outranks VIP and borders.
@@ -126,6 +133,12 @@ function Nameplates.init(app: any)
 						else auraEmitter(root, Color3.fromRGB(255, 226, 130), Color3.fromRGB(255, 190, 40))
 				end
 				plate.auraKind = wantKind
+			end
+			if operator and not plate.glow then
+				plate.glow = Kit.neon(name, OPERATOR_RED)
+			elseif not operator and plate.glow then
+				plate.glow:Destroy()
+				plate.glow = nil
 			end
 			if nameStroke then
 				local border = player:GetAttribute("Border")

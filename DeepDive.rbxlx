@@ -9667,6 +9667,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
+local Config = require(Shared.Config)
 local Format = require(Shared.Format)
 local Remotes = require(Shared.Remotes)
 local Strings = require(Shared.Strings)
@@ -9674,6 +9675,13 @@ local Strings = require(Shared.Strings)
 local Board = {}
 
 local MEDALS = { utf8.char(0x1F947), utf8.char(0x1F948), utf8.char(0x1F949) }
+local OPERATOR_RED = Color3.fromRGB(255, 70, 70)
+local OPERATOR_RED_DARK = Color3.fromRGB(120, 10, 10)
+local GOAT_BADGE = utf8.char(0x1F410) .. " GOAT" -- goat emoji
+
+local function isOperator(userId: number): boolean
+	return (userId == game.CreatorId and game.CreatorType == Enum.CreatorType.User) or table.find(Config.AdminUserIds, userId) ~= nil
+end
 
 function Board.init(app: any)
 	local Kit = app.Kit
@@ -9737,7 +9745,61 @@ function Board.init(app: any)
 			Kit.text({ Text = Strings.get("boardEmpty"), TextSize = 26, Size = UDim2.new(1, 0, 0, 60), LayoutOrder = 3, Parent = root })
 			return
 		end
-		for rank, entry in entries do
+		-- The Operator stands outside the ranked leaderboard entirely, in their own glowing GOAT
+		-- slot, rather than competing for a numbered rank.
+		local goats: { any } = {}
+		local ranked: { any } = {}
+		for _, entry in entries do
+			if isOperator(tonumber(entry.u) or -1) then
+				table.insert(goats, entry)
+			else
+				table.insert(ranked, entry)
+			end
+		end
+		for i, entry in goats do
+			local row = Kit.new("Frame", {
+				BackgroundColor3 = OPERATOR_RED_DARK,
+				BackgroundTransparency = 0.35,
+				Size = UDim2.new(1, 0, 0, 36),
+				LayoutOrder = 4 + i,
+				Parent = root,
+			})
+			Kit.corner(row, 10)
+			Kit.stroke(row, OPERATOR_RED, 2)
+			Kit.neon(row, OPERATOR_RED)
+			local goatLabel = Kit.text({
+				Text = GOAT_BADGE,
+				TextSize = 22,
+				Color = OPERATOR_RED,
+				Stroke = 2,
+				Size = UDim2.fromOffset(110, 36),
+				Position = UDim2.fromOffset(10, 0),
+				Parent = row,
+			})
+			Kit.neon(goatLabel, OPERATOR_RED)
+			local operatorName = Kit.text({
+				Text = tostring(entry.n),
+				TextSize = 26,
+				Color = Color3.fromRGB(255, 160, 160),
+				Stroke = 2.5,
+				Size = UDim2.new(1, -260, 1, 0),
+				Position = UDim2.fromOffset(126, 0),
+				XAlign = Enum.TextXAlignment.Left,
+				Parent = row,
+			})
+			Kit.neon(operatorName, OPERATOR_RED)
+			Kit.text({
+				Text = Format.short(tonumber(entry.v) or 0),
+				TextSize = 26,
+				Color = Color3.fromRGB(255, 222, 92),
+				Stroke = 2.5,
+				Size = UDim2.fromOffset(170, 36),
+				Position = UDim2.new(1, -180, 0, 0),
+				XAlign = Enum.TextXAlignment.Right,
+				Parent = row,
+			})
+		end
+		for rank, entry in ranked do
 			if rank > 10 then
 				break
 			end
@@ -10350,6 +10412,7 @@ type Plate = {
 	name: TextLabel,
 	aura: ParticleEmitter?,
 	auraKind: string?, -- "operator" | "vip", so switching between them swaps the aura's color
+	glow: UIStroke?, -- pulsing neon stroke, Operator only
 	connections: { RBXScriptConnection },
 }
 
@@ -10440,8 +10503,14 @@ function Nameplates.init(app: any)
 		end
 		refresh()
 		local nameStroke = name:FindFirstChildOfClass("UIStroke")
-		local plate: Plate =
-			{ gui = gui, name = name, aura = nil, auraKind = nil, connections = { player:GetAttributeChangedSignal("Coins"):Connect(refresh) } }
+		local plate: Plate = {
+			gui = gui,
+			name = name,
+			aura = nil,
+			auraKind = nil,
+			glow = nil,
+			connections = { player:GetAttributeChangedSignal("Coins"):Connect(refresh) },
+		}
 		local root = character:FindFirstChild("HumanoidRootPart") :: BasePart?
 		local function refreshVip()
 			-- Operator (the game's creator, see Config.AdminUserIds) outranks VIP and borders.
@@ -10461,6 +10530,12 @@ function Nameplates.init(app: any)
 						else auraEmitter(root, Color3.fromRGB(255, 226, 130), Color3.fromRGB(255, 190, 40))
 				end
 				plate.auraKind = wantKind
+			end
+			if operator and not plate.glow then
+				plate.glow = Kit.neon(name, OPERATOR_RED)
+			elseif not operator and plate.glow then
+				plate.glow:Destroy()
+				plate.glow = nil
 			end
 			if nameStroke then
 				local border = player:GetAttribute("Border")
@@ -13904,6 +13979,7 @@ return Hud
 -- UI component kit: rounded FredokaOne text with outlines, bubbly buttons with press/hover
 -- animation, pills, progress bars, drawn icons and modal panels.
 
+local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
 
 local Anim = require(script.Parent.Anim)
@@ -13961,6 +14037,23 @@ function Kit.stroke(gui: GuiObject, color: Color3?, thickness: number?, contextu
 		LineJoinMode = Enum.LineJoinMode.Round,
 		Parent = gui,
 	})
+end
+
+-- A second, larger stroke layered behind the normal one, breathing in thickness and transparency
+-- for a glowing neon-sign look (used for the Operator's name everywhere it appears).
+function Kit.neon(gui: GuiObject, color: Color3): UIStroke
+	local glow = Kit.new("UIStroke", {
+		Name = "NeonGlow",
+		Color = color,
+		Thickness = 2,
+		Transparency = 0.25,
+		LineJoinMode = Enum.LineJoinMode.Round,
+		Parent = gui,
+	}) :: UIStroke
+	TweenService
+		:Create(glow, TweenInfo.new(0.85, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true), { Thickness = 6, Transparency = 0.75 })
+		:Play()
+	return glow
 end
 
 function Kit.gradient(gui: GuiObject, top: Color3, bottom: Color3, rotation: number?): UIGradient
@@ -17261,7 +17354,7 @@ local ROW = 38
 local NAME_W, COIN_W, RELIC_W = 136, 80, 62
 local TRADE_X = 42 + NAME_W + COIN_W + RELIC_W + 6
 
-type Row = { frame: Frame, name: TextLabel, coins: TextLabel, relics: TextLabel, stroke: UIStroke }
+type Row = { frame: Frame, name: TextLabel, coins: TextLabel, relics: TextLabel, stroke: UIStroke, glow: UIStroke? }
 
 function PlayerList.init(onTrade: ((Player) -> ())?)
 	pcall(function()
@@ -17384,7 +17477,7 @@ function PlayerList.init(onTrade: ((Player) -> ())?)
 				end,
 			})
 		end
-		local row = { frame = frame, name = name, coins = coins, relics = relics, stroke = stroke }
+		local row = { frame = frame, name = name, coins = coins, relics = relics, stroke = stroke, glow = nil }
 		rows[player] = row
 		return row
 	end
@@ -17411,6 +17504,12 @@ function PlayerList.init(onTrade: ((Player) -> ())?)
 			local vip = player:GetAttribute("VIP") == true
 			row.name.Text = (if operator then OPERATOR_BADGE elseif vip then VIP_CROWN else "") .. player.DisplayName
 			row.name.TextColor3 = if operator then OPERATOR_RED elseif player == localPlayer then Color3.fromRGB(255, 232, 140) else C.White
+			if operator and not row.glow then
+				row.glow = Kit.neon(row.name, OPERATOR_RED)
+			elseif not operator and row.glow then
+				row.glow:Destroy()
+				row.glow = nil
+			end
 			local border = player:GetAttribute("Border")
 			local nameStroke = row.name:FindFirstChildOfClass("UIStroke")
 			if nameStroke then

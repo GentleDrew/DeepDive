@@ -8,6 +8,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
+local Config = require(Shared.Config)
 local Format = require(Shared.Format)
 local Remotes = require(Shared.Remotes)
 local Strings = require(Shared.Strings)
@@ -15,6 +16,13 @@ local Strings = require(Shared.Strings)
 local Board = {}
 
 local MEDALS = { utf8.char(0x1F947), utf8.char(0x1F948), utf8.char(0x1F949) }
+local OPERATOR_RED = Color3.fromRGB(255, 70, 70)
+local OPERATOR_RED_DARK = Color3.fromRGB(120, 10, 10)
+local GOAT_BADGE = utf8.char(0x1F410) .. " GOAT" -- goat emoji
+
+local function isOperator(userId: number): boolean
+	return (userId == game.CreatorId and game.CreatorType == Enum.CreatorType.User) or table.find(Config.AdminUserIds, userId) ~= nil
+end
 
 function Board.init(app: any)
 	local Kit = app.Kit
@@ -78,7 +86,61 @@ function Board.init(app: any)
 			Kit.text({ Text = Strings.get("boardEmpty"), TextSize = 26, Size = UDim2.new(1, 0, 0, 60), LayoutOrder = 3, Parent = root })
 			return
 		end
-		for rank, entry in entries do
+		-- The Operator stands outside the ranked leaderboard entirely, in their own glowing GOAT
+		-- slot, rather than competing for a numbered rank.
+		local goats: { any } = {}
+		local ranked: { any } = {}
+		for _, entry in entries do
+			if isOperator(tonumber(entry.u) or -1) then
+				table.insert(goats, entry)
+			else
+				table.insert(ranked, entry)
+			end
+		end
+		for i, entry in goats do
+			local row = Kit.new("Frame", {
+				BackgroundColor3 = OPERATOR_RED_DARK,
+				BackgroundTransparency = 0.35,
+				Size = UDim2.new(1, 0, 0, 36),
+				LayoutOrder = 4 + i,
+				Parent = root,
+			})
+			Kit.corner(row, 10)
+			Kit.stroke(row, OPERATOR_RED, 2)
+			Kit.neon(row, OPERATOR_RED)
+			local goatLabel = Kit.text({
+				Text = GOAT_BADGE,
+				TextSize = 22,
+				Color = OPERATOR_RED,
+				Stroke = 2,
+				Size = UDim2.fromOffset(110, 36),
+				Position = UDim2.fromOffset(10, 0),
+				Parent = row,
+			})
+			Kit.neon(goatLabel, OPERATOR_RED)
+			local operatorName = Kit.text({
+				Text = tostring(entry.n),
+				TextSize = 26,
+				Color = Color3.fromRGB(255, 160, 160),
+				Stroke = 2.5,
+				Size = UDim2.new(1, -260, 1, 0),
+				Position = UDim2.fromOffset(126, 0),
+				XAlign = Enum.TextXAlignment.Left,
+				Parent = row,
+			})
+			Kit.neon(operatorName, OPERATOR_RED)
+			Kit.text({
+				Text = Format.short(tonumber(entry.v) or 0),
+				TextSize = 26,
+				Color = Color3.fromRGB(255, 222, 92),
+				Stroke = 2.5,
+				Size = UDim2.fromOffset(170, 36),
+				Position = UDim2.new(1, -180, 0, 0),
+				XAlign = Enum.TextXAlignment.Right,
+				Parent = row,
+			})
+		end
+		for rank, entry in ranked do
 			if rank > 10 then
 				break
 			end

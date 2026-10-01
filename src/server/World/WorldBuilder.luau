@@ -197,6 +197,16 @@ local function scanHazards(world: number, folder: Folder, rng: Random, points: {
 end
 
 function WorldBuilder.init()
+	-- A place saved from a play session (or Team Create) can carry stale copies of these runtime
+	-- folders. Clients look worlds up with Workspace:FindFirstChild("Worlds"), so a stale copy
+	-- holding only World 1 would hide every freshly built world from them.
+	for _, name in { "Worlds", "DeepDiveClient" } do
+		local stale = Workspace:FindFirstChild(name)
+		while stale do
+			stale:Destroy()
+			stale = Workspace:FindFirstChild(name)
+		end
+	end
 	root = Instance.new("Folder")
 	root.Name = "Worlds"
 	root.Parent = Workspace

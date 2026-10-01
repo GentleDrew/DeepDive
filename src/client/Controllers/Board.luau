@@ -18,7 +18,7 @@ local Board = {}
 local MEDALS = { utf8.char(0x1F947), utf8.char(0x1F948), utf8.char(0x1F949) }
 local OPERATOR_RED = Color3.fromRGB(255, 70, 70)
 local OPERATOR_RED_DARK = Color3.fromRGB(120, 10, 10)
-local GOAT_BADGE = utf8.char(0x1F410) .. " GOAT" -- goat emoji
+local GOAT_BADGE = "GOAT"
 
 local function isOperator(userId: number): boolean
 	return (userId == game.CreatorId and game.CreatorType == Enum.CreatorType.User) or table.find(Config.AdminUserIds, userId) ~= nil

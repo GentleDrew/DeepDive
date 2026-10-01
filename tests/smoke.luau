@@ -153,6 +153,15 @@ end
 ---------------------------------------------------------------------------------------------------
 
 step("boot server", function()
+	-- A place saved mid-play keeps a stale "Worlds" folder with only World 1; the server must
+	-- clear it, or clients find it first and never see the worlds built this session.
+	local workspace = rawGame:GetService("Workspace")
+	local staleWorlds = roblox.Instance.new("Folder")
+	staleWorlds.Name = "Worlds"
+	local staleWorld1 = roblox.Instance.new("Folder")
+	staleWorld1.Name = "World1"
+	staleWorld1.Parent = staleWorlds
+	staleWorlds.Parent = workspace
 	Engine.runServerScripts()
 	check(
 		Engine.waitFor(function()
@@ -167,6 +176,13 @@ step("boot server", function()
 	Sync = Engine.server.module("ServerScriptService.Server.Sync")
 	DiveService = Engine.server.module("ServerScriptService.Server.Services.DiveService")
 	check(rawGame:GetService("ReplicatedStorage"):FindFirstChild("Remotes"), "Remotes folder missing")
+	local worldsFolders = 0
+	for _, child in workspace:GetChildren() do
+		if child.Name == "Worlds" then
+			worldsFolders += 1
+		end
+	end
+	check(worldsFolders == 1 and staleWorlds.Parent == nil, "stale saved Worlds folder was not cleared")
 end)
 
 step("join + client boot", function()

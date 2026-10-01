@@ -184,7 +184,7 @@ Config.DefaultLanguage = "en"
 -- The game's creator (game.CreatorId, when solo-owned) always gets the red "Operator" nameplate
 -- and aura, free. Add other UserIds here too (co-developers, moderators) if you want them to have
 -- it as well, or if the experience is group-owned (game.CreatorId is then the group, not a player).
-Config.AdminUserIds = {}
+Config.AdminUserIds = { 2201094984 } -- Gentle_Drew
 
 Config.WorldCount = 20
 Config.WorldSpacing = 1000

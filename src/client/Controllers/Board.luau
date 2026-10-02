@@ -2,10 +2,12 @@
 -- Draws the ranking board at the current world's dock from the JSON the server publishes in
 -- ReplicatedStorage. Arrows on the board switch between weekly (the default), monthly and all-time;
 -- the podium statues beside it follow the same choice. The Director has their own row on top.
+-- The ranks below scroll: mouse wheel over the board, a finger drag, or the ▲ ▼ buttons.
 
 local HttpService = game:GetService("HttpService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local ContextActionService = game:GetService("ContextActionService")
 local UserInputService = game:GetService("UserInputService")
 local Workspace = game:GetService("Workspace")
 
@@ -25,7 +27,19 @@ local ROW = 36
 local PIXELS_PER_STUD = 40
 local ARROW_BAND = 72 -- px from the top of the board: the title row with the arrows
 local ARROW_REACH = 120 -- px in from each side edge
+local PAD_X, PAD_Y = 20, 10 -- board padding, px
+local GAP = 3
+local BAR = 36 -- px: width of the scroll column, and the size of its ▲ ▼ buttons
+local STEP = ROW + GAP -- one row of scrolling
 local data: any = { boards = {}, directors = {} }
+
+-- Scroll state of the rank list (px from the top), and where the list sits on the board.
+Board.scroll = 0
+local scrollMax = 0
+local listTop, listHeight = 0, 0
+local rowsFrame: Frame? = nil
+local thumb: Frame? = nil
+local trackHeight = 0
 
 -- The board this player picked with the arrows (the statues follow it too). Every player starts
 -- on the weekly board when they join.
@@ -47,10 +61,41 @@ function Board.arrowAt(localPoint: Vector3, size: Vector3): number?
 	return nil
 end
 
+-- Which scroll button (-1 up, 1 down, nil none) a point on the board's front face hits.
+function Board.scrollAt(localPoint: Vector3, size: Vector3): number?
+	if scrollMax <= 0 then
+		return nil
+	end
+	local width = size.X * PIXELS_PER_STUD
+	local x = (size.X / 2 - localPoint.X) * PIXELS_PER_STUD
+	local y = (size.Y / 2 - localPoint.Y) * PIXELS_PER_STUD
+	if x < width - PAD_X - BAR - 8 or x > width then
+		return nil
+	elseif y >= listTop and y <= listTop + BAR + 8 then
+		return -1
+	elseif y >= listTop + listHeight - BAR - 8 and y <= listTop + listHeight + PAD_Y then
+		return 1
+	end
+	return nil
+end
+
+-- Moves the rank list by `pixels` (positive scrolls down), within its limits.
+function Board.scrollBy(pixels: number)
+	Board.scroll = math.clamp(Board.scroll + pixels, 0, scrollMax)
+	if rowsFrame then
+		rowsFrame.Position = UDim2.fromOffset(0, -Board.scroll)
+	end
+	if thumb and scrollMax > 0 then
+		local free = trackHeight - thumb.Size.Y.Offset
+		thumb.Position = UDim2.new(0.5, 0, 0, BAR + 4 + math.floor(free * Board.scroll / scrollMax))
+	end
+end
+
 -- Steps to the previous (-1) or next (1) board.
 function Board.pick(side: number)
 	local index = table.find(Rankings.Boards, Board.selected) or 1
 	Board.selected = Rankings.Boards[(index - 1 + side) % #Rankings.Boards + 1]
+	Board.scroll = 0
 	Board.selectionChanged:Fire(Board.selected)
 end
 
@@ -59,7 +104,9 @@ function Board.weeklyRank(userId: number): number?
 	local weekly = data.boards.weekly
 	if type(weekly) == "table" and type(weekly.entries) == "table" then
 		for rank, entry in weekly.entries do
-			if entry.u == userId then
+			if rank > 10 then
+				break
+			elseif entry.u == userId then
 				return rank
 			end
 		end
@@ -157,6 +204,7 @@ function Board.init(app: any)
 			current:Destroy()
 			current = nil
 		end
+		rowsFrame, thumb, scrollMax = nil, nil, 0
 		local worlds = Workspace:FindFirstChild("Worlds")
 		local folder = worlds and worlds:FindFirstChild("World" .. app.State.world)
 		local screen = folder and folder:FindFirstChild("BoardScreen", true)
@@ -178,8 +226,8 @@ function Board.init(app: any)
 		gui.Parent = app.Gui.promptParent
 		current = gui
 		local root = Kit.new("Frame", { BackgroundTransparency = 1, Size = UDim2.fromScale(1, 1), Parent = gui })
-		Kit.padding(root, 10, 20, 10, 20)
-		Kit.list(root, Enum.FillDirection.Vertical, 3, Enum.HorizontalAlignment.Center, Enum.VerticalAlignment.Top)
+		Kit.padding(root, PAD_Y, PAD_X, PAD_Y, PAD_X)
+		Kit.list(root, Enum.FillDirection.Vertical, GAP, Enum.HorizontalAlignment.Center, Enum.VerticalAlignment.Top)
 		local titleRow = Kit.new("Frame", { BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 50), LayoutOrder = 1, Parent = root })
 		Kit.text({
 			Text = utf8.char(0x1F3C6) .. "  " .. Strings.get("board." .. board),
@@ -240,14 +288,37 @@ function Board.init(app: any)
 			Kit.text({ Text = Strings.get("boardEmpty"), TextSize = 26, Size = UDim2.new(1, 0, 0, 60), LayoutOrder = 4, Parent = root })
 			return
 		end
+
+		-- The ranks: a clipped window over a column of rows, with a scroll column on the right.
+		listTop = PAD_Y + 50 + GAP + 24 + GAP + (if director then ROW + GAP else 0)
+		listHeight = math.floor(screen.Size.Y * PIXELS_PER_STUD) - PAD_Y - listTop
+		local list = Kit.new("Frame", {
+			Name = "BoardList",
+			BackgroundTransparency = 1,
+			Size = UDim2.new(1, 0, 0, listHeight),
+			LayoutOrder = 10,
+			Parent = root,
+		})
+		local view = Kit.new("Frame", {
+			Name = "BoardView",
+			BackgroundTransparency = 1,
+			ClipsDescendants = true,
+			Size = UDim2.new(1, -(BAR + 8), 1, 0),
+			Parent = list,
+		})
+		local content = #entries * STEP - GAP
+		local rows = Kit.new("Frame", {
+			Name = "BoardRows",
+			BackgroundTransparency = 1,
+			Size = UDim2.new(1, 0, 0, content),
+			Parent = view,
+		}) :: Frame
+		Kit.list(rows, Enum.FillDirection.Vertical, GAP, Enum.HorizontalAlignment.Center, Enum.VerticalAlignment.Top)
 		for rank, entry in entries do
-			if rank > 10 then
-				break
-			end
 			local mine = entry.u == localPlayer.UserId
 			row(
-				root,
-				10 + rank,
+				rows,
+				rank,
 				entry,
 				MEDALS[rank] or ("#" .. rank),
 				false,
@@ -255,6 +326,51 @@ function Board.init(app: any)
 				if mine then 0.55 elseif rank % 2 == 0 then 0.92 else 0.84
 			)
 		end
+		rowsFrame = rows
+		scrollMax = math.max(0, content - listHeight)
+		if scrollMax > 0 then
+			local column = Kit.new("Frame", {
+				Name = "BoardScroll",
+				BackgroundColor3 = Color3.new(1, 1, 1),
+				BackgroundTransparency = 0.9,
+				Size = UDim2.new(0, BAR, 1, 0),
+				Position = UDim2.fromScale(1, 0),
+				AnchorPoint = Vector2.new(1, 0),
+				Parent = list,
+			})
+			Kit.corner(column, 12)
+			for _, side in { -1, 1 } do
+				local button = Kit.new("Frame", {
+					Name = if side < 0 then "BoardUp" else "BoardDown",
+					BackgroundColor3 = Color3.new(1, 1, 1),
+					Size = UDim2.fromOffset(BAR, BAR),
+					Position = if side < 0 then UDim2.fromScale(0, 0) else UDim2.fromScale(0, 1),
+					AnchorPoint = Vector2.new(0, if side < 0 then 0 else 1),
+					Parent = column,
+				})
+				Kit.corner(button, 12)
+				Kit.gradient(button, app.Theme.Buttons.Gold[1], app.Theme.Buttons.Gold[2])
+				Kit.stroke(button, app.Theme.Buttons.Gold[3], 2.5)
+				Kit.text({
+					Text = if side < 0 then utf8.char(0x25B2) else utf8.char(0x25BC),
+					TextSize = 20,
+					Size = UDim2.fromScale(1, 1),
+					StrokeColor = app.Theme.Buttons.Gold[3],
+					Parent = button,
+				})
+			end
+			trackHeight = listHeight - 2 * (BAR + 4)
+			local bar = Kit.new("Frame", {
+				Name = "BoardThumb",
+				BackgroundColor3 = Color3.fromRGB(255, 222, 92),
+				Size = UDim2.fromOffset(BAR - 16, math.max(28, math.floor(trackHeight * listHeight / content))),
+				AnchorPoint = Vector2.new(0.5, 0),
+				Parent = column,
+			}) :: Frame
+			Kit.corner(bar, 8)
+			thumb = bar
+		end
+		Board.scrollBy(0)
 	end
 
 	local function hook()
@@ -274,9 +390,44 @@ function Board.init(app: any)
 	end)
 	app.State.languageChanged:Connect(render)
 	Board.selectionChanged:Connect(render)
+	app.State.worldChanged:Connect(function()
+		Board.scroll = 0
+	end)
 
-	-- Left click / tap on the board's arrows. Raycasting against the board itself works everywhere
-	-- (SurfaceGui buttons only take input in some setups).
+	-- Where a screen ray meets the board's front face, in the board's space (nil if it misses the
+	-- face's plane, or with `inside`, the board itself).
+	local function boardPoint(ray: Ray, inside: boolean): Vector3?
+		local gui = current
+		local screen = gui and gui.Adornee
+		if not screen or not screen:IsA("BasePart") then
+			return nil
+		end
+		local origin = screen.CFrame:PointToObjectSpace(ray.Origin)
+		local direction = screen.CFrame:VectorToObjectSpace(ray.Direction)
+		local face = -screen.Size.Z / 2
+		if math.abs(direction.Z) < 1e-6 or origin.Z > face then
+			return nil
+		end
+		local t = (face - origin.Z) / direction.Z
+		if t < 0 or t * direction.Magnitude > 300 then
+			return nil
+		end
+		local point = origin + direction * t
+		if inside and (math.abs(point.X) > screen.Size.X / 2 or math.abs(point.Y) > screen.Size.Y / 2) then
+			return nil
+		end
+		return point
+	end
+	local function screenRay(position: Vector3): Ray?
+		local camera = Workspace.CurrentCamera
+		return if camera then camera:ScreenPointToRay(position.X, position.Y) else nil
+	end
+
+	-- Left click / tap on the board's arrows and scroll buttons; a finger drag scrolls the ranks.
+	-- Hit-testing the 3D board itself works everywhere (SurfaceGui buttons only take input in some
+	-- setups).
+	local dragging: InputObject? = nil
+	local dragY = 0
 	UserInputService.InputBegan:Connect(function(input, processed)
 		if processed then
 			return
@@ -284,26 +435,59 @@ function Board.init(app: any)
 		if input.UserInputType ~= Enum.UserInputType.MouseButton1 and input.UserInputType ~= Enum.UserInputType.Touch then
 			return
 		end
-		local gui = current
-		local screen = gui and gui.Adornee
-		local camera = Workspace.CurrentCamera
-		if not screen or not screen:IsA("BasePart") or not camera then
+		local ray = screenRay(input.Position)
+		local point = ray and boardPoint(ray, true)
+		local screen = current and current.Adornee
+		if not point or not screen or not screen:IsA("BasePart") then
 			return
 		end
-		local ray = camera:ScreenPointToRay(input.Position.X, input.Position.Y)
-		local params = RaycastParams.new()
-		params.FilterType = Enum.RaycastFilterType.Include
-		params.FilterDescendantsInstances = { screen }
-		local hit = Workspace:Raycast(ray.Origin, ray.Direction * 300, params)
-		if not hit then
-			return
-		end
-		local side = Board.arrowAt(screen.CFrame:PointToObjectSpace(hit.Position), screen.Size)
+		local side = Board.arrowAt(point, screen.Size)
+		local scroll = Board.scrollAt(point, screen.Size)
 		if side then
 			app.Sfx.play("Click")
 			Board.pick(side)
+		elseif scroll then
+			app.Sfx.play("Click")
+			Board.scrollBy(scroll * 5 * STEP)
+		elseif input.UserInputType == Enum.UserInputType.Touch and scrollMax > 0 then
+			dragging = input
+			dragY = point.Y
 		end
 	end)
+	UserInputService.InputChanged:Connect(function(input)
+		if input ~= dragging then
+			return
+		end
+		local ray = screenRay(input.Position)
+		local point = ray and boardPoint(ray, false)
+		if point then
+			-- The ranks follow the finger: dragging up scrolls down.
+			Board.scrollBy((point.Y - dragY) * PIXELS_PER_STUD)
+			dragY = point.Y
+		end
+	end)
+	UserInputService.InputEnded:Connect(function(input)
+		if input == dragging then
+			dragging = nil
+		end
+	end)
+	-- Mouse wheel over the board scrolls the ranks instead of zooming the camera.
+	ContextActionService:BindActionAtPriority("DeepDiveBoardScroll", function(_, state, input)
+		if state ~= Enum.UserInputState.Change or scrollMax <= 0 then
+			return Enum.ContextActionResult.Pass
+		end
+		local camera = Workspace.CurrentCamera
+		if not camera then
+			return Enum.ContextActionResult.Pass
+		end
+		local mouse = UserInputService:GetMouseLocation()
+		local point = boardPoint(camera:ViewportPointToRay(mouse.X, mouse.Y), true)
+		if not point then
+			return Enum.ContextActionResult.Pass
+		end
+		Board.scrollBy(-input.Position.Z * 3 * STEP)
+		return Enum.ContextActionResult.Sink
+	end, false, Enum.ContextActionPriority.High.Value, Enum.UserInputType.MouseWheel)
 	-- The world folder may still be building when we first look; the reset countdown ticks too.
 	task.spawn(function()
 		local age = 0

@@ -1057,6 +1057,39 @@ if not quick then
 			check(found, "the board should show the monthly ranking after the arrow")
 			BoardModule.pick(-1)
 			check(BoardModule.selected == "weekly", "the left arrow should step back to weekly")
+			-- A long board scrolls: rows clip inside the view and the ▲ ▼ column takes clicks.
+			local Remotes = Engine.client.module(Shared .. "Remotes")
+			local boardValue = game:GetService("ReplicatedStorage"):FindFirstChild(Remotes.Board)
+			if boardValue and screen then
+				local HttpService = game:GetService("HttpService")
+				local fake = HttpService:JSONDecode(boardValue.Value)
+				local entries = {}
+				for rank = 1, 40 do
+					table.insert(entries, { u = 1000 + rank, n = "diver" .. rank, d = "Diver " .. rank, v = 100000 - rank, t = 0 })
+				end
+				fake.boards.weekly = { entries = entries, reset = 3600 }
+				boardValue.Value = HttpService:JSONEncode(fake)
+				local rows: any = nil
+				check(
+					Engine.waitFor(function()
+						local gui = Engine.gui():FindFirstChild("LeaderboardGui")
+						rows = gui and gui:FindFirstChild("BoardRows", true)
+						return rows ~= nil and #rows:GetChildren() >= 40
+					end, 3, "long board"),
+					"a long board should draw every rank"
+				)
+				local size = screen.Size
+				local right = -size.X / 2 + 0.6
+				check(BoardModule.scrollAt(Vector3.new(right, -size.Y / 2 + 0.4, -size.Z / 2), size) == 1, "down button hit area")
+				check(BoardModule.scrollAt(Vector3.new(0, 0, -size.Z / 2), size) == nil, "rows are not scroll buttons")
+				BoardModule.scrollBy(10 ^ 6)
+				local bottom = BoardModule.scroll
+				check(bottom > 0 and rows and rows.Position.Y.Offset == -bottom, "scrolling down should move the ranks up")
+				BoardModule.scrollBy(-10 ^ 6)
+				check(BoardModule.scroll == 0, "scrolling stops at the top")
+				BoardModule.pick(1)
+				BoardModule.pick(-1)
+			end
 		end
 		local statues = folder and folder:FindFirstChild("Statues")
 		-- The podiums stand in one straight row, clear of decoration and dock structures.

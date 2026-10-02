@@ -21,7 +21,7 @@ local Sessions = require(script.Parent.Parent.Sessions)
 
 local LeaderboardService = {}
 
-local TOP = 10
+local TOP = 50 -- ranks per board (the dock board scrolls)
 local GLOBAL_REFRESH = 60
 local LOCAL_REFRESH = 8
 local WRITE_INTERVAL = 120

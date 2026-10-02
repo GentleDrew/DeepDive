@@ -296,14 +296,14 @@ Config.GroupRewardEnchants = 1
 -- (tiers 1-6 on the weekly board, 7-8 on the monthly board). Earned tiers are permanent and show
 -- as the diver's name colour. Red is reserved for the Director (Operator).
 Config.Tiers = {
-	{ hours = 10, board = "weekly", color = "#5ee6a8" },
-	{ hours = 24, board = "weekly", color = "#4fd8ff" },
-	{ hours = 72, board = "weekly", color = "#4f86ff" },
-	{ hours = 100, board = "weekly", color = "#a66bff" },
-	{ hours = 120, board = "weekly", color = "#ff6fd1" },
-	{ hours = 140, board = "weekly", color = "#ffa73f" },
-	{ hours = 14 * 24, board = "monthly", color = "#ffe14f" },
-	{ hours = 30 * 24, board = "monthly", color = "#e8f6ff", prismatic = true },
+	{ hours = 0.5, board = "weekly", color = "#5ee6a8" },
+	{ hours = 1, board = "weekly", color = "#4fd8ff" },
+	{ hours = 3, board = "weekly", color = "#4f86ff" },
+	{ hours = 6, board = "weekly", color = "#a66bff" },
+	{ hours = 10, board = "weekly", color = "#ff6fd1" },
+	{ hours = 24, board = "weekly", color = "#ffa73f" },
+	{ hours = 4 * 24, board = "monthly", color = "#ffe14f" },
+	{ hours = 7 * 24, board = "monthly", color = "#e8f6ff", prismatic = true },
 }
 
 return Config

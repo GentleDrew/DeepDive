@@ -20356,14 +20356,16 @@ return Purchase
             <Properties>
               <string name="Name">RightRail</string>
               <string name="Source"><![CDATA[--!strict
--- Right-hand HUD column, laid out like the left menu rail (one column, two on short screens and
--- phones): the limited GOD Shark, the Starter Pack (with a real countdown for the first
+-- Right-hand HUD column, laid out like the left menu rail (one column on desktop; on touch screens
+-- a two-wide block kept above Roblox's jump button so it never covers the controls): the limited
+-- GOD Shark, the Starter Pack (with a real countdown for the first
 -- Config.StarterOfferHours after a player's first visit), Rewards, the group and friend invites.
 
 local GroupService = game:GetService("GroupService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
+local Workspace = game:GetService("Workspace")
 local SocialService = game:GetService("SocialService")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
@@ -20385,6 +20387,25 @@ local C = Theme.C
 local BUTTON = 76
 local GAP = 10
 local TOUCH_SCALE = if Gui.isTouch() then 1.2 else 1
+local MARGIN = 16
+
+-- How far up from the bottom of the screen (in pixels) Roblox's touch jump button reaches: read
+-- from the live button when it exists, never less than where Roblox's own layout puts it.
+local function jumpReach(): number
+	local camera = Workspace.CurrentCamera
+	local viewport = if camera then camera.ViewportSize else Vector2.new(1280, 760)
+	local small = math.min(viewport.X, viewport.Y) <= 500
+	local reach = if small then 90 else 210
+	local touchGui = Players.LocalPlayer:FindFirstChild("PlayerGui")
+	touchGui = touchGui and touchGui:FindFirstChild("TouchGui")
+	local frame = touchGui and touchGui:FindFirstChild("TouchControlFrame")
+	local jump = frame and frame:FindFirstChild("JumpButton")
+	if frame and jump and frame:IsA("GuiObject") and jump:IsA("GuiObject") then
+		local bottom = frame.AbsolutePosition.Y + frame.AbsoluteSize.Y
+		reach = math.max(reach, bottom - jump.AbsolutePosition.Y)
+	end
+	return reach
+end
 
 type Item = { api: Kit.ButtonApi, label: TextLabel, badge: Frame }
 
@@ -20411,16 +20432,19 @@ function RightRail.init(app: any, openRewards: () -> ())
 		Name = "RightRail",
 		BackgroundTransparency = 1,
 		Size = UDim2.fromOffset(BUTTON, BUTTON),
-		Position = UDim2.new(1, -16, 1, -16),
+		Position = UDim2.new(1, -MARGIN, 1, -MARGIN),
 		AnchorPoint = Vector2.new(1, 1),
 		Parent = Gui.hud,
 	}) :: Frame
+	-- Touch: rows of two filled from the top-right corner (the GOD Shark nearest the edge).
+	local touch = TOUCH_SCALE > 1
 	local grid = Kit.new("UIGridLayout", {
 		CellSize = UDim2.fromOffset(BUTTON, BUTTON),
 		CellPadding = UDim2.fromOffset(GAP, GAP + 4),
-		FillDirection = Enum.FillDirection.Vertical,
+		FillDirection = if touch then Enum.FillDirection.Horizontal else Enum.FillDirection.Vertical,
+		StartCorner = if touch then Enum.StartCorner.TopRight else Enum.StartCorner.TopLeft,
 		HorizontalAlignment = Enum.HorizontalAlignment.Right,
-		VerticalAlignment = Enum.VerticalAlignment.Bottom,
+		VerticalAlignment = if touch then Enum.VerticalAlignment.Top else Enum.VerticalAlignment.Bottom,
 		SortOrder = Enum.SortOrder.LayoutOrder,
 		Parent = rail,
 	}) :: UIGridLayout
@@ -20543,7 +20567,8 @@ function RightRail.init(app: any, openRewards: () -> ())
 		end
 	end)
 
-	-- One column on roomy screens; two when the canvas is short (and on phones), like the left rail.
+	-- Desktop: one column bottom-right (two on short screens). Touch: a block two wide whose bottom
+	-- sits above the jump button, widening to three if the space above it is too short.
 	local function layout()
 		local visible = 0
 		for _, entry in items do
@@ -20551,11 +20576,27 @@ function RightRail.init(app: any, openRewards: () -> ())
 				visible += 1
 			end
 		end
-		local compact = TOUCH_SCALE > 1 or Gui.canvasSize.Y < 660
-		local perColumn = if compact then 3 else math.max(1, visible)
-		local columns = math.max(1, math.ceil(visible / perColumn))
-		local rows = math.min(visible, perColumn)
-		grid.FillDirectionMaxCells = perColumn
+		visible = math.max(visible, 1)
+		local canvas = Gui.canvasSize
+		local columns, rows
+		if touch then
+			local bottom = canvas.Y - jumpReach() / Gui.scale - 12
+			local room = (bottom - 64) / TOUCH_SCALE
+			columns = 2
+			rows = math.ceil(visible / columns)
+			if rows * BUTTON + (rows - 1) * (GAP + 4) > room then
+				columns = 3
+				rows = math.ceil(visible / columns)
+			end
+			grid.FillDirectionMaxCells = columns
+			rail.Position = UDim2.new(1, -MARGIN, 0, math.max(bottom, 64))
+		else
+			local perColumn = if canvas.Y < 660 then 3 else visible
+			columns = math.ceil(visible / perColumn)
+			rows = math.min(visible, perColumn)
+			grid.FillDirectionMaxCells = perColumn
+			rail.Position = UDim2.new(1, -MARGIN, 1, -MARGIN)
+		end
 		rail.Size = UDim2.fromOffset(columns * BUTTON + (columns - 1) * GAP, rows * BUTTON + (rows - 1) * (GAP + 4))
 	end
 	Gui.resized:Connect(layout)

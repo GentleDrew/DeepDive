@@ -408,6 +408,18 @@ step("nameplates, player list, leaderboard", function()
 	if grid and not mobile then
 		check(grid.FillDirectionMaxCells >= 4, "desktop right rail should be a single column")
 	end
+	if rail and mobile then
+		-- Phones: the block must end above Roblox's jump button (which reaches 90px up on small screens).
+		-- The rail hangs from its bottom edge, in canvas units below the HUD (which starts under the
+		-- 58px top bar and is scaled by the canvas UIScale).
+		local canvasScale = rail.Parent and rail.Parent:FindFirstChildOfClass("UIScale")
+		local s = if canvasScale then canvasScale.Scale else 1
+		local bottom = 58 + rail.Position.Y.Offset * s
+		check(
+			rail.Position.Y.Scale == 0 and bottom <= Engine.options.viewport.Y - 90,
+			"touch right rail overlaps the jump button (bottom " .. bottom .. ")"
+		)
+	end
 	-- Every dock has a GOD Shark stand with a buy prompt and the big floating shark.
 	local dockFolder = worldFolder(1):FindFirstChild("Dock")
 	local anchor = dockFolder and dockFolder:FindFirstChild("GodSharkAnchor")

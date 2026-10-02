@@ -36,6 +36,7 @@ local PetsPanel = require(UI.Panels.Pets)
 local RewardsPanel = require(UI.Panels.Rewards)
 local Offers = require(UI.Offers)
 local RightRail = require(UI.RightRail)
+local Purchase = require(UI.Purchase)
 local SettingsPanel = require(UI.Panels.Settings)
 local ShopPanel = require(UI.Panels.Shop)
 local GearPanel = require(UI.Panels.Gear)
@@ -177,6 +178,11 @@ function app.openProfile()
 end
 function app.openRewards()
 	panels.rewards.open()
+end
+function app.buyGodShark()
+	if not Purchase.prompt("GodShark", State.passes) then
+		Toasts.show(Strings.get("comingSoon"), "info")
+	end
 end
 function app.sell()
 	local result = ClientNet.invoke("Sell")

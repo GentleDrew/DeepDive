@@ -1,6 +1,7 @@
 --!strict
--- Bottom-right HUD stack: the Starter Pack card (with a real countdown for the first
--- Config.StarterOfferHours after a player's first visit) and the Rewards button.
+-- Right-hand HUD column, laid out like the left menu rail (one column, two on short screens and
+-- phones): the limited GOD Shark, the Starter Pack (with a real countdown for the first
+-- Config.StarterOfferHours after a player's first visit), Rewards, the group and friend invites.
 
 local GroupService = game:GetService("GroupService")
 local Players = game:GetService("Players")
@@ -24,6 +25,11 @@ local RewardsPanel = require(script.Parent.Panels.Rewards)
 local RightRail = {}
 
 local C = Theme.C
+local BUTTON = 76
+local GAP = 10
+local TOUCH_SCALE = if Gui.isTouch() then 1.2 else 1
+
+type Item = { api: Kit.ButtonApi, label: TextLabel, badge: Frame }
 
 -- Seconds left on the starter offer, or nil when it should not be advertised.
 function RightRail.starterLeft(app: any): number?
@@ -36,130 +42,116 @@ function RightRail.starterLeft(app: any): number?
 	return if left > 0 then left else nil
 end
 
+-- Opens Roblox's purchase dialog for a Robux item, or says it is not on sale yet.
+local function buy(app: any, key: string)
+	if not Purchase.prompt(key, app.State.passes) then
+		app.Toasts.show(Strings.get("comingSoon"), "info")
+	end
+end
+
 function RightRail.init(app: any, openRewards: () -> ())
 	local rail = Kit.new("Frame", {
 		Name = "RightRail",
 		BackgroundTransparency = 1,
-		Size = UDim2.fromOffset(184, 320),
+		Size = UDim2.fromOffset(BUTTON, BUTTON),
 		Position = UDim2.new(1, -16, 1, -16),
 		AnchorPoint = Vector2.new(1, 1),
 		Parent = Gui.hud,
 	}) :: Frame
-	Kit.list(rail, Enum.FillDirection.Vertical, 10, Enum.HorizontalAlignment.Right, Enum.VerticalAlignment.Bottom)
-	if Gui.isTouch() then
+	local grid = Kit.new("UIGridLayout", {
+		CellSize = UDim2.fromOffset(BUTTON, BUTTON),
+		CellPadding = UDim2.fromOffset(GAP, GAP + 4),
+		FillDirection = Enum.FillDirection.Vertical,
+		HorizontalAlignment = Enum.HorizontalAlignment.Right,
+		VerticalAlignment = Enum.VerticalAlignment.Bottom,
+		SortOrder = Enum.SortOrder.LayoutOrder,
+		Parent = rail,
+	}) :: UIGridLayout
+	if TOUCH_SCALE > 1 then
 		local scale = Instance.new("UIScale")
-		scale.Scale = 1.2
+		scale.Scale = TOUCH_SCALE
 		scale.Parent = rail
 	end
 
-	-- Starter Pack card -------------------------------------------------------------------------
-	local starter = Kit.new("TextButton", {
-		Name = "StarterOffer",
-		Text = "",
-		AutoButtonColor = false,
-		BackgroundColor3 = Color3.new(1, 1, 1),
-		Size = UDim2.fromOffset(184, 104),
-		LayoutOrder = 1,
-		Visible = false,
-		Parent = rail,
-	}) :: TextButton
-	Kit.corner(starter, 16)
-	Kit.gradient(starter, Theme.Buttons.Green[1], Theme.Buttons.Green[2])
-	Kit.stroke(starter, Theme.Buttons.Green[3], 3)
-	Kit.neon(starter, C.Gold)
-	local ribbon = Kit.new("Frame", {
-		BackgroundColor3 = C.Red,
-		Size = UDim2.fromOffset(96, 22),
-		Position = UDim2.new(0.5, 0, 0, -10),
-		AnchorPoint = Vector2.new(0.5, 0),
-		ZIndex = 3,
-		Parent = starter,
-	})
-	Kit.round(ribbon)
-	Kit.stroke(ribbon, C.White, 2)
-	local ribbonText = Kit.text({ Text = "", TextSize = 13, Size = UDim2.fromScale(1, 1), ZIndex = 4, Stroke = 1.5, Parent = ribbon })
-	Kit.text({
-		Text = utf8.char(0x1F381),
-		TextSize = 30,
-		Size = UDim2.fromOffset(40, 40),
-		Position = UDim2.fromOffset(6, 16),
-		Stroke = 0,
-		Parent = starter,
-	})
-	local starterName = Kit.text({
-		Text = "",
-		TextSize = 18,
-		Size = UDim2.new(1, -52, 0, 22),
-		Position = UDim2.fromOffset(46, 18),
-		XAlign = Enum.TextXAlignment.Left,
-		Stroke = 2,
-		StrokeColor = Theme.Buttons.Green[3],
-		Parent = starter,
-	})
-	local starterTimer = Kit.text({
-		Text = "",
-		TextSize = 14,
-		Color = Color3.fromRGB(255, 244, 170),
-		Size = UDim2.new(1, -52, 0, 18),
-		Position = UDim2.fromOffset(46, 40),
-		XAlign = Enum.TextXAlignment.Left,
-		Stroke = 1.6,
-		StrokeColor = Theme.Buttons.Green[3],
-		Parent = starter,
-	})
-	local starterPrice = Kit.text({
-		Text = "",
-		TextSize = 20,
-		Size = UDim2.new(1, 0, 0, 26),
-		Position = UDim2.new(0, 0, 1, -8),
-		AnchorPoint = Vector2.new(0, 1),
-		Stroke = 2.2,
-		StrokeColor = Theme.Buttons.Green[3],
-		Parent = starter,
-	})
-	starter.Activated:Connect(function()
-		if app.Sfx then
-			app.Sfx.play("Click")
-		end
-		Anim.pop(starter, 0.1)
-		if not Purchase.prompt("StarterPack", app.State.passes) then
-			app.Toasts.show(Strings.get("comingSoon"), "info")
-		end
-	end)
+	local items: { Item } = {}
 
-	-- Group + friend invite ---------------------------------------------------------------------
-	local social = Kit.new("Frame", { BackgroundTransparency = 1, Size = UDim2.fromOffset(150, 66), LayoutOrder = 2, Parent = rail })
-	Kit.list(social, Enum.FillDirection.Horizontal, 8, Enum.HorizontalAlignment.Right, Enum.VerticalAlignment.Center)
-	local function smallButton(name: string, icon: string, palette: string, order: number, onClick: () -> ()): (Kit.ButtonApi, TextLabel)
+	local function item(name: string, icon: string, palette: string, order: number, onClick: () -> ()): Item
 		local api = Kit.button({
 			Name = name,
 			Icon = icon,
-			IconSize = 24,
+			IconSize = 34,
 			Palette = palette,
-			Size = UDim2.fromOffset(64, 64),
-			Radius = 16,
+			Size = UDim2.fromOffset(BUTTON, BUTTON),
+			Radius = 18,
 			Stroke = 2.5,
 			LayoutOrder = order,
-			Parent = social,
+			Parent = rail,
 			OnClick = onClick,
 		})
-		local inner = api.button:FindFirstChild("Content") :: Frame?
-		if inner then
-			inner.Position = UDim2.fromOffset(0, -8)
+		local content = api.button:FindFirstChild("Content") :: Frame?
+		if content then
+			content.Position = UDim2.fromOffset(0, -9)
 		end
-		local caption = Kit.text({
+		local label = Kit.text({
 			Text = "",
-			TextSize = 13,
-			Size = UDim2.new(1, 0, 0, 16),
-			Position = UDim2.new(0, 0, 1, -18),
+			TextSize = 15,
+			Size = UDim2.new(1, -4, 0, 18),
+			Position = UDim2.new(0, 2, 1, -21),
 			ZIndex = 4,
-			Stroke = 1.8,
+			Stroke = 2,
 			StrokeColor = (Theme.Buttons[palette] or Theme.Buttons.Blue)[3],
 			Parent = api.button,
 		})
-		return api, caption
+		label.TextScaled = true
+		Kit.new("UITextSizeConstraint", { MaxTextSize = 15, MinTextSize = 9, Parent = label })
+		local badge = Kit.new("Frame", {
+			Name = "Badge",
+			BackgroundColor3 = C.Red,
+			Size = UDim2.fromOffset(20, 20),
+			Position = UDim2.new(1, -4, 0, 4),
+			AnchorPoint = Vector2.new(0.5, 0.5),
+			Visible = false,
+			ZIndex = 5,
+			Parent = api.button,
+		}) :: Frame
+		Kit.round(badge)
+		Kit.stroke(badge, C.White, 2)
+		Kit.text({ Text = "!", TextSize = 14, Size = UDim2.fromScale(1, 1), ZIndex = 6, Stroke = 1.5, Parent = badge })
+		local entry = { api = api, label = label, badge = badge }
+		table.insert(items, entry)
+		return entry
 	end
-	local groupButton, groupCaption = smallButton("GroupButton", utf8.char(0x1F465), "Blue", 1, function()
+
+	local function ribbon(target: Item): TextLabel
+		local frame = Kit.new("Frame", {
+			Name = "Ribbon",
+			BackgroundColor3 = C.Red,
+			Size = UDim2.fromOffset(66, 18),
+			Position = UDim2.new(0.5, 0, 0, -9),
+			AnchorPoint = Vector2.new(0.5, 0),
+			ZIndex = 6,
+			Parent = target.api.button,
+		})
+		Kit.round(frame)
+		Kit.stroke(frame, C.White, 2)
+		return Kit.text({ Text = "", TextSize = 11, Size = UDim2.fromScale(1, 1), ZIndex = 7, Stroke = 1.4, Parent = frame })
+	end
+
+	-- Limited GOD Shark: always on sale, glowing and pulsing so it stands out.
+	local godShark = item("GodSharkButton", utf8.char(0x1F988), "Cyan", 1, function()
+		buy(app, "GodShark")
+	end)
+	local godRibbon = ribbon(godShark)
+	Kit.neon(godShark.api.button, C.Gold)
+
+	local starter = item("StarterOffer", utf8.char(0x1F381), "Green", 2, function()
+		buy(app, "StarterPack")
+	end)
+	local starterRibbon = ribbon(starter)
+
+	local rewards = item("RewardsButton", utf8.char(0x1F381), "Pink", 3, openRewards)
+
+	local group = item("GroupButton", utf8.char(0x1F465), "Blue", 4, function()
 		local groupId = Operators.groupId()
 		local profile = app.State.profile
 		if groupId <= 0 or not profile then
@@ -181,20 +173,8 @@ function RightRail.init(app: any, openRewards: () -> ())
 			app.Toasts.show(Strings.get(result.err or "err.generic"), "bad", utf8.char(0x1F465))
 		end
 	end)
-	local groupBadge = Kit.new("Frame", {
-		Name = "Badge",
-		BackgroundColor3 = C.Red,
-		Size = UDim2.fromOffset(18, 18),
-		Position = UDim2.new(1, -4, 0, 4),
-		AnchorPoint = Vector2.new(0.5, 0.5),
-		Visible = false,
-		ZIndex = 5,
-		Parent = groupButton.button,
-	})
-	Kit.round(groupBadge)
-	Kit.stroke(groupBadge, C.White, 2)
-	Kit.text({ Text = "!", TextSize = 13, Size = UDim2.fromScale(1, 1), ZIndex = 6, Stroke = 1.5, Parent = groupBadge })
-	local _, inviteCaption = smallButton("InviteButton", utf8.char(0x1F48C), "Purple", 2, function()
+
+	local invite = item("InviteButton", utf8.char(0x1F48C), "Purple", 5, function()
 		local player = Players.LocalPlayer
 		local ok, can = pcall(function()
 			return SocialService:CanSendGameInviteAsync(player)
@@ -206,81 +186,50 @@ function RightRail.init(app: any, openRewards: () -> ())
 		end
 	end)
 
-	-- Rewards button ----------------------------------------------------------------------------
-	local rewardsHolder = Kit.new("Frame", { BackgroundTransparency = 1, Size = UDim2.fromOffset(84, 104), LayoutOrder = 3, Parent = rail })
-	local rewards = Kit.button({
-		Name = "RewardsButton",
-		Icon = utf8.char(0x1F381),
-		IconSize = 34,
-		Palette = "Pink",
-		Size = UDim2.fromOffset(76, 76),
-		Position = UDim2.new(1, 0, 0, 0),
-		AnchorPoint = Vector2.new(1, 0),
-		Radius = 18,
-		Stroke = 2.5,
-		Parent = rewardsHolder,
-		OnClick = openRewards,
-	})
-	local content = rewards.button:FindFirstChild("Content") :: Frame?
-	if content then
-		content.Position = UDim2.fromOffset(0, -9)
+	-- One column on roomy screens; two when the canvas is short (and on phones), like the left rail.
+	local function layout()
+		local visible = 0
+		for _, entry in items do
+			if entry.api.button.Visible then
+				visible += 1
+			end
+		end
+		local compact = TOUCH_SCALE > 1 or Gui.canvasSize.Y < 660
+		local perColumn = if compact then 3 else math.max(1, visible)
+		local columns = math.max(1, math.ceil(visible / perColumn))
+		local rows = math.min(visible, perColumn)
+		grid.FillDirectionMaxCells = perColumn
+		rail.Size = UDim2.fromOffset(columns * BUTTON + (columns - 1) * GAP, rows * BUTTON + (rows - 1) * (GAP + 4))
 	end
-	local rewardsLabel = Kit.text({
-		Text = "",
-		TextSize = 15,
-		Size = UDim2.new(1, 0, 0, 18),
-		Position = UDim2.new(0, 0, 1, -21),
-		ZIndex = 4,
-		Stroke = 2,
-		StrokeColor = Theme.Buttons.Pink[3],
-		Parent = rewards.button,
-	})
-	local badge = Kit.new("Frame", {
-		Name = "Badge",
-		BackgroundColor3 = C.Red,
-		Size = UDim2.fromOffset(22, 22),
-		Position = UDim2.new(1, -4, 0, 4),
-		AnchorPoint = Vector2.new(0.5, 0.5),
-		Visible = false,
-		ZIndex = 5,
-		Parent = rewards.button,
-	})
-	Kit.round(badge)
-	Kit.stroke(badge, C.White, 2)
-	Kit.text({ Text = "!", TextSize = 15, Size = UDim2.fromScale(1, 1), ZIndex = 6, Stroke = 1.5, Parent = badge })
-	local nextChip = Kit.pill({ Name = "NextReward", Size = UDim2.fromOffset(76, 22), Outline = 2, Parent = rewardsHolder })
-	nextChip.Position = UDim2.new(1, 0, 1, 0)
-	nextChip.AnchorPoint = Vector2.new(1, 1)
-	local nextLabel = Kit.text({ Text = "", TextSize = 13, Size = UDim2.fromScale(1, 1), Stroke = 1.6, Parent = nextChip })
+	Gui.resized:Connect(layout)
 
 	local function refresh()
-		rewardsLabel.Text = Strings.get("rewardsTitle")
-		groupCaption.Text = Strings.get("groupButton")
-		inviteCaption.Text = Strings.get("inviteButton")
 		local profile = app.State.profile
-		groupButton.button.Visible = Operators.groupId() > 0
-		groupBadge.Visible = profile ~= nil and not profile.groupRewarded
-		ribbonText.Text = Strings.get("limited")
-		starterName.Text = Strings.get("pass.StarterPack")
-		local def = Purchase.find("StarterPack")
-		starterPrice.Text = if def then "R$ " .. tostring(def.price) else ""
+		local sharkDef = Purchase.find("GodShark")
+		godShark.api.button.Visible = sharkDef ~= nil and sharkDef.id > 0
+		godShark.label.Text = if sharkDef then "R$ " .. tostring(sharkDef.price) else ""
+		godRibbon.Text = Strings.get("limited")
+
 		local left = RightRail.starterLeft(app)
-		starter.Visible = left ~= nil
-		if left then
-			starterTimer.Text = Strings.get("endsIn", { t = Format.clock(left) })
-		end
+		starter.api.button.Visible = left ~= nil
+		starter.label.Text = if left then Format.clock(left) else ""
+		starterRibbon.Text = Strings.get("limited")
+
 		local ready = RewardsPanel.anyReady(app)
-		if ready ~= badge.Visible then
-			badge.Visible = ready
+		if ready ~= rewards.badge.Visible then
+			rewards.badge.Visible = ready
 			if ready then
-				Anim.pop(badge, 0.6)
+				Anim.pop(rewards.badge, 0.6)
 			end
 		end
 		local wait = if ready then nil else RewardsPanel.nextUnlock(app)
-		nextChip.Visible = wait ~= nil
-		if wait then
-			nextLabel.Text = Format.clock(wait)
-		end
+		rewards.label.Text = if wait then Format.clock(wait) else Strings.get("rewardsTitle")
+
+		group.api.button.Visible = Operators.groupId() > 0
+		group.badge.Visible = profile ~= nil and not profile.groupRewarded
+		group.label.Text = Strings.get("groupButton")
+		invite.label.Text = Strings.get("inviteButton")
+		layout()
 	end
 
 	-- Phones need the corner for swim controls while in the water.
@@ -288,8 +237,13 @@ function RightRail.init(app: any, openRewards: () -> ())
 		rail.Visible = not (Gui.isTouch() and app.State.dive.swimming)
 	end)
 	task.spawn(function()
+		local tick = 0
 		while true do
 			refresh()
+			tick += 1
+			if tick % 4 == 0 and godShark.api.button.Visible then
+				Anim.pop(godShark.api.button, 0.12)
+			end
 			task.wait(1)
 		end
 	end)

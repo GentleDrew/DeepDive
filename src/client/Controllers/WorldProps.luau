@@ -89,6 +89,11 @@ function WorldProps.init(app: any)
 					descendant,
 					{ { text = utf8.char(0x1F93F) .. " " .. Strings.get("menu.upgrades"), size = 52, color = Color3.fromRGB(255, 226, 120) } }
 				)
+			elseif descendant.Name == "GodSharkSign" and descendant:IsA("BasePart") then
+				signGui(descendant, {
+					{ text = utf8.char(0x1F988) .. " GOD SHARK", size = 50, color = Color3.fromRGB(255, 236, 120) },
+					{ text = Strings.get("limited") .. "  ·  R$ 399", size = 34, color = Color3.fromRGB(255, 120, 140) },
+				})
 			elseif descendant.Name == "EnchantSign" and descendant:IsA("BasePart") then
 				signGui(
 					descendant,

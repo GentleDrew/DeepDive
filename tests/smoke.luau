@@ -399,6 +399,20 @@ step("nameplates, player list, leaderboard", function()
 			"starter pack card should show for a new diver"
 		)
 	end
+	-- The right-hand column: the limited GOD Shark is always on sale, laid out like the left rail.
+	local shark = gui:FindFirstChild("GodSharkButton", true)
+	check(shark ~= nil and shark.Visible, "GOD Shark button missing from the HUD")
+	local rail = gui:FindFirstChild("RightRail", true)
+	local grid = rail and rail:FindFirstChildOfClass("UIGridLayout")
+	check(grid ~= nil, "right rail should be a grid like the left menu")
+	if grid and not mobile then
+		check(grid.FillDirectionMaxCells >= 4, "desktop right rail should be a single column")
+	end
+	-- Every dock has a GOD Shark stand with a buy prompt and the big floating shark.
+	local dockFolder = worldFolder(1):FindFirstChild("Dock")
+	local anchor = dockFolder and dockFolder:FindFirstChild("GodSharkAnchor")
+	check(anchor ~= nil and anchor:FindFirstChild("GodSharkPrompt") ~= nil, "GOD Shark stand prompt missing")
+	check(dockFolder ~= nil and dockFolder:FindFirstChild("GodSharkDisplay") ~= nil, "GOD Shark display missing")
 	local plate = gui:FindFirstChild("DeepDiveNameplate")
 	check(plate ~= nil, "no nameplate above the diver")
 	local list = gui:FindFirstChild("PlayerList", true)

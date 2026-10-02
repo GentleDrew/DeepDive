@@ -12,8 +12,9 @@ local Worlds = require(Shared.Data.Worlds)
 
 local Prompts = {}
 
-local KIND_TEXT = { Egg = "prompt.egg", Kiosk = "prompt.upgrades", Portal = "prompt.portal", Sell = "sellAction", Enchant = "enchant" }
-local KIND_PALETTE = { Egg = "Purple", Kiosk = "Orange", Portal = "Blue", Sell = "Gold", Enchant = "Purple" }
+local KIND_TEXT =
+	{ Egg = "prompt.egg", Kiosk = "prompt.upgrades", Portal = "prompt.portal", Sell = "sellAction", Enchant = "enchant", GodShark = "prompt.buy" }
+local KIND_PALETTE = { Egg = "Purple", Kiosk = "Orange", Portal = "Blue", Sell = "Gold", Enchant = "Purple", GodShark = "Cyan" }
 
 function Prompts.init(app: any)
 	local Kit = app.Kit
@@ -33,6 +34,8 @@ function Prompts.init(app: any)
 			return Strings.get("sellShop")
 		elseif kind == "Enchant" then
 			return Strings.get("enchantAltar")
+		elseif kind == "GodShark" then
+			return Strings.get("product.GodShark")
 		end
 		return prompt.ObjectText
 	end
@@ -124,6 +127,8 @@ function Prompts.init(app: any)
 			app.sell()
 		elseif kind == "Enchant" then
 			app.openPets()
+		elseif kind == "GodShark" then
+			app.buyGodShark()
 		end
 	end)
 end

@@ -195,8 +195,8 @@ Config.Products = {
 	{ key = "GuaranteedMutation", id = 3715543343, price = 129, dives = 0, enchants = 0, guaranteedMutation = true, color = "#9a5cff" },
 	-- Tops your backpack off with common relics of your current world, up to capacity.
 	{ key = "BackpackFill", id = 3715543440, price = 49, dives = 0, enchants = 0, backpackFill = true, color = "#ffb13f" },
-	-- Limited GOD Shark: fill in the developer product id from the Creator Dashboard.
-	{ key = "GodShark", id = 0, price = 399, dives = 0, enchants = 0, godShark = true, color = "#7fd3ff" },
+	-- Limited GOD Shark (sold at every dock's GOD Shark stand and in the HUD).
+	{ key = "GodShark", id = 3715935581, price = 399, dives = 0, enchants = 0, godShark = true, color = "#7fd3ff" },
 }
 Config.TimedBoostMinutes = 45
 Config.TimedBoostMultiplier = 2

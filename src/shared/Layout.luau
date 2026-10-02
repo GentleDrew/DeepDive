@@ -76,6 +76,7 @@ function Layout.dock(world: number)
 		sell = Vector3.new(-46, info.landY, r + 34),
 		board = Vector3.new(48, info.landY, r + 46),
 		enchant = Vector3.new(-24, info.landY, r + 54),
+		godShark = Vector3.new(20, info.landY, r + 48),
 		beachHalfWidth = 20,
 	}
 end

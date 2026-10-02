@@ -9,6 +9,8 @@ local Build = require(Shared.Models.Build)
 local Color = require(Shared.Color)
 local Config = require(Shared.Config)
 local Layout = require(Shared.Layout)
+local Mutations = require(Shared.Models.Mutations)
+local PetModels = require(Shared.Models.PetModels)
 local RelicModels = require(Shared.Models.RelicModels)
 local Worlds = require(Shared.Data.Worlds)
 
@@ -310,6 +312,28 @@ function Dock.build(world: number, parent: Instance): SpawnLocation
 	enchantSign.Name = "EnchantSign"
 	local enchantAnchor = anchorPart(folder, "EnchantAnchor", altar * cf(0, 3, 0), V(6, 5, 6))
 	prompt(enchantAnchor, "Enchant", world, "Enchant", "Enchanting Altar", 14)
+
+	-- GOD Shark stand: the limited pet floats big over a glowing pedestal; the prompt buys it.
+	local standPosition = o + V(dock.godShark.X, landY, dock.godShark.Z)
+	local stand = CFrame.lookAt(standPosition, spawnFlat)
+	local NAVY = Color3.fromRGB(22, 34, 60)
+	local GOLD_TRIM = Color3.fromRGB(255, 214, 72)
+	solid(Build.column(folder, 1.2, 12, stand * cf(0, 0.6, 0), NAVY))
+	local standRing = Build.column(folder, 0.25, 12.6, stand * cf(0, 1.25, 0), Color3.fromRGB(80, 220, 255))
+	standRing.Material = Enum.Material.Neon
+	solid(Build.column(folder, 2.6, 6, stand * cf(0, 2.5, 0), NAVY))
+	local cap = Build.column(folder, 0.4, 6.6, stand * cf(0, 3.9, 0), GOLD_TRIM)
+	cap.Material = Enum.Material.Neon
+	local shark = PetModels.build("godShark", 10)
+	Mutations.apply(shark, { "GOD" })
+	shark.Name = "GodSharkDisplay"
+	shark:PivotTo(stand * cf(0, 11, 0))
+	shark:SetAttribute("Spin", 0.5)
+	shark.Parent = folder
+	local sharkSign = Build.block(folder, V(9, 2.6, 0.3), stand * cf(0, 3.2, -3.4), Color3.fromRGB(30, 20, 50))
+	sharkSign.Name = "GodSharkSign"
+	local sharkAnchor = anchorPart(folder, "GodSharkAnchor", stand * cf(0, 3, -2), V(8, 6, 6))
+	prompt(sharkAnchor, "GodShark", world, "Buy", "GOD Shark", 16)
 
 	-- Invisible boundary around the island so divers stay home.
 	local walls = Instance.new("Folder")

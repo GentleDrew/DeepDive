@@ -23,6 +23,8 @@ local Offers = {}
 local C = Theme.C
 local SHOW_FOR = 14
 local WIDTH = 340
+-- Clears the right-hand HUD column (one column on desktop, two on phones).
+local RIGHT = if Gui.isTouch() then 236 else 112
 
 -- reason -> { item key, headline string key, icon }
 local REASONS: { [string]: { key: string, line: string, icon: string } } = {
@@ -36,6 +38,7 @@ local REASONS: { [string]: { key: string, line: string, icon: string } } = {
 	rank = { key = "TimedBoost", line = "offer.rank", icon = utf8.char(0x1F4C8) },
 	rankDouble = { key = "DoubleCoins", line = "offer.rank", icon = utf8.char(0x1F3C6) },
 	coins = { key = "CoinsMedium", line = "offer.coins", icon = utf8.char(0x1F4B0) },
+	godShark = { key = "GodShark", line = "offer.godShark", icon = utf8.char(0x1F988) },
 }
 
 -- `rankOf` gives a UserId's weekly ranking position (nil when outside the top 10).
@@ -210,7 +213,7 @@ function Offers.init(app: any, starterLeft: () -> number?, rankOf: (number) -> n
 		local mine = token
 		card.Visible = true
 		card.Position = UDim2.new(1, WIDTH + 40, 0.5, -30)
-		Anim.tween(card, 0.4, { Position = UDim2.new(1, -16, 0.5, -30) }, Enum.EasingStyle.Back)
+		Anim.tween(card, 0.4, { Position = UDim2.new(1, -RIGHT, 0.5, -30) }, Enum.EasingStyle.Back)
 		if app.Sfx then
 			app.Sfx.play("Open")
 		end
@@ -225,7 +228,7 @@ function Offers.init(app: any, starterLeft: () -> number?, rankOf: (number) -> n
 	-- What this diver is missing right now, most relevant first: the starter pack, a push up the
 	-- weekly ranking, the next world's fee, pets, then general boosts.
 	local function needs(): { string }
-		local list = { "starter" }
+		local list = { "starter", "godShark" }
 		local profile = app.State.profile
 		if not profile then
 			return list

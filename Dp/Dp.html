@@ -34,8 +34,8 @@ input{font:inherit;color:inherit}
 #logo{width:42px;height:42px;display:block;filter:drop-shadow(0 6px 14px rgba(168,85,247,.55))}
 #logo svg{width:100%;height:100%;display:block}
 .brand b{font-size:22px;letter-spacing:.5px;display:block;line-height:1}
-.brand small{color:var(--muted);font-size:11px;letter-spacing:1.5px;text-transform:uppercase}
-.beta{font-style:normal;font-size:10px;font-weight:700;padding:2px 7px;border-radius:99px;background:linear-gradient(135deg,var(--purple),var(--pink));margin-left:2px}
+.brand small{white-space:nowrap;color:var(--muted);font-size:11px;letter-spacing:1.5px;text-transform:uppercase}
+.beta{white-space:nowrap;font-style:normal;font-size:10px;font-weight:700;padding:2px 7px;border-radius:99px;background:linear-gradient(135deg,var(--purple),var(--pink));margin-left:2px}
 .datenav{display:flex;align-items:center;gap:10px}
 .ic{width:38px;height:38px;border-radius:12px;border:1px solid var(--line);background:var(--panel);font-size:22px;line-height:1;transition:.2s}
 .ic:hover{background:var(--panel2);transform:translateY(-1px);border-color:rgba(168,85,247,.6)}
@@ -213,6 +213,99 @@ footer{padding:14px 24px 20px;display:flex;justify-content:center}
 .swap{animation:swap .35s ease}
 @keyframes swap{from{opacity:.2;transform:translateY(6px)}to{opacity:1;transform:none}}
 
+/* views / tabs */
+main.hidden{display:none}
+#vWeek,#vMonth{grid-template-columns:minmax(0,1fr) minmax(300px,380px)}
+#vYear{grid-template-columns:minmax(0,1fr)}
+.lhead{display:flex;align-items:center;gap:20px;min-width:0}
+.tabs{display:flex;gap:4px;padding:4px;border-radius:14px;background:rgba(0,0,0,.32);border:1px solid var(--line)}
+.tabs button{white-space:nowrap;border:0;background:none;padding:7px 15px;border-radius:10px;font-weight:700;font-size:13px;color:var(--muted);transition:.2s}
+.tabs button:hover{color:#fff}
+.tabs button.on{color:#fff;background:linear-gradient(135deg,var(--purple2),var(--pink));box-shadow:0 4px 14px rgba(168,85,247,.45)}
+.side{display:flex;flex-direction:column;gap:18px;min-height:0}
+.side .panel{flex:1;min-height:0}
+.side-body{flex:1;min-height:0;overflow:auto;padding:0 14px 14px;scrollbar-width:thin;scrollbar-color:rgba(168,85,247,.5) transparent}
+
+/* list editor */
+.le{list-style:none;margin:0 0 6px;padding:0}
+.le li{--c:transparent;display:flex;align-items:center;gap:8px;padding:6px 6px 6px 9px;margin-bottom:5px;border-radius:10px;background:rgba(255,255,255,.06);border-left:3px solid transparent;font-size:13px;line-height:1.35;transition:.2s}
+.le li.c-pink{--c:var(--c-pink)}.le li.c-orange{--c:var(--c-orange)}.le li.c-blue{--c:var(--c-blue)}.le li.c-green{--c:var(--c-green)}
+.le li[class*="c-"]{border-left-color:var(--c);background:linear-gradient(90deg,color-mix(in srgb,var(--c) 30%,transparent),color-mix(in srgb,var(--c) 9%,transparent))}
+.le li.enter{animation:enter .4s cubic-bezier(.2,.9,.3,1.2)}
+.le .t{flex:1;min-width:0;word-break:break-all;cursor:text}
+.le .t input{width:100%;background:rgba(0,0,0,.4);border:1px solid var(--purple);border-radius:7px;padding:3px 7px;outline:none}
+.le li.done .t{text-decoration:line-through;opacity:.5}
+.le .chk.sm{width:18px;height:18px;border-radius:6px;border-width:2px}
+.le .chk.sm svg{width:11px;height:11px}
+.le .x{flex:none;display:none;width:20px;height:20px;border:0;border-radius:6px;background:rgba(0,0,0,.35);font-size:14px;line-height:1;padding:0}
+.le li:hover .x{display:block}
+.le .x:hover{background:#e11d48}
+.le-add input{width:100%;background:rgba(0,0,0,.28);border:1px dashed rgba(255,255,255,.2);border-radius:10px;padding:7px 10px;font-size:12.5px;outline:none;transition:.2s}
+.le-add input:focus{border:1px solid var(--purple);box-shadow:0 0 0 3px rgba(168,85,247,.22)}
+
+/* week */
+.wk-grid{flex:1;min-height:0;display:grid;grid-template-columns:repeat(7,minmax(108px,1fr));gap:10px;padding:0 14px 14px;overflow:auto}
+.wk-col{display:flex;flex-direction:column;min-height:0;border-radius:14px;background:rgba(0,0,0,.22);border:1px solid var(--line);overflow:hidden}
+.wk-col.today{border-color:rgba(168,85,247,.85);box-shadow:0 0 18px rgba(168,85,247,.35)}
+.wk-head{padding:9px 10px 8px;cursor:pointer;background:rgba(255,255,255,.05);transition:.2s}
+.wk-head:hover{background:rgba(168,85,247,.28)}
+.wk-head b{font-size:14px}
+.wk-head small{color:var(--muted);margin-left:6px;font-size:11.5px}
+.wk-col.sat .wk-head b{color:#8fb8ff}.wk-col.sun .wk-head b{color:#ff8fa8}
+.wk-head .bar{height:4px;border-radius:99px;background:rgba(255,255,255,.1);margin-top:7px;overflow:hidden}
+.wk-head .bar i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--purple2),#d8b4fe);transition:width .7s cubic-bezier(.22,1,.36,1)}
+.wk-body{flex:1;min-height:0;overflow:auto;padding:8px;scrollbar-width:thin;scrollbar-color:rgba(168,85,247,.5) transparent}
+
+/* month */
+.mo-scroll{flex:1;min-height:0;overflow:auto;padding:0 14px 14px;scrollbar-width:thin;scrollbar-color:rgba(168,85,247,.5) transparent}
+.mo-grid{display:grid;grid-template-columns:108px repeat(7,minmax(0,1fr));gap:6px;min-height:100%}
+.mo-h{font-size:12px;font-weight:700;color:var(--muted);text-align:center;padding:2px 0 4px}
+.mo-h.sat{color:#8fb8ff}.mo-h.sun{color:#ff8fa8}
+.mo-w{border-radius:12px;padding:8px;background:rgba(255,255,255,.06);border:1px solid var(--line);cursor:pointer;font-size:11.5px;overflow:hidden;transition:.2s;min-width:0}
+.mo-w:hover{border-color:rgba(168,85,247,.7);background:rgba(168,85,247,.16)}
+.mo-w b{display:block;font-size:12.5px;margin-bottom:4px}
+.mo-w .g{display:block;margin-top:3px;color:#e9d5ff;line-height:1.3;word-break:break-all}
+.mo-w .g.done{text-decoration:line-through;opacity:.45}
+.mo-w .none{color:var(--muted);opacity:.7}
+.mo-d{border-radius:12px;padding:6px 7px;background:rgba(0,0,0,.24);border:1px solid var(--line);cursor:pointer;overflow:hidden;transition:.2s;min-width:0}
+.mo-d:hover{border-color:rgba(168,85,247,.75);transform:translateY(-1px)}
+.mo-d.out{opacity:.32}
+.mo-d.today{border-color:var(--purple);box-shadow:0 0 16px rgba(168,85,247,.5)}
+.mo-d .n{font-size:12px;font-weight:800;display:flex;justify-content:space-between;align-items:center;gap:4px}
+.mo-d .rec{font-weight:700;font-size:10px;color:#f0abfc;white-space:nowrap}
+.mo-d .it{display:block;font-size:11px;line-height:1.35;padding:1px 5px;margin-top:2px;border-radius:5px;background:rgba(255,255,255,.08);border-left:3px solid rgba(255,255,255,.2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mo-d .it.done{text-decoration:line-through;opacity:.45}
+.mo-d .more{display:block;margin-top:2px;font-size:10px;color:var(--muted)}
+
+/* year */
+.yr-scroll{flex:1;min-height:0;overflow:auto;padding:0 14px 14px;scrollbar-width:thin;scrollbar-color:rgba(168,85,247,.5) transparent}
+.yr-grid{display:grid;grid-template-columns:repeat(4,minmax(200px,1fr));gap:12px}
+.mcard{display:flex;flex-direction:column;border-radius:16px;background:rgba(0,0,0,.22);border:1px solid var(--line);overflow:hidden;min-height:210px}
+.mcard.cur{border-color:#ff5c6c;box-shadow:0 0 18px rgba(255,60,80,.35)}
+.mc-head{padding:10px 12px 9px;cursor:pointer;background:rgba(255,255,255,.05);transition:.2s}
+.mc-head:hover{background:rgba(255,60,80,.2)}
+.mc-head b{font-size:16px}
+.mc-head small{color:var(--muted);margin-left:8px;font-size:12px}
+.mc-head .bar{height:4px;border-radius:99px;background:rgba(255,255,255,.1);margin-top:8px;overflow:hidden}
+.mc-head .bar i{display:block;height:100%;width:0;background:linear-gradient(90deg,#9b0f1e,#ff5c6c);transition:width .7s cubic-bezier(.22,1,.36,1)}
+.mc-body{padding:8px;flex:1}
+
+/* circle gauge */
+.cgauge{--lc:#00ffc8;position:relative;display:flex;align-items:center;gap:26px;padding:14px 38px 14px 22px;border-radius:28px;background:var(--panel);border:1px solid color-mix(in srgb,var(--lc) 40%,transparent);box-shadow:0 14px 40px rgba(0,0,0,.35),0 0 30px color-mix(in srgb,var(--lc) 18%,transparent);backdrop-filter:blur(14px);min-width:min(560px,100%)}
+.c-wrap{position:relative;width:124px;height:124px;flex:none}
+#cCanvas{width:100%;height:100%;display:block;filter:drop-shadow(0 0 12px color-mix(in srgb,var(--lc) 75%,transparent))}
+.c-num{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-weight:900;font-size:30px;font-variant-numeric:tabular-nums;color:#fff;text-shadow:0 2px 8px rgba(0,0,0,.75),0 0 14px rgba(0,0,0,.55);pointer-events:none}
+.c-num small{font-size:14px;margin-left:1px;font-weight:800}
+.c-title{font-size:17px;font-weight:800}
+.c-msg{margin-top:3px;font-size:13px;color:var(--lc)}
+.c-count{margin-top:7px;font-size:12.5px;color:var(--text)}
+.c-note{margin-top:3px;font-size:11px;color:var(--muted)}
+.cgauge.full{animation:cfull 1.4s ease-in-out infinite alternate}
+@keyframes cfull{to{box-shadow:0 14px 40px rgba(0,0,0,.35),0 0 54px color-mix(in srgb,var(--lc) 65%,transparent)}}
+.cgauge .g-burst{right:auto;left:82px}
+@media (max-width:1560px){.brand small{display:none}}
+@media (max-width:1180px){.tabs button{padding:7px 10px}.lhead{gap:10px}.brand small{display:none}}
+
 @media (max-width:900px){
   body{height:auto;overflow:auto;display:block}
   .top{grid-template-columns:1fr;justify-items:center}
@@ -224,7 +317,10 @@ footer{padding:14px 24px 20px;display:flex;justify-content:center}
 </head>
 <body>
 <header class="top">
-  <div class="brand"><span id="logo"></span><div><b>Dp</b><small>Drew Planner</small></div><em class="beta">β 0.9</em></div>
+  <div class="lhead">
+    <div class="brand"><span id="logo"></span><div><b>Dp</b><small>Drew Planner</small></div><em class="beta">β 1.0</em></div>
+    <div class="tabs" id="tabs"><button data-v="day" class="on">일간</button><button data-v="week">주간</button><button data-v="month">월간</button><button data-v="year">연간</button></div>
+  </div>
   <div class="datenav">
     <button class="ic" id="prev" title="이전 날 (←)">‹</button>
     <div class="datebox" id="datebox" title="클릭해서 날짜 선택"><div id="dateMain"></div><div id="dateSub"></div><input type="date" id="datePick"></div>
@@ -234,7 +330,7 @@ footer{padding:14px 24px 20px;display:flex;justify-content:center}
   <div class="tools"><button class="chip" id="fs" title="전체화면 (F11)">⛶ 전체화면</button><button class="chip" id="exp" title="데이터를 파일로 저장">백업</button><button class="chip" id="imp" title="백업 파일 불러오기">복원</button><input type="file" id="impFile" accept=".json,application/json" hidden></div>
 </header>
 
-<main>
+<main id="vDay">
   <section class="panel" id="ttPanel">
     <div class="p-head">
       <h2>타임테이블</h2>
@@ -254,6 +350,34 @@ footer{padding:14px 24px 20px;display:flex;justify-content:center}
   </section>
 </main>
 
+<main id="vWeek" class="hidden">
+  <section class="panel">
+    <div class="p-head"><h2>요일별 계획</h2><span class="muted">요일 이름을 누르면 그날의 일간 플래너로 이동해요</span></div>
+    <div class="wk-grid" id="wkGrid"></div>
+  </section>
+  <div class="side">
+    <section class="panel"><div class="p-head"><h2>🎯 주간 목표</h2><span class="muted" id="wkGoalCnt"></span></div><div class="side-body" id="wkGoals"></div></section>
+    <section class="panel"><div class="p-head"><h2>📝 이번 주 할 일</h2><span class="muted" id="wkTaskCnt"></span></div><div class="side-body" id="wkTasks"></div></section>
+  </div>
+</main>
+
+<main id="vMonth" class="hidden">
+  <section class="panel">
+    <div class="p-head"><h2>월간 달력</h2><span class="muted">날짜 → 일간 · 주차 → 주간으로 이동해요</span></div>
+    <div class="mo-scroll"><div class="mo-grid" id="moGrid"></div></div>
+  </section>
+  <div class="side">
+    <section class="panel"><div class="p-head"><h2>📌 이달의 계획</h2><span class="muted" id="moPlanCnt"></span></div><div class="side-body" id="moPlans"></div></section>
+  </div>
+</main>
+
+<main id="vYear" class="hidden">
+  <section class="panel">
+    <div class="p-head"><h2>연간 계획</h2><span class="muted">달마다 할 일을 짜보세요 · 달 이름을 누르면 월간으로 이동해요</span></div>
+    <div class="yr-scroll"><div class="yr-grid" id="yrGrid"></div></div>
+  </section>
+</main>
+
 <footer>
   <div class="gauge" id="gauge">
     <div class="g-top"><span class="g-title" id="gTitle">오늘의 달성률</span><span class="g-msg" id="gMsg"></span><span class="g-count" id="gCount"></span></div>
@@ -262,6 +386,11 @@ footer{padding:14px 24px 20px;display:flex;justify-content:center}
       <div class="g-track"><canvas id="gCanvas"></canvas><div class="g-ticks"></div></div>
     </div>
     <div class="g-burst" id="gBurst"></div>
+  </div>
+  <div class="cgauge" id="cgauge" style="display:none">
+    <div class="c-wrap"><canvas id="cCanvas"></canvas><div class="c-num"><span id="cNum">0</span><small>%</small></div></div>
+    <div class="c-info"><div class="c-title" id="cTitle"></div><div class="c-msg" id="cMsg"></div><div class="c-count" id="cCount"></div><div class="c-note" id="cNote"></div></div>
+    <div class="g-burst" id="cBurst"></div>
   </div>
 </footer>
 
@@ -307,6 +436,8 @@ const OLD_SETS=[['#ff4d5e','#ff9f1c','#ffd93d','#3ddc84','#3b9dff','#a855f7'],['
 const DEF_SUBJ=['국어','수학','영어','과학','사회','기타'];
 const NEUTRAL={id:'',name:'',color:'#a855f7'};
 function normalize(){
+  if(!db.weeks)db.weeks={};
+  if(!db.months)db.months={};
   if(!Array.isArray(db.subjects)||!db.subjects.length)db.subjects=DEF_SUBJ.map((n,i)=>({id:'s'+i,name:n,color:RAINBOW[PICK6[i]]}));
   db.subjects.forEach(x=>{const c=(x.color||'').toLowerCase();for(const o of OLD_SETS){const i=o.indexOf(c);if(i>=0){x.color=RAINBOW[PICK6[i]];break}}});
   if(!db.subjects.find(x=>x.id===db.active))db.active=db.subjects[0].id;
@@ -316,11 +447,12 @@ const subj=id=>db.subjects.find(x=>x.id===id)||NEUTRAL;
 const lum=hex=>{const n=parseInt(hex.slice(1),16);return (.299*(n>>16&255)+.587*(n>>8&255)+.114*(n&255))/255};
 const EMPTY={plans:[],recs:[],todos:[]};
 const save=()=>{try{localStorage.setItem(STORE,JSON.stringify(db))}catch(e){toast('저장에 실패했어요')}};
-const getDay=(create)=>{
-  if(db.days[curKey])return db.days[curKey];
+const dayBy=(k,create)=>{
+  if(db.days[k])return db.days[k];
   if(!create)return EMPTY;
-  return db.days[curKey]={plans:[],recs:[],todos:[]};
+  return db.days[k]={plans:[],recs:[],todos:[]};
 };
+const getDay=(create)=>dayBy(curKey,create);
 
 let today=keyOf(new Date());
 let curKey=today;
@@ -599,9 +731,9 @@ document.addEventListener('keydown',e=>{
   }
   if(modalOpen()){if(e.key==='Escape')closeModal();return}
   if(e.key==='Escape'&&hostFs&&pop.classList.contains('hidden')){toggleFs();return}
-  if(/^[1-9]$/.test(e.key)&&db.subjects[+e.key-1]){db.active=db.subjects[+e.key-1].id;save();renderSubbar();return}
-  if(e.key==='ArrowLeft')shiftDay(-1);
-  else if(e.key==='ArrowRight')shiftDay(1);
+  if(view==='day'&&/^[1-9]$/.test(e.key)&&db.subjects[+e.key-1]){db.active=db.subjects[+e.key-1].id;save();renderSubbar();return}
+  if(e.key==='ArrowLeft')shift(-1);
+  else if(e.key==='ArrowRight')shift(1);
 });
 
 /* subjects UI */
@@ -717,12 +849,20 @@ function frame(ts){
   if(Math.abs(target-level)<.0005)level=target;
   const pct=Math.round(level*100);
   if(pct!==lastShown){$('#gNum').textContent=pct;lastShown=pct}
-  drawLiquid(Math.abs(diff));
+  if(view==='day')drawLiquid(Math.abs(diff));
+  else{
+    const cd=ctarget-clevel;
+    clevel+=cd*Math.min(1,dt*1.7);
+    if(Math.abs(ctarget-clevel)<.0005)clevel=ctarget;
+    const cp=Math.round(clevel*100);
+    if(cp!==cShown){$('#cNum').textContent=cp;cShown=cp}
+    drawCircle(Math.abs(cd));
+  }
   requestAnimationFrame(frame);
 }
-function burst(){
-  const box=$('#gBurst');box.innerHTML='';
-  const cols=['#a855f7','#ec4899','#d8b4fe','#38bdf8','#fde047','#39ff88'];
+function burst(box,cols){
+  box=box||$('#gBurst');box.innerHTML='';
+  cols=cols||['#a855f7','#ec4899','#d8b4fe','#38bdf8','#fde047','#39ff88'];
   for(let i=0;i<34;i++){
     const p=document.createElement('i'),ang=Math.random()*Math.PI*2,dist=50+Math.random()*130;
     p.style.background=cols[i%cols.length];
@@ -744,31 +884,332 @@ function updateGauge(){
   prevPct=pct;
 }
 
+/* ===== views: week / month / year ===== */
+let view='day';
+const VID={day:'vDay',week:'vWeek',month:'vMonth',year:'vYear'};
+const addDays=(d,n)=>{const x=new Date(d);x.setDate(x.getDate()+n);return x};
+const monOf=d=>addDays(d,-((d.getDay()+6)%7));
+const dim=(y,m)=>new Date(y,m+1,0).getDate();
+const weekLabel=mon=>{const th=addDays(mon,3);return `${th.getMonth()+1}월 ${Math.ceil(th.getDate()/7)}주차`};
+const fmtMD=d=>`${d.getMonth()+1}월 ${d.getDate()}일`;
+const ymOf=(y,m)=>`${y}-${pad(m+1)}`;
+const COLORMAP={pink:'#ff3ea5',orange:'#ff9f1c',blue:'#2ea8ff',green:'#39ff88'};
+const esc=t=>String(t).replace(/[<>&"]/g,'');
+const sortItems=a=>a.map((t,i)=>({t,i})).sort((x,y)=>(+!!x.t.d-+!!y.t.d)||((x.t.p||1e9)-(y.t.p||1e9))||x.i-y.i).map(o=>o.t);
+const cntOf=a=>({t:a.length,d:a.filter(x=>x.d).length});
+const wkData=(k,create)=>db.weeks[k]||(create?(db.weeks[k]={goals:[],tasks:[]}):null);
+const moData=(k,create)=>db.months[k]||(create?(db.months[k]={plans:[]}):null);
+const wkArr=(k,f)=>cr=>{const w=wkData(k,cr);return w?w[f]:[]};
+const moArr=k=>cr=>{const m=moData(k,cr);return m?m.plans:[]};
+let newItemId=null,refocus=null;
+
+function listEditor(host,o){
+  host.innerHTML='';
+  const ul=document.createElement('ul');ul.className='le';
+  sortItems(o.get(false)).forEach(it=>{
+    const li=document.createElement('li');
+    li.className=(it.c?'c-'+it.c:'')+(it.d?' done':'')+(newItemId===it.id?' enter':'');
+    const chk=document.createElement('button');chk.className='chk sm';chk.innerHTML=CHECK;chk.title='완료';
+    chk.onclick=()=>{it.d=!it.d;save();o.change()};
+    const t=document.createElement('span');t.className='t';t.textContent=it.t;
+    t.ondblclick=()=>{
+      if(t.querySelector('input'))return;
+      const inp=document.createElement('input');inp.value=it.t;inp.maxLength=60;
+      t.textContent='';t.appendChild(inp);inp.focus();inp.select();
+      let done=false;
+      const fin=ok=>{if(done)return;done=true;const v=inp.value.trim();if(ok&&v){it.t=v;save()}o.change()};
+      inp.onkeydown=ev=>{ev.stopPropagation();if(ev.key==='Enter')fin(true);else if(ev.key==='Escape')fin(false)};
+      inp.onblur=()=>fin(true);
+    };
+    const x=document.createElement('button');x.className='x';x.textContent='×';x.title='삭제';
+    x.onclick=()=>{const a=o.get(true);a.splice(a.indexOf(it),1);save();o.change()};
+    li.appendChild(chk);li.appendChild(t);li.appendChild(x);ul.appendChild(li);
+  });
+  host.appendChild(ul);
+  const f=document.createElement('form');f.className='le-add';f.autocomplete='off';
+  const inp=document.createElement('input');inp.placeholder=o.ph||'+ 추가';inp.maxLength=60;inp.dataset.fk=o.fk;
+  f.appendChild(inp);
+  f.onsubmit=e=>{
+    e.preventDefault();const v=inp.value.trim();if(!v)return;
+    const it={id:uid(),t:v,c:'',p:0,d:false};
+    o.get(true).push(it);newItemId=it.id;refocus=o.fk;save();o.change();
+  };
+  host.appendChild(f);
+}
+function periodChange(){renderPeriod();updateFooter()}
+function openDay(k){curKey=k;setView('day')}
+function openWeek(k){curKey=k;setView('week')}
+function openMonth(k){curKey=k;setView('month')}
+
+function renderWeek(){
+  const mon=monOf(parseKey(curKey)),wk=keyOf(mon);
+  const g=$('#wkGrid'),names=['월','화','수','목','금','토','일'];
+  g.innerHTML='';
+  for(let i=0;i<7;i++){
+    const dt=addDays(mon,i),k=keyOf(dt),c=cntOf(dayBy(k,false).todos);
+    const col=document.createElement('div');
+    col.className='wk-col'+(k===today?' today':'')+(i===5?' sat':'')+(i===6?' sun':'');
+    const head=document.createElement('div');head.className='wk-head';head.title='일간 플래너 열기';
+    head.innerHTML=`<b>${names[i]}</b><small>${dt.getMonth()+1}/${dt.getDate()}</small><small style="float:right">${c.t?c.d+'/'+c.t:''}</small><div class="bar"><i style="width:${c.t?Math.round(c.d/c.t*100):0}%"></i></div>`;
+    head.onclick=()=>openDay(k);
+    const body=document.createElement('div');body.className='wk-body';
+    listEditor(body,{get:cr=>dayBy(k,cr).todos,change:periodChange,fk:'d'+k,ph:'+ 할 일'});
+    col.appendChild(head);col.appendChild(body);g.appendChild(col);
+  }
+  listEditor($('#wkGoals'),{get:wkArr(wk,'goals'),change:periodChange,fk:'wg'+wk,ph:'+ 이번 주 목표 (Enter)'});
+  listEditor($('#wkTasks'),{get:wkArr(wk,'tasks'),change:periodChange,fk:'wt'+wk,ph:'+ 이번 주 할 일 (Enter)'});
+  const gc=cntOf(wkArr(wk,'goals')(false)),tc=cntOf(wkArr(wk,'tasks')(false));
+  $('#wkGoalCnt').textContent=gc.t?`${gc.d} / ${gc.t} 완료`:'';
+  $('#wkTaskCnt').textContent=tc.t?`${tc.d} / ${tc.t} 완료`:'';
+}
+
+function renderMonth(){
+  const d=parseKey(curKey),y=d.getFullYear(),m=d.getMonth(),ym=ymOf(y,m);
+  const first=new Date(y,m,1),start=monOf(first),n=dim(y,m);
+  const weeks=Math.ceil((((first.getDay()+6)%7)+n)/7);
+  const g=$('#moGrid');g.innerHTML='';
+  g.style.gridTemplateRows=`auto repeat(${weeks},minmax(116px,1fr))`;
+  const hd=document.createElement('div');hd.className='mo-h';hd.textContent='주차';g.appendChild(hd);
+  ['월','화','수','목','금','토','일'].forEach((x,i)=>{
+    const h=document.createElement('div');h.className='mo-h'+(i===5?' sat':i===6?' sun':'');h.textContent=x;g.appendChild(h);
+  });
+  for(let w=0;w<weeks;w++){
+    const mon=addDays(start,w*7),wk=keyOf(mon),wd=wkData(wk,false);
+    const wc=document.createElement('div');wc.className='mo-w';wc.title='주간 플래너 열기';
+    let h=`<b>${weekLabel(mon)}</b>`;
+    const items=[];
+    if(wd){wd.goals.forEach(x=>items.push({t:'🎯 '+x.t,d:x.d}));wd.tasks.forEach(x=>items.push({t:'· '+x.t,d:x.d}))}
+    if(!items.length)h+='<span class="g none">계획 없음</span>';
+    items.slice(0,5).forEach(x=>{h+=`<span class="g${x.d?' done':''}">${esc(x.t)}</span>`});
+    if(items.length>5)h+=`<span class="g none">+${items.length-5}개 더</span>`;
+    wc.innerHTML=h;wc.onclick=()=>openWeek(wk);g.appendChild(wc);
+    for(let i=0;i<7;i++){
+      const dt=addDays(mon,i),k=keyOf(dt),dd=db.days[k];
+      const cell=document.createElement('div');
+      cell.className='mo-d'+(dt.getMonth()!==m?' out':'')+(k===today?' today':'');
+      cell.title='일간 플래너 열기';
+      const recC=dd?dd.recs.reduce((a,b)=>a+b.e-b.s,0):0;
+      let hh=`<div class="n"><span>${dt.getDate()}</span>${recC?`<span class="rec">⏱ ${fmtDur(recC)}</span>`:''}</div>`;
+      const todos=dd?sortItems(dd.todos):[];
+      todos.slice(0,3).forEach(t=>{
+        const col=COLORMAP[t.c]||'rgba(255,255,255,.2)';
+        hh+=`<span class="it${t.d?' done':''}" style="border-left-color:${col}">${esc(t.t)}</span>`;
+      });
+      if(todos.length>3)hh+=`<span class="more">+${todos.length-3}개 더</span>`;
+      cell.innerHTML=hh;cell.onclick=()=>openDay(k);g.appendChild(cell);
+    }
+  }
+  listEditor($('#moPlans'),{get:moArr(ym),change:periodChange,fk:'m'+ym,ph:'+ 이달의 계획 (Enter)'});
+  const pc=cntOf(moArr(ym)(false));
+  $('#moPlanCnt').textContent=pc.t?`${pc.d} / ${pc.t} 완료`:'';
+}
+
+function renderYear(){
+  const d=parseKey(curKey),y=d.getFullYear(),g=$('#yrGrid'),curM=new Date().getFullYear()===y?new Date().getMonth():-1;
+  g.innerHTML='';
+  for(let m=0;m<12;m++){
+    const ym=ymOf(y,m),c=cntOf(moArr(ym)(false));
+    const card=document.createElement('div');card.className='mcard'+(m===curM?' cur':'');
+    const head=document.createElement('div');head.className='mc-head';head.title='월간 플래너 열기';
+    head.innerHTML=`<b>${m+1}월</b><small>${c.t?c.d+' / '+c.t:''}</small><div class="bar"><i style="width:${c.t?Math.round(c.d/c.t*100):0}%"></i></div>`;
+    head.onclick=()=>{const day=Math.min(d.getDate(),dim(y,m));openMonth(`${y}-${pad(m+1)}-${pad(day)}`)};
+    const body=document.createElement('div');body.className='mc-body';
+    listEditor(body,{get:moArr(ym),change:periodChange,fk:'y'+ym,ph:`+ ${m+1}월 할 일`});
+    card.appendChild(head);card.appendChild(body);g.appendChild(card);
+  }
+}
+
+function renderPeriod(){
+  const keep=[...document.querySelectorAll('.wk-body')].map(e=>e.scrollTop);
+  if(view==='week')renderWeek();else if(view==='month')renderMonth();else if(view==='year')renderYear();
+  document.querySelectorAll('.wk-body').forEach((e,i)=>{if(keep[i])e.scrollTop=keep[i]});
+  if(refocus){const el=document.querySelector(`[data-fk="${refocus}"]`);if(el)el.focus();refocus=null}
+  newItemId=null;
+}
+
+/* stats for circle gauges */
+function statsWeek(mon){
+  const r={t:0,d:0},add=a=>{const c=cntOf(a);r.t+=c.t;r.d+=c.d},w=db.weeks[keyOf(mon)];
+  if(w){add(w.goals);add(w.tasks)}
+  for(let i=0;i<7;i++){const dd=db.days[keyOf(addDays(mon,i))];if(dd)add(dd.todos)}
+  return r;
+}
+function statsMonth(y,m){
+  const r={t:0,d:0},add=a=>{const c=cntOf(a);r.t+=c.t;r.d+=c.d},mo=db.months[ymOf(y,m)];
+  if(mo)add(mo.plans);
+  for(let i=1;i<=dim(y,m);i++){const dd=db.days[`${y}-${pad(m+1)}-${pad(i)}`];if(dd)add(dd.todos)}
+  return r;
+}
+function statsYear(y){
+  const r={t:0,d:0};
+  for(let m=0;m<12;m++){const mo=db.months[ymOf(y,m)];if(mo){const c=cntOf(mo.plans);r.t+=c.t;r.d+=c.d}}
+  return r;
+}
+
+/* circle liquid gauge */
+const PALS={
+  week:{a:'#00ffc8',b:'#00705e',c:'#c8fff3',cols:['#00ffc8','#7dffe6','#c8fff3','#38bdf8','#ffffff']},
+  month:{a:'#ffe600',b:'#a86a00',c:'#fffbb0',cols:['#ffe600','#fff27a','#fffbb0','#ff9f1c','#ffffff']},
+  year:{a:'#ff2a2a',b:'#6e000e',c:'#ffb0b0',cols:['#ff2a2a','#ff7a7a','#ffb0b0','#ff8a00','#ffffff']}
+};
+const cc=$('#cCanvas'),cctx=cc.getContext('2d');
+let cw=0,ch=0,clevel=0,ctarget=0,cShown=-1,cpal=PALS.week,prevC=null;
+const cbub=Array.from({length:14},()=>({x:Math.random(),r:1.2+Math.random()*2.8,s:.12+Math.random()*.35,p:Math.random()*30}));
+function sizeC(){
+  const r=cc.getBoundingClientRect(),dpr=window.devicePixelRatio||1;
+  cw=r.width;ch=r.height;cc.width=Math.max(1,Math.round(cw*dpr));cc.height=Math.max(1,Math.round(ch*dpr));
+  cctx.setTransform(dpr,0,0,dpr,0,0);
+}
+if(window.ResizeObserver)new ResizeObserver(sizeC).observe(cc);
+function cwave(mid,surf,amp,ph,tilt,fill){
+  cctx.beginPath();cctx.moveTo(-2,ch+2);
+  for(let x=-2;x<=cw+2;x+=2){
+    cctx.lineTo(x,surf+Math.sin(x*.075+ph)*amp+Math.sin(x*.14-ph*.8)*amp*.5+(x-mid)*tilt);
+  }
+  cctx.lineTo(cw+2,ch+2);cctx.closePath();cctx.fillStyle=fill;cctx.fill();
+}
+function drawCircle(moving){
+  if(!cw)return;
+  cctx.clearRect(0,0,cw,ch);
+  const cx0=cw/2,cy0=ch/2,R=Math.min(cw,ch)/2-3,P=cpal;
+  cctx.save();cctx.beginPath();cctx.arc(cx0,cy0,R,0,7);cctx.clip();
+  cctx.fillStyle='rgba(0,0,0,.5)';cctx.fillRect(0,0,cw,ch);
+  if(clevel>.0005){
+    const amp=2.6+Math.sin(tick*1.6)*.8+Math.min(6,moving*26);
+    const tilt=Math.sin(tick*1.3)*(.035+Math.min(.22,moving*1.4));
+    const surf=cy0+R+amp*2-clevel*(2*R+amp*4);
+    cctx.globalAlpha=.5;cwave(cx0,surf+amp*.9,amp*1.25,tick*2+1.3,-tilt*.7,P.a);cctx.globalAlpha=1;
+    const g=cctx.createLinearGradient(0,surf-amp,0,cy0+R);
+    g.addColorStop(0,P.c);g.addColorStop(.18,P.a);g.addColorStop(1,P.b);
+    cwave(cx0,surf,amp,tick*2.8,tilt,g);
+    cctx.globalCompositeOperation='source-atop';
+    for(let i=0;i<3;i++){
+      const bx=cx0+Math.sin(tick*.5+i*2.2)*R*.55,by=cy0+Math.sin(tick*.8+i*1.9)*R*.6;
+      const rg=cctx.createRadialGradient(bx,by,0,bx,by,R*.8);
+      rg.addColorStop(0,'rgba(255,255,255,.3)');rg.addColorStop(1,'rgba(255,255,255,0)');
+      cctx.fillStyle=rg;cctx.fillRect(0,0,cw,ch);
+    }
+    for(const b of cbub){
+      const y=cy0+R+4-((tick*b.s*R*1.5+b.p*11)%(2*R+8));
+      const x=cx0+(b.x*2-1)*R*.78+Math.sin(tick*2+b.p)*3;
+      cctx.beginPath();cctx.arc(x,y,b.r,0,7);
+      cctx.fillStyle='rgba(255,255,255,.34)';cctx.fill();
+      cctx.strokeStyle='rgba(255,255,255,.55)';cctx.lineWidth=.8;cctx.stroke();
+    }
+    cctx.globalCompositeOperation='source-over';
+  }
+  cctx.restore();
+  cctx.beginPath();cctx.arc(cx0,cy0,R,0,7);cctx.lineWidth=3;cctx.strokeStyle='rgba(255,255,255,.3)';cctx.stroke();
+  cctx.beginPath();cctx.arc(cx0,cy0,R-6,Math.PI*1.08,Math.PI*1.42);cctx.lineWidth=3.5;cctx.lineCap='round';
+  cctx.strokeStyle='rgba(255,255,255,.55)';cctx.stroke();
+}
+function resetCircle(){
+  clevel=0;cShown=-1;prevC=null;cpal=PALS[view]||PALS.week;
+  $('#cgauge').style.setProperty('--lc',cpal.a);
+  $('#cNum').textContent='0';
+  requestAnimationFrame(sizeC);
+}
+function updateFooter(){
+  const day=view==='day';
+  $('#gauge').style.display=day?'':'none';
+  $('#cgauge').style.display=day?'none':'';
+  if(day){updateGauge();return}
+  const d=parseKey(curKey),td=parseKey(today);
+  let r,title,note,cur;
+  if(view==='week'){
+    const mon=monOf(d);r=statsWeek(mon);cur=keyOf(mon)===keyOf(monOf(td));
+    title=(cur?'이번 주':'이 주')+'의 달성률';note='주간 목표 + 이번 주 할 일 + 요일별 할 일 기준';
+  }else if(view==='month'){
+    r=statsMonth(d.getFullYear(),d.getMonth());cur=d.getFullYear()===td.getFullYear()&&d.getMonth()===td.getMonth();
+    title=(cur?'이번 달':'이 달')+'의 달성률';note='이달의 계획 + 매일의 할 일 기준';
+  }else{
+    r=statsYear(d.getFullYear());cur=d.getFullYear()===td.getFullYear();
+    title=(cur?'올해':'이 해')+'의 달성률';note='월별 계획 기준';
+  }
+  const pct=r.t?Math.round(r.d/r.t*100):0;
+  ctarget=r.t?r.d/r.t:0;
+  $('#cTitle').textContent=title;
+  $('#cNote').textContent=note;
+  $('#cCount').textContent=r.t?`완료 ${r.d} / 전체 ${r.t}`:'';
+  $('#cMsg').textContent=!r.t?'계획을 추가해보세요':pct===0?'시작이 반이에요':pct<50?'좋은 출발이에요':pct<100?'거의 다 왔어요!':'모두 달성! 🎉';
+  $('#cgauge').classList.toggle('full',r.t>0&&pct===100);
+  if(prevC!==null&&prevC<100&&pct===100&&r.t>0)burst($('#cBurst'),cpal.cols);
+  prevC=pct;
+}
+
 /* date nav */
 function renderDate(){
-  const d=parseKey(curKey);
-  $('#dateMain').textContent=`${d.getFullYear()}년 ${d.getMonth()+1}월 ${d.getDate()}일`;
-  const diff=Math.round((d-parseKey(today))/864e5);
-  const tag=diff===0?'오늘':diff===1?'내일':diff===-1?'어제':'';
-  $('#dateSub').innerHTML=`${DOW[d.getDay()]}요일`+(tag?`<span class="tag">${tag}</span>`:'');
+  const d=parseKey(curKey),td=parseKey(today);
+  let main,sub,tag='';
+  if(view==='day'){
+    main=`${d.getFullYear()}년 ${d.getMonth()+1}월 ${d.getDate()}일`;
+    const diff=Math.round((d-td)/864e5);
+    tag=diff===0?'오늘':diff===1?'내일':diff===-1?'어제':'';
+    sub=`${DOW[d.getDay()]}요일`;
+  }else if(view==='week'){
+    const mon=monOf(d);
+    main=`${addDays(mon,3).getFullYear()}년 ${weekLabel(mon)}`;
+    sub=`${fmtMD(mon)} – ${fmtMD(addDays(mon,6))}`;
+    tag=keyOf(mon)===keyOf(monOf(td))?'이번 주':'';
+  }else if(view==='month'){
+    main=`${d.getFullYear()}년 ${d.getMonth()+1}월`;
+    sub=`${dim(d.getFullYear(),d.getMonth())}일`;
+    tag=(d.getFullYear()===td.getFullYear()&&d.getMonth()===td.getMonth())?'이번 달':'';
+  }else{
+    main=`${d.getFullYear()}년`;sub='12개월 계획';
+    tag=d.getFullYear()===td.getFullYear()?'올해':'';
+  }
+  $('#dateMain').textContent=main;
+  $('#dateSub').innerHTML=sub+(tag?`<span class="tag">${tag}</span>`:'');
   $('#datePick').value=curKey;
+  const u={day:'날',week:'주',month:'달',year:'해'}[view];
+  $('#prev').title='이전 '+u+' (←)';$('#next').title='다음 '+u+' (→)';
+  $('#today').textContent={day:'오늘',week:'이번 주',month:'이번 달',year:'올해'}[view];
+}
+function renderView(){
+  renderDate();
+  if(view==='day'){renderBlocks();renderTodos();updateNow()}
+  else renderPeriod();
+  updateFooter();
 }
 function setDay(k,dir){
   curKey=k;sel=null;buf='';closePop();
-  renderDate();renderBlocks();renderTodos();updateNow();
-  for(const el of [$('#hours').parentElement,list]){el.classList.remove('swap');void el.offsetWidth;el.classList.add('swap')}
-  if(k===today)scrollToNow();
+  renderView();
+  const els=view==='day'?[$('#hours').parentElement,list]:[$('#'+VID[view])];
+  for(const el of els){el.classList.remove('swap');void el.offsetWidth;el.classList.add('swap')}
+  if(view==='day'&&k===today)scrollToNow();
 }
-function shiftDay(n){const d=parseKey(curKey);d.setDate(d.getDate()+n);setDay(keyOf(d),n)}
+function setView(v){
+  if(v===view){setDay(curKey,0);return}
+  view=v;sel=null;buf='';closePop();
+  document.querySelectorAll('#tabs button').forEach(b=>b.classList.toggle('on',b.dataset.v===v));
+  for(const id in VID)$('#'+VID[id]).classList.toggle('hidden',id!==v);
+  resetCircle();
+  renderView();
+  const m=$('#'+VID[v]);m.classList.remove('swap');void m.offsetWidth;m.classList.add('swap');
+  if(v==='day'){requestAnimationFrame(()=>{sizeCanvas();if(curKey===today)scrollToNow()})}
+}
+function shift(n){
+  const d=parseKey(curKey);
+  if(view==='day')d.setDate(d.getDate()+n);
+  else if(view==='week')d.setDate(d.getDate()+7*n);
+  else{
+    const day=d.getDate();d.setDate(1);
+    if(view==='month')d.setMonth(d.getMonth()+n);else d.setFullYear(d.getFullYear()+n);
+    d.setDate(Math.min(day,dim(d.getFullYear(),d.getMonth())));
+  }
+  setDay(keyOf(d),n);
+}
 function scrollToNow(){
   const body=ttScroll.firstElementChild,h=new Date().getHours();
   ttScroll.scrollTop=Math.max(0,body.offsetHeight*(h/24)-ttScroll.clientHeight/3);
 }
-$('#prev').onclick=()=>shiftDay(-1);
-$('#next').onclick=()=>shiftDay(1);
+$('#prev').onclick=()=>shift(-1);
+$('#next').onclick=()=>shift(1);
 $('#today').onclick=()=>{today=keyOf(new Date());setDay(today,0)};
 $('#datebox').onclick=()=>{const p=$('#datePick');try{p.showPicker()}catch(e){p.focus()}};
 $('#datePick').onchange=e=>{if(e.target.value)setDay(e.target.value,0)};
+document.querySelectorAll('#tabs button').forEach(b=>b.onclick=()=>setView(b.dataset.v));
 
 /* fullscreen */
 let hostFs=false;
@@ -806,7 +1247,7 @@ $('#impFile').onchange=e=>{
 };
 
 /* init */
-renderDate();renderSubbar();renderBlocks();renderTodos();updateNow();
+renderDate();renderSubbar();renderBlocks();renderTodos();updateNow();updateFooter();
 requestAnimationFrame(scrollToNow);
 sizeCanvas();requestAnimationFrame(frame);
 setInterval(()=>{

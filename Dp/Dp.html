@@ -87,13 +87,15 @@ main{display:grid;grid-template-columns:minmax(0,1fr) minmax(320px,410px);gap:18
 .mrow{display:flex;align-items:center;gap:9px;padding:9px 10px;border-radius:13px;background:rgba(255,255,255,.05);margin-bottom:8px}
 .mrow input[type=text]{flex:1;min-width:0;background:rgba(0,0,0,.35);border:1px solid var(--line);border-radius:9px;padding:7px 10px;outline:none}
 .mrow input[type=text]:focus{border-color:var(--purple)}
-.sws{display:flex;align-items:center;gap:6px}
+.mrow{flex-wrap:wrap}
+.mrow .del{order:2}
+.sws{order:3;flex-basis:100%;display:flex;flex-wrap:wrap;align-items:center;gap:7px;padding:2px 2px 0}
 .sw{width:22px;height:22px;border-radius:50%;border:2px solid transparent;background:var(--c);padding:0;transition:.15s;box-shadow:0 0 8px color-mix(in srgb,var(--c) 60%,transparent)}
 .sw:hover{transform:scale(1.18)}
 .sw.on{border-color:#fff;transform:scale(1.18)}
 .mrow input[type=color]{width:26px;height:26px;border:0;padding:0;background:none;cursor:pointer}
 .mrow .del{flex:none}
-.mfoot{display:flex;gap:8px;margin-top:12px}
+.mfoot{display:flex;gap:8px;margin:12px -20px -20px;padding:12px 20px 20px;position:sticky;bottom:-20px;background:linear-gradient(180deg,transparent,rgba(28,20,58,1) 30%)}
 .mfoot button{border:0;border-radius:11px;padding:9px 16px;font-weight:700;background:rgba(255,255,255,.1)}
 .mfoot .ok{margin-left:auto;background:linear-gradient(135deg,var(--purple2),var(--pink))}
 
@@ -114,21 +116,22 @@ main{display:grid;grid-template-columns:minmax(0,1fr) minmax(320px,410px);gap:18
 .hrow i:nth-child(4){border-left-color:rgba(255,255,255,.1)}
 .layer{position:absolute;inset:0;pointer-events:none}
 .run{position:absolute;--c:#a855f7;--tx:#fff}
-.run.plan{z-index:0;background:color-mix(in srgb,var(--c) 50%,#fff);opacity:.93}
-.run.rec{z-index:2;background:var(--c);filter:saturate(1.8) brightness(1.3)}
-.glow{position:absolute;z-index:1;pointer-events:none;box-shadow:0 0 6px 1px var(--c),0 0 18px 3px var(--c),0 0 40px 8px var(--c),0 0 64px 12px color-mix(in srgb,var(--c) 55%,transparent);filter:saturate(1.6) brightness(1.2)}
-.pstrip{position:absolute;z-index:3;height:4px;pointer-events:none;background:color-mix(in srgb,var(--pc) 35%,#fff);box-shadow:0 1px 3px rgba(0,0,0,.3)}
+.run.plan{z-index:1;background:linear-gradient(135deg,color-mix(in srgb,var(--c) 58%,#fff),color-mix(in srgb,var(--c) 72%,#fff))}
+.glow.plan{z-index:0;box-shadow:0 0 8px 1px color-mix(in srgb,var(--c) 55%,transparent),0 0 22px 4px color-mix(in srgb,var(--c) 35%,transparent);filter:saturate(1.3) brightness(1.1)}
+.run.rec{z-index:3;background:var(--c);filter:saturate(1.8) brightness(1.3)}
+.glow{position:absolute;z-index:2;pointer-events:none;box-shadow:0 0 6px 1px var(--c),0 0 18px 3px var(--c),0 0 40px 8px var(--c),0 0 64px 12px color-mix(in srgb,var(--c) 55%,transparent);filter:saturate(1.6) brightness(1.2)}
+.pstrip{position:absolute;z-index:4;height:4px;pointer-events:none;background:color-mix(in srgb,var(--pc) 35%,#fff);box-shadow:0 1px 3px rgba(0,0,0,.3)}
 
 .run.fillin{animation:runin var(--dur) steps(var(--n),end) var(--dl) both}
 @keyframes runin{from{clip-path:inset(0 100% 0 0)}to{clip-path:inset(0 0 0 0)}}
 .glow.fillin{animation:glowin var(--dur) steps(var(--n),end) var(--dl) both}
 @keyframes glowin{from{opacity:0;transform:scale(.97)}to{opacity:1;transform:none}}
-.cl{position:absolute;display:flex;align-items:center;padding:0 9px;font-size:12px;font-weight:800;white-space:nowrap;overflow:hidden;z-index:4;pointer-events:none;color:var(--tx);--tx:#fff}
+.cl{position:absolute;display:flex;align-items:center;padding:0 9px;font-size:12px;font-weight:800;white-space:nowrap;overflow:hidden;z-index:5;pointer-events:none;color:var(--tx);--tx:#fff}
 .cl span{overflow:hidden;text-overflow:ellipsis}
 .cl.plan{color:#1b1236}
 .cl.fillin{animation:lbl .3s ease var(--dl) both}
 @keyframes lbl{from{opacity:0}to{opacity:1}}
-.now{z-index:5;position:absolute;width:2px;margin-left:-1px;background:#ff4d8d;box-shadow:0 0 10px 2px rgba(255,77,141,.8);z-index:2;pointer-events:none;border-radius:2px}
+.now{z-index:6;position:absolute;width:2px;margin-left:-1px;background:#ff4d8d;box-shadow:0 0 10px 2px rgba(255,77,141,.8);z-index:2;pointer-events:none;border-radius:2px}
 .now::before{content:"";position:absolute;top:-3px;left:-3px;width:8px;height:8px;border-radius:50%;background:#ff4d8d}
 
 /* todo */
@@ -221,7 +224,7 @@ footer{padding:14px 24px 20px;display:flex;justify-content:center}
 </head>
 <body>
 <header class="top">
-  <div class="brand"><span id="logo"></span><div><b>Dp</b><small>Drew Planner</small></div><em class="beta">β 0.4</em></div>
+  <div class="brand"><span id="logo"></span><div><b>Dp</b><small>Drew Planner</small></div><em class="beta">β 0.5</em></div>
   <div class="datenav">
     <button class="ic" id="prev" title="이전 날 (←)">‹</button>
     <div class="datebox" id="datebox" title="클릭해서 날짜 선택"><div id="dateMain"></div><div id="dateSub"></div><input type="date" id="datePick"></div>
@@ -269,7 +272,7 @@ footer{padding:14px 24px 20px;display:flex;justify-content:center}
   <div class="pop-btns"><button class="rm" id="popRm">삭제</button><button id="popNo">취소</button><button class="ok" id="popOk">저장</button></div>
 </div>
 <div id="subModal" class="hidden"><div class="mbox">
-  <h3>과목 · 색상 편집</h3><p>이름을 바꾸고 색을 골라보세요. 기록은 진한 색, 예정은 연한 색으로 칠해져요. (과목 단축키: 숫자 1~9)</p>
+  <h3>과목 · 색상 편집</h3><p>이름을 바꾸고 12가지 색 중에서 골라보세요. (직접 고르기도 가능) 기록은 진한 색, 예정은 연한 색으로 칠해져요. (과목 단축키: 숫자 1~9)</p>
   <div id="subRows"></div>
   <div class="mfoot"><button id="subAdd">+ 과목 추가</button><button class="ok" id="subDone">완료</button></div>
 </div></div>
@@ -297,13 +300,14 @@ $('#fav').href='data:image/svg+xml,'+encodeURIComponent(ICON);
 /* data */
 let db={days:{}};
 try{const r=JSON.parse(localStorage.getItem(STORE));if(r&&r.days)db=r}catch(e){}
-const RAINBOW=['#ff2e63','#ff8a00','#fff200','#39ff14','#00b4ff','#b44cff'];
-const OLD_RAINBOW=['#ff4d5e','#ff9f1c','#ffd93d','#3ddc84','#3b9dff','#a855f7'];
+const RAINBOW=['#ff2e4d','#ff5a1f','#ff8a00','#fff200','#b6ff00','#39ff14','#00ffc8','#00d5ff','#2f6bff','#b44cff','#ff4fd8','#ff7ab8'];
+const PICK6=[0,2,3,5,7,9];
+const OLD_SETS=[['#ff4d5e','#ff9f1c','#ffd93d','#3ddc84','#3b9dff','#a855f7'],['#ff2e63','#ff8a00','#fff200','#39ff14','#00b4ff','#b44cff']];
 const DEF_SUBJ=['국어','수학','영어','과학','사회','기타'];
 const NEUTRAL={id:'',name:'',color:'#a855f7'};
 function normalize(){
-  if(!Array.isArray(db.subjects)||!db.subjects.length)db.subjects=DEF_SUBJ.map((n,i)=>({id:'s'+i,name:n,color:RAINBOW[i]}));
-  db.subjects.forEach(x=>{const i=OLD_RAINBOW.indexOf((x.color||'').toLowerCase());if(i>=0)x.color=RAINBOW[i]});
+  if(!Array.isArray(db.subjects)||!db.subjects.length)db.subjects=DEF_SUBJ.map((n,i)=>({id:'s'+i,name:n,color:RAINBOW[PICK6[i]]}));
+  db.subjects.forEach(x=>{const c=(x.color||'').toLowerCase();for(const o of OLD_SETS){const i=o.indexOf(c);if(i>=0){x.color=RAINBOW[PICK6[i]];break}}});
   if(!db.subjects.find(x=>x.id===db.active))db.active=db.subjects[0].id;
 }
 normalize();
@@ -354,7 +358,7 @@ function addBlock(b,layerName,planAt,anim,extra){
     const cs=Math.max(b.s,r*6)-r*6, ce=Math.min(b.e,(r+1)*6)-r*6, n=ce-cs;
     const off=Math.max(b.s,r*6)-b.s;
     const anims=el=>{if(anim){el.classList.add('fillin');el.style.setProperty('--dl',Math.min(1.5,off*0.08)+'s');el.style.setProperty('--dur',(n*0.08)+'s');el.style.setProperty('--n',n)}};
-    if(layerName==='rec'){anims(mk('glow',r,cs,ce))}
+    anims(mk('glow '+layerName,r,cs,ce));
     const run=mk('run '+layerName+(extra?' '+extra:''),r,cs,ce);anims(run);
     if(planAt)for(let c=cs;c<ce;c++){
       const pb=planAt[r*6+c];
@@ -647,7 +651,7 @@ function renderModal(){
 }
 $('#subAdd').onclick=()=>{
   const used=db.subjects.map(x=>x.color.toLowerCase());
-  const c=RAINBOW.find(r=>!used.includes(r))||RAINBOW[db.subjects.length%6];
+  const c=RAINBOW.find(r=>!used.includes(r))||RAINBOW[db.subjects.length%RAINBOW.length];
   db.subjects.push({id:'s'+uid(),name:'새 과목',color:c});save();renderModal();
   const ins=$('#subRows').querySelectorAll('input[type=text]');ins[ins.length-1].focus();ins[ins.length-1].select();
 };

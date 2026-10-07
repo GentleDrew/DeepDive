@@ -113,19 +113,22 @@ main{display:grid;grid-template-columns:minmax(0,1fr) minmax(320px,410px);gap:18
 .hrow i:first-child{border-left:0}
 .hrow i:nth-child(4){border-left-color:rgba(255,255,255,.1)}
 .layer{position:absolute;inset:0;pointer-events:none}
-.cell{position:absolute;--c:#a855f7;--tx:#fff;border-radius:3px}
-.cell.plan{background:linear-gradient(160deg,color-mix(in srgb,var(--c) 34%,#fff),color-mix(in srgb,var(--c) 58%,#fff));opacity:.88;box-shadow:0 0 10px color-mix(in srgb,var(--c) 40%,transparent),inset 0 0 0 1px rgba(255,255,255,.35)}
-.cell.rec{z-index:1;background:radial-gradient(120% 140% at 25% 15%,#fff 0,color-mix(in srgb,var(--c) 45%,#fff) 20%,color-mix(in srgb,var(--c) 85%,#fff) 55%,var(--c) 100%);box-shadow:0 0 5px #fff,0 0 12px var(--c),0 0 26px var(--c),0 0 46px color-mix(in srgb,var(--c) 75%,transparent),inset 0 0 9px rgba(255,255,255,.7)}
-.cell.hp::before{content:"";position:absolute;left:0;right:0;top:0;height:5px;border-radius:3px 3px 0 0;background:color-mix(in srgb,var(--pc) 40%,#fff);box-shadow:0 1px 4px rgba(0,0,0,.25)}
-.cell.preview{opacity:.65;outline:1px solid rgba(255,255,255,.85)}
-.cell.fillin{animation:cellin .45s cubic-bezier(.2,1.4,.4,1) var(--dl) both}
-@keyframes cellin{0%{transform:scale(.25);opacity:0;filter:brightness(3.2)}55%{transform:scale(1.2);opacity:1;filter:brightness(2.2)}100%{transform:none;filter:none}}
-.cl{position:absolute;display:flex;align-items:center;padding:0 9px;font-size:12px;font-weight:800;white-space:nowrap;overflow:hidden;z-index:2;pointer-events:none;color:var(--tx);--tx:#fff}
+.run{position:absolute;--c:#a855f7;--tx:#fff}
+.run.plan{z-index:0;background:color-mix(in srgb,var(--c) 50%,#fff);opacity:.93}
+.run.rec{z-index:2;background:linear-gradient(180deg,rgba(255,255,255,.4),rgba(255,255,255,0) 55%),var(--c);filter:saturate(1.7) brightness(1.25)}
+.glow{position:absolute;z-index:1;pointer-events:none;box-shadow:0 0 6px 1px var(--c),0 0 18px 3px var(--c),0 0 40px 8px var(--c),0 0 64px 12px color-mix(in srgb,var(--c) 55%,transparent);filter:saturate(1.6) brightness(1.2)}
+.pstrip{position:absolute;z-index:3;height:4px;pointer-events:none;background:color-mix(in srgb,var(--pc) 35%,#fff);box-shadow:0 1px 3px rgba(0,0,0,.3)}
+.run.preview{opacity:.6;outline:1px solid rgba(255,255,255,.9)}
+.run.fillin{animation:runin var(--dur) steps(var(--n),end) var(--dl) both}
+@keyframes runin{from{clip-path:inset(0 100% 0 0)}to{clip-path:inset(0 0 0 0)}}
+.glow.fillin{animation:glowin var(--dur) steps(var(--n),end) var(--dl) both}
+@keyframes glowin{from{opacity:0;transform:scale(.97)}to{opacity:1;transform:none}}
+.cl{position:absolute;display:flex;align-items:center;padding:0 9px;font-size:12px;font-weight:800;white-space:nowrap;overflow:hidden;z-index:4;pointer-events:none;color:var(--tx);--tx:#fff}
 .cl span{overflow:hidden;text-overflow:ellipsis}
 .cl.plan{color:#1b1236}
 .cl.fillin{animation:lbl .3s ease var(--dl) both}
 @keyframes lbl{from{opacity:0}to{opacity:1}}
-.now{z-index:3;position:absolute;width:2px;margin-left:-1px;background:#ff4d8d;box-shadow:0 0 10px 2px rgba(255,77,141,.8);z-index:2;pointer-events:none;border-radius:2px}
+.now{z-index:5;position:absolute;width:2px;margin-left:-1px;background:#ff4d8d;box-shadow:0 0 10px 2px rgba(255,77,141,.8);z-index:2;pointer-events:none;border-radius:2px}
 .now::before{content:"";position:absolute;top:-3px;left:-3px;width:8px;height:8px;border-radius:50%;background:#ff4d8d}
 
 /* todo */
@@ -333,37 +336,44 @@ const nowEl=document.createElement('div');nowEl.className='now';nowEl.style.disp
 function addBlock(b,layerName,planAt,anim,extra){
   const rowH=100/24, sj=subj(b.k);
   const tx=lum(sj.color)>.6?'#1a1033':'#fff';
-  const runs={};
-  for(let i=b.s;i<b.e;i++){
-    const r=Math.floor(i/6),c=i%6;
+  const mk=(cls,r,cs,ce)=>{
     const el=document.createElement('div');
-    el.className='cell '+layerName+(extra?' '+extra:'');
+    el.className=cls;
     el.style.setProperty('--c',sj.color);
-    el.style.left=`calc(${c/6*100}% + .5px)`;
-    el.style.width=`calc(${100/6}% - 1px)`;
-    el.style.top=`calc(${r*rowH}% + .5px)`;
-    el.style.height=`calc(${rowH}% - 1px)`;
-    if(planAt&&planAt[i]){el.classList.add('hp');el.style.setProperty('--pc',subj(planAt[i].k).color)}
-    if(anim){el.classList.add('fillin');el.style.setProperty('--dl',Math.min(1.4,(i-b.s)*0.045)+'s')}
+    el.style.left=`calc(${cs/6*100}% - .5px)`;
+    el.style.width=`calc(${(ce-cs)/6*100}% + 1px)`;
+    el.style.top=`calc(${r*rowH}% - .5px)`;
+    el.style.height=`calc(${rowH}% + 1px)`;
     layer.appendChild(el);
-    (runs[r]=runs[r]||{c0:c,c1:c}).c1=c;
+    return el;
+  };
+  let br=-1,bw=0,bcs=0,bce=0;
+  for(let r=Math.floor(b.s/6);r<=Math.floor((b.e-1)/6);r++){
+    const cs=Math.max(b.s,r*6)-r*6, ce=Math.min(b.e,(r+1)*6)-r*6, n=ce-cs;
+    const off=Math.max(b.s,r*6)-b.s;
+    const anims=el=>{if(anim){el.classList.add('fillin');el.style.setProperty('--dl',Math.min(1.5,off*0.08)+'s');el.style.setProperty('--dur',(n*0.08)+'s');el.style.setProperty('--n',n)}};
+    if(layerName==='rec'){anims(mk('glow',r,cs,ce))}
+    const run=mk('run '+layerName+(extra?' '+extra:''),r,cs,ce);anims(run);
+    if(planAt)for(let c=cs;c<ce;c++){
+      const pb=planAt[r*6+c];
+      if(pb){const st=mk('pstrip',r,c,c+1);st.style.setProperty('--pc',subj(pb.k).color);st.style.height='4px'}
+    }
+    if(n>bw){bw=n;br=r;bcs=cs;bce=ce}
   }
   if(!b.t)return;
-  let br=-1,bw=0;
-  for(const r in runs){const w=runs[r].c1-runs[r].c0+1;if(w>bw){bw=w;br=r}}
-  const run=runs[br],cl=document.createElement('div');
+  const cl=document.createElement('div');
   cl.className='cl '+layerName+(anim?' fillin':'');
   cl.style.setProperty('--tx',tx);
-  cl.style.left=`calc(${run.c0/6*100}% + 1px)`;
-  cl.style.width=`calc(${(run.c1-run.c0+1)/6*100}% - 2px)`;
+  cl.style.left=`calc(${bcs/6*100}% + 1px)`;
+  cl.style.width=`calc(${(bce-bcs)/6*100}% - 2px)`;
   cl.style.top=`calc(${br*rowH}% + .5px)`;
   cl.style.height=`calc(${rowH}% - 1px)`;
-  if(anim)cl.style.setProperty('--dl',Math.min(1.4,(b.e-b.s)*0.045)+'s');
+  if(anim)cl.style.setProperty('--dl',Math.min(1.5,(b.e-b.s)*0.08)+'s');
   const sp=document.createElement('span');sp.textContent=b.t;cl.appendChild(sp);
   layer.appendChild(cl);
 }
 function renderBlocks(){
-  layer.querySelectorAll('.cell,.cl').forEach(e=>e.remove());
+  layer.querySelectorAll('.run,.glow,.pstrip,.cl').forEach(e=>e.remove());
   const d=getDay(false);
   const planAt={};
   d.plans.forEach(b=>{for(let i=b.s;i<b.e;i++)planAt[i]=b});

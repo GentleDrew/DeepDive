@@ -224,14 +224,14 @@ footer{padding:14px 24px 20px;display:flex;justify-content:center}
 </head>
 <body>
 <header class="top">
-  <div class="brand"><span id="logo"></span><div><b>Dp</b><small>Drew Planner</small></div><em class="beta">β 0.8</em></div>
+  <div class="brand"><span id="logo"></span><div><b>Dp</b><small>Drew Planner</small></div><em class="beta">β 0.9</em></div>
   <div class="datenav">
     <button class="ic" id="prev" title="이전 날 (←)">‹</button>
     <div class="datebox" id="datebox" title="클릭해서 날짜 선택"><div id="dateMain"></div><div id="dateSub"></div><input type="date" id="datePick"></div>
     <button class="ic" id="next" title="다음 날 (→)">›</button>
     <button class="chip" id="today">오늘</button>
   </div>
-  <div class="tools"><button class="chip" id="exp" title="데이터를 파일로 저장">백업</button><button class="chip" id="imp" title="백업 파일 불러오기">복원</button><input type="file" id="impFile" accept=".json,application/json" hidden></div>
+  <div class="tools"><button class="chip" id="fs" title="전체화면 (F11)">⛶ 전체화면</button><button class="chip" id="exp" title="데이터를 파일로 저장">백업</button><button class="chip" id="imp" title="백업 파일 불러오기">복원</button><input type="file" id="impFile" accept=".json,application/json" hidden></div>
 </header>
 
 <main>
@@ -598,6 +598,7 @@ document.addEventListener('keydown',e=>{
     return;
   }
   if(modalOpen()){if(e.key==='Escape')closeModal();return}
+  if(e.key==='Escape'&&hostFs&&pop.classList.contains('hidden')){toggleFs();return}
   if(/^[1-9]$/.test(e.key)&&db.subjects[+e.key-1]){db.active=db.subjects[+e.key-1].id;save();renderSubbar();return}
   if(e.key==='ArrowLeft')shiftDay(-1);
   else if(e.key==='ArrowRight')shiftDay(1);
@@ -768,6 +769,20 @@ $('#next').onclick=()=>shiftDay(1);
 $('#today').onclick=()=>{today=keyOf(new Date());setDay(today,0)};
 $('#datebox').onclick=()=>{const p=$('#datePick');try{p.showPicker()}catch(e){p.focus()}};
 $('#datePick').onchange=e=>{if(e.target.value)setDay(e.target.value,0)};
+
+/* fullscreen */
+let hostFs=false;
+const wvh=window.chrome&&window.chrome.webview;
+function setFsLabel(){$('#fs').textContent=(hostFs||document.fullscreenElement)?'⛶ 창모드':'⛶ 전체화면'}
+if(wvh)wvh.addEventListener('message',e=>{hostFs=(e.data==='fs:on');setFsLabel()});
+document.addEventListener('fullscreenchange',setFsLabel);
+function toggleFs(){
+  if(wvh)wvh.postMessage('toggle-fs');
+  else if(document.fullscreenElement)document.exitFullscreen();
+  else if(document.documentElement.requestFullscreen)document.documentElement.requestFullscreen().catch(()=>{});
+}
+$('#fs').onclick=toggleFs;
+document.addEventListener('keydown',e=>{if(e.key==='F11'){e.preventDefault();toggleFs()}});
 
 /* backup */
 $('#exp').onclick=()=>{

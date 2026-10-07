@@ -34,6 +34,9 @@ class DpForm : Form
     WebView2 wv;
     string dir;
     string html;
+    bool full;
+    Rectangle prevBounds;
+    FormWindowState prevState;
 
     public DpForm()
     {
@@ -72,11 +75,47 @@ class DpForm : Form
             c.Settings.AreDefaultContextMenusEnabled = false;
             c.Settings.IsStatusBarEnabled = false;
             c.SetVirtualHostNameToFolderMapping("dp.local", dir, CoreWebView2HostResourceAccessKind.Allow);
+            c.WebMessageReceived += (s2, e2) =>
+            {
+                if (e2.TryGetWebMessageAsString() == "toggle-fs") SetFull(!full);
+            };
+            c.NavigationCompleted += (s2, e2) =>
+            {
+                c.PostWebMessageAsString(full ? "fs:on" : "fs:off");
+            };
+            foreach (string a in Environment.GetCommandLineArgs())
+            {
+                if (a == "--fullscreen") SetFull(true);
+            }
             c.Navigate("https://dp.local/Dp.html");
         }
         catch (Exception)
         {
             Fallback();
+        }
+    }
+
+    void SetFull(bool on)
+    {
+        if (on == full) return;
+        full = on;
+        if (on)
+        {
+            prevState = WindowState;
+            if (WindowState == FormWindowState.Maximized) WindowState = FormWindowState.Normal;
+            prevBounds = Bounds;
+            FormBorderStyle = FormBorderStyle.None;
+            Bounds = Screen.FromControl(this).Bounds;
+        }
+        else
+        {
+            FormBorderStyle = FormBorderStyle.Sizable;
+            Bounds = prevBounds;
+            WindowState = prevState;
+        }
+        if (wv != null && wv.CoreWebView2 != null)
+        {
+            wv.CoreWebView2.PostWebMessageAsString(on ? "fs:on" : "fs:off");
         }
     }
 

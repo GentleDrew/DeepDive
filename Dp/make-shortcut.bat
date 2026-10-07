@@ -1,5 +1,6 @@
 @echo off
-rem Creates a "Dp" shortcut with the Dp icon on the Desktop
-powershell -NoProfile -Command "$d='%~dp0'; $s=(New-Object -ComObject WScript.Shell).CreateShortcut([Environment]::GetFolderPath('Desktop')+'\Dp.lnk'); $s.TargetPath=$d+'Dp.bat'; $s.WorkingDirectory=$d; $s.IconLocation=$d+'Dp.ico'; $s.WindowStyle=7; $s.Save()"
-echo Done: Dp shortcut created on Desktop.
+set "DPDIR=%~dp0"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "& { $d=$env:DPDIR; $html=Join-Path $d 'Dp.html'; $uri=([System.Uri]$html).AbsoluteUri; $pf=$env:ProgramFiles; $pf86=${env:ProgramFiles(x86)}; $b=@(($pf+'\Microsoft\Edge\Application\msedge.exe'),($pf86+'\Microsoft\Edge\Application\msedge.exe'),($pf+'\Google\Chrome\Application\chrome.exe'),($pf86+'\Google\Chrome\Application\chrome.exe'),($env:LOCALAPPDATA+'\Google\Chrome\Application\chrome.exe')) | Where-Object { Test-Path $_ } | Select-Object -First 1; $lnk=Join-Path ([Environment]::GetFolderPath('Desktop')) 'Dp.lnk'; $s=(New-Object -ComObject WScript.Shell).CreateShortcut($lnk); if($b){ $s.TargetPath=$b; $s.Arguments='--app='+$uri } else { $s.TargetPath=$html }; $s.WorkingDirectory=$d; $s.IconLocation=(Join-Path $d 'Dp.ico'); $s.Save(); Write-Host ('Created: '+$lnk) }"
+echo.
+echo Done. Check the Dp icon on your Desktop.
 pause

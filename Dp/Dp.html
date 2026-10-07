@@ -224,7 +224,7 @@ footer{padding:14px 24px 20px;display:flex;justify-content:center}
 </head>
 <body>
 <header class="top">
-  <div class="brand"><span id="logo"></span><div><b>Dp</b><small>Drew Planner</small></div><em class="beta">β 0.5</em></div>
+  <div class="brand"><span id="logo"></span><div><b>Dp</b><small>Drew Planner</small></div><em class="beta">β 0.6</em></div>
   <div class="datenav">
     <button class="ic" id="prev" title="이전 날 (←)">‹</button>
     <div class="datebox" id="datebox" title="클릭해서 날짜 선택"><div id="dateMain"></div><div id="dateSub"></div><input type="date" id="datePick"></div>
@@ -300,9 +300,10 @@ $('#fav').href='data:image/svg+xml,'+encodeURIComponent(ICON);
 /* data */
 let db={days:{}};
 try{const r=JSON.parse(localStorage.getItem(STORE));if(r&&r.days)db=r}catch(e){}
-const RAINBOW=['#ff2e4d','#ff5a1f','#ff8a00','#fff200','#b6ff00','#39ff14','#00ffc8','#00d5ff','#2f6bff','#b44cff','#ff4fd8','#ff7ab8'];
-const PICK6=[0,2,3,5,7,9];
-const OLD_SETS=[['#ff4d5e','#ff9f1c','#ffd93d','#3ddc84','#3b9dff','#a855f7'],['#ff2e63','#ff8a00','#fff200','#39ff14','#00b4ff','#b44cff']];
+const RAINBOW=['#ff2a2a','#ff8c00','#ffe600','#b8ff00','#00d95f','#00bfa5','#00e5ff','#2a5bff','#b44cff','#ff2bd6','#ff9ec4','#f2f2ff'];
+const CNAME=['빨강','주황','노랑','연두','초록','청록','하늘','파랑','보라','자홍','분홍','흰색'];
+const PICK6=[0,1,2,4,7,8];
+const OLD_SETS=[['#ff4d5e','#ff9f1c','#ffd93d','#3ddc84','#3b9dff','#a855f7'],['#ff2e63','#ff8a00','#fff200','#39ff14','#00b4ff','#b44cff'],['#ff2e4d','#ff8a00','#fff200','#39ff14','#00d5ff','#b44cff']];
 const DEF_SUBJ=['국어','수학','영어','과학','사회','기타'];
 const NEUTRAL={id:'',name:'',color:'#a855f7'};
 function normalize(){
@@ -632,9 +633,9 @@ function renderModal(){
     inp.oninput=()=>{x.name=inp.value;save()};
     row.appendChild(inp);
     const sws=document.createElement('div');sws.className='sws';
-    RAINBOW.forEach(c=>{
+    RAINBOW.forEach((c,ci)=>{
       const b=document.createElement('button');b.className='sw'+(c.toLowerCase()===x.color.toLowerCase()?' on':'');
-      b.style.setProperty('--c',c);b.title=c;
+      b.style.setProperty('--c',c);b.title=CNAME[ci];
       b.onclick=()=>{x.color=c;save();renderModal()};
       sws.appendChild(b);
     });

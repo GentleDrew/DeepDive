@@ -115,10 +115,10 @@ main{display:grid;grid-template-columns:minmax(0,1fr) minmax(320px,410px);gap:18
 .layer{position:absolute;inset:0;pointer-events:none}
 .run{position:absolute;--c:#a855f7;--tx:#fff}
 .run.plan{z-index:0;background:color-mix(in srgb,var(--c) 50%,#fff);opacity:.93}
-.run.rec{z-index:2;background:linear-gradient(180deg,rgba(255,255,255,.4),rgba(255,255,255,0) 55%),var(--c);filter:saturate(1.7) brightness(1.25)}
+.run.rec{z-index:2;background:var(--c);filter:saturate(1.8) brightness(1.3)}
 .glow{position:absolute;z-index:1;pointer-events:none;box-shadow:0 0 6px 1px var(--c),0 0 18px 3px var(--c),0 0 40px 8px var(--c),0 0 64px 12px color-mix(in srgb,var(--c) 55%,transparent);filter:saturate(1.6) brightness(1.2)}
 .pstrip{position:absolute;z-index:3;height:4px;pointer-events:none;background:color-mix(in srgb,var(--pc) 35%,#fff);box-shadow:0 1px 3px rgba(0,0,0,.3)}
-.run.preview{opacity:.6;outline:1px solid rgba(255,255,255,.9)}
+
 .run.fillin{animation:runin var(--dur) steps(var(--n),end) var(--dl) both}
 @keyframes runin{from{clip-path:inset(0 100% 0 0)}to{clip-path:inset(0 0 0 0)}}
 .glow.fillin{animation:glowin var(--dur) steps(var(--n),end) var(--dl) both}
@@ -297,11 +297,13 @@ $('#fav').href='data:image/svg+xml,'+encodeURIComponent(ICON);
 /* data */
 let db={days:{}};
 try{const r=JSON.parse(localStorage.getItem(STORE));if(r&&r.days)db=r}catch(e){}
-const RAINBOW=['#ff4d5e','#ff9f1c','#ffd93d','#3ddc84','#3b9dff','#a855f7'];
+const RAINBOW=['#ff2e63','#ff8a00','#fff200','#39ff14','#00b4ff','#b44cff'];
+const OLD_RAINBOW=['#ff4d5e','#ff9f1c','#ffd93d','#3ddc84','#3b9dff','#a855f7'];
 const DEF_SUBJ=['국어','수학','영어','과학','사회','기타'];
 const NEUTRAL={id:'',name:'',color:'#a855f7'};
 function normalize(){
   if(!Array.isArray(db.subjects)||!db.subjects.length)db.subjects=DEF_SUBJ.map((n,i)=>({id:'s'+i,name:n,color:RAINBOW[i]}));
+  db.subjects.forEach(x=>{const i=OLD_RAINBOW.indexOf((x.color||'').toLowerCase());if(i>=0)x.color=RAINBOW[i]});
   if(!db.subjects.find(x=>x.id===db.active))db.active=db.subjects[0].id;
 }
 normalize();
